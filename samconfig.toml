@@ -14,7 +14,7 @@ region = "us-east-1"
 capabilities = "CAPABILITY_IAM"
 parameter_overrides = [
   "Environment=sandbox",
-  "NewsletterStackName=newsletter-service",
+  "CampaignRedirectLogGroupName=/newsletter-service/sandbox/campaign-redirect-log-group-name",
 ]
 
 [prod.deploy.parameters]
@@ -25,5 +25,5 @@ region = "us-east-1"
 capabilities = "CAPABILITY_IAM"
 parameter_overrides = [
   "Environment=production",
-  "NewsletterStackName=newsletter-service",
+  "CampaignRedirectLogGroupName=/newsletter-service/production/campaign-redirect-log-group-name",
 ]

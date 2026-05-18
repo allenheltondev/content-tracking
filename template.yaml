@@ -1,16 +1,18 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  Influencer analytics aggregator. Step 1: link minting + click capture.
+  Influencer analytics aggregator. Step 1: campaign click capture.
+  Short links are minted by newsletter-service; this stack only consumes
+  clicks that flow through rdyset.click/c/{code}.
 
 Parameters:
   Environment:
     Type: String
     AllowedValues: [sandbox, stage, production]
-  NewsletterStackName:
-    Type: String
-    Default: newsletter-service
-    Description: Stack name of the newsletter-service stack that owns the CloudFront KVS and short-redirect log group
+  CampaignRedirectLogGroupName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /newsletter-service/sandbox/campaign-redirect-log-group-name
+    Description: SSM path resolving to the CloudWatch Logs group name for newsletter-service's campaign short-redirect CloudFront Function
 
 Metadata:
   esbuild-properties: &esbuild-properties
@@ -70,48 +72,6 @@ Resources:
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
 
-  MintShortLinkFunction:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        <<: *esbuild-properties
-        EntryPoints:
-          - mint-short-link.mjs
-    Properties:
-      CodeUri: functions
-      Handler: mint-short-link.handler
-      Environment:
-        Variables:
-          KVS_ARN:
-            Fn::ImportValue: !Sub "${NewsletterStackName}-CampaignLinkKvsArn"
-          SHORT_LINK_BASE:
-            Fn::ImportValue: !Sub "${NewsletterStackName}-CampaignShortLinkBase"
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - Version: 2012-10-17
-          Statement:
-            - Effect: Allow
-              Action:
-                - dynamodb:PutItem
-                - dynamodb:GetItem
-                - dynamodb:UpdateItem
-                - dynamodb:Query
-              Resource:
-                - !GetAtt ContentTrackingTable.Arn
-                - !Sub "${ContentTrackingTable.Arn}/index/*"
-            - Effect: Allow
-              Action:
-                - cloudfront-keyvaluestore:DescribeKeyValueStore
-                - cloudfront-keyvaluestore:PutKey
-                - cloudfront-keyvaluestore:GetKey
-                - cloudfront-keyvaluestore:DeleteKey
-              Resource:
-                Fn::ImportValue: !Sub "${NewsletterStackName}-CampaignLinkKvsArn"
-      FunctionUrlConfig:
-        AuthType: AWS_IAM
-        InvokeMode: BUFFERED
-
   ProcessCampaignClickFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -139,17 +99,13 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref ProcessCampaignClickFunction
       Principal: !Sub "logs.${AWS::Region}.amazonaws.com"
-      SourceArn: !Sub
-        - "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${LogGroupName}:*"
-        - LogGroupName:
-            Fn::ImportValue: !Sub "${NewsletterStackName}-CampaignRedirectLogGroupName"
+      SourceArn: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${CampaignRedirectLogGroupName}:*"
 
   CampaignClickSubscriptionFilter:
     Type: AWS::Logs::SubscriptionFilter
     DependsOn: ProcessCampaignClickLogPermission
     Properties:
-      LogGroupName:
-        Fn::ImportValue: !Sub "${NewsletterStackName}-CampaignRedirectLogGroupName"
+      LogGroupName: !Ref CampaignRedirectLogGroupName
       FilterPattern: '"campaign#"'
       DestinationArn: !GetAtt ProcessCampaignClickFunction.Arn
 
@@ -157,7 +113,3 @@ Outputs:
   ContentTrackingTableName:
     Description: DynamoDB single-table for content-tracking
     Value: !Ref ContentTrackingTable
-
-  MintShortLinkUrl:
-    Description: Function URL for the short-link mint endpoint (sign with SigV4)
-    Value: !GetAtt MintShortLinkFunctionUrl.FunctionUrl
