@@ -146,7 +146,7 @@ describe("create-campaign-link", () => {
       expect(callOpts.headers["x-api-key"]).toBe("test-mint-api-key-value");
       const sentBody = JSON.parse(callOpts.body);
       expect(sentBody.url).toBe(validLinkBody.url);
-      expect(sentBody.cid).toMatch(/^campaign#camp_abc#link#[0-9A-HJKMNP-TV-Z]{26}$/);
+      expect(sentBody).not.toHaveProperty("cid");
 
       const body = JSON.parse(res.body);
       expect(body.code).toBe("aB3xKp");

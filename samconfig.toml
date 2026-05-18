@@ -18,7 +18,6 @@ region = "us-east-1"
 capabilities = "CAPABILITY_IAM"
 parameter_overrides = [
   "Environment=sandbox",
-  "CampaignRedirectLogGroupName=/newsletter-service/sandbox/campaign-redirect-log-group-name",
   "NewsletterApiBaseUrl=/newsletter-service/sandbox/newsletter-api-base-url",
   "CampaignShortLinkBase=/newsletter-service/sandbox/campaign-short-link-base",
 ]
@@ -31,7 +30,6 @@ region = "us-east-1"
 capabilities = "CAPABILITY_IAM"
 parameter_overrides = [
   "Environment=production",
-  "CampaignRedirectLogGroupName=/newsletter-service/production/campaign-redirect-log-group-name",
   "NewsletterApiBaseUrl=/newsletter-service/production/newsletter-api-base-url",
   "CampaignShortLinkBase=/newsletter-service/production/campaign-short-link-base",
 ]

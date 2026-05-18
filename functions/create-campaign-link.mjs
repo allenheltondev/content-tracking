@@ -35,11 +35,10 @@ export const handler = async (event) => {
   }
 
   const linkId = ulid();
-  const cid = `campaign#${campaignId}#link#${linkId}`;
 
   let mintResponse;
   try {
-    mintResponse = await mintShortLink({ url, cid, src, expiresInDays });
+    mintResponse = await mintShortLink({ url, src, expiresInDays });
   } catch (err) {
     console.error("Mint upstream call failed", { campaignId, linkId, error: err.message });
     if (err.statusCode && err.statusCode >= 400 && err.statusCode < 500) {
@@ -125,8 +124,8 @@ async function getCampaign(campaignId) {
   return result.Item ? unmarshall(result.Item) : null;
 }
 
-async function mintShortLink({ url, cid, src, expiresInDays }) {
-  const reqBody = { url, cid };
+async function mintShortLink({ url, src, expiresInDays }) {
+  const reqBody = { url };
   if (src) reqBody.src = src;
   if (expiresInDays !== undefined) reqBody.expiresInDays = expiresInDays;
 

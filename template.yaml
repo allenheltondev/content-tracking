@@ -1,19 +1,14 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  Influencer analytics aggregator. Step 1+2: campaign click capture
-  and the Campaign/Link orchestration API. Short links are minted by
-  newsletter-service; this stack stores campaign + link metadata and
-  consumes clicks that flow through rdyset.click/c/{code}.
+  Influencer analytics aggregator. Owns Campaign + Link metadata and the
+  orchestration API. Newsletter-service owns the link service (mint,
+  redirect, click capture, analytics) so this stack is a pure consumer.
 
 Parameters:
   Environment:
     Type: String
     AllowedValues: [sandbox, stage, production]
-  CampaignRedirectLogGroupName:
-    Type: AWS::SSM::Parameter::Value<String>
-    Default: /newsletter-service/sandbox/campaign-redirect-log-group-name
-    Description: SSM path resolving to the campaign short-redirect CloudFront Function log group
   NewsletterApiBaseUrl:
     Type: AWS::SSM::Parameter::Value<String>
     Default: /newsletter-service/sandbox/newsletter-api-base-url
@@ -27,8 +22,8 @@ Parameters:
     NoEcho: true
     MinLength: 20
     Description: |
-      API key value for this stack's REST API (used to call POST /campaigns and
-      POST /campaigns/{id}/links). Provide at deploy time via
+      API key value for this stack's REST API (used to call POST /campaigns
+      and POST /campaigns/{id}/links). Provide at deploy time via
       --parameter-overrides or samconfig.local.toml.
   NewsletterMintApiKey:
     Type: String
@@ -76,24 +71,11 @@ Resources:
           AttributeType: S
         - AttributeName: sk
           AttributeType: S
-        - AttributeName: gsi1pk
-          AttributeType: S
-        - AttributeName: gsi1sk
-          AttributeType: S
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
         - AttributeName: sk
           KeyType: RANGE
-      GlobalSecondaryIndexes:
-        - IndexName: gsi1
-          KeySchema:
-            - AttributeName: gsi1pk
-              KeyType: HASH
-            - AttributeName: gsi1sk
-              KeyType: RANGE
-          Projection:
-            ProjectionType: ALL
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
 
@@ -208,43 +190,6 @@ Resources:
             Method: POST
             Auth:
               ApiKeyRequired: true
-
-  ProcessCampaignClickFunction:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        <<: *esbuild-properties
-        EntryPoints:
-          - process-campaign-click.mjs
-    Properties:
-      CodeUri: functions
-      Handler: process-campaign-click.handler
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - Version: 2012-10-17
-          Statement:
-            - Effect: Allow
-              Action:
-                - dynamodb:PutItem
-                - dynamodb:UpdateItem
-              Resource: !GetAtt ContentTrackingTable.Arn
-
-  ProcessCampaignClickLogPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref ProcessCampaignClickFunction
-      Principal: !Sub "logs.${AWS::Region}.amazonaws.com"
-      SourceArn: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${CampaignRedirectLogGroupName}:*"
-
-  CampaignClickSubscriptionFilter:
-    Type: AWS::Logs::SubscriptionFilter
-    DependsOn: ProcessCampaignClickLogPermission
-    Properties:
-      LogGroupName: !Ref CampaignRedirectLogGroupName
-      FilterPattern: '"campaign#"'
-      DestinationArn: !GetAtt ProcessCampaignClickFunction.Arn
 
 Outputs:
   ContentTrackingTableName:
