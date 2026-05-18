@@ -53,6 +53,105 @@ paths:
         httpMethod: POST
         type: aws_proxy
 
+  /campaigns/{campaignId}:
+    parameters:
+      - name: campaignId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 64
+    get:
+      summary: Get a campaign and its links
+      tags:
+        - Campaigns
+      security:
+        - ApiKeyHeader: []
+      responses:
+        200:
+          description: Campaign with its registered links
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaign:
+                    $ref: "#/components/schemas/Campaign"
+                  links:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Link"
+        404:
+          description: Campaign not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetCampaignFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
+  /campaigns/{campaignId}/analytics:
+    parameters:
+      - name: campaignId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 64
+    get:
+      summary: Roll up click analytics across all links in a campaign
+      description: |
+        Fans out to newsletter-service's per-code analytics endpoint for
+        each Link in the campaign and aggregates client-side. Returns
+        total clicks plus breakdowns by role and platform, with the
+        per-link details listed.
+      tags:
+        - Campaigns
+      security:
+        - ApiKeyHeader: []
+      responses:
+        200:
+          description: Campaign-level click rollup
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignAnalytics"
+        404:
+          description: Campaign not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        502:
+          description: All upstream analytics calls failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetCampaignAnalyticsFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
   /campaigns/{campaignId}/links:
     parameters:
       - name: campaignId
@@ -113,6 +212,62 @@ paths:
       x-amazon-apigateway-integration:
         uri:
           Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreateCampaignLinkFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
+  /campaigns/{campaignId}/links/{linkId}/analytics:
+    parameters:
+      - name: campaignId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: linkId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Click analytics for a specific link
+      description: |
+        Looks up the Link locally to find its short code, then proxies
+        to newsletter-service's GET /links/{code}/analytics. Returns
+        per-day and per-source breakdowns for that specific tracked
+        link.
+      tags:
+        - Links
+      security:
+        - ApiKeyHeader: []
+      responses:
+        200:
+          description: Analytics for the link
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkAnalytics"
+        404:
+          description: Link not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        502:
+          description: Upstream analytics service failure
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetCampaignLinkAnalyticsFunction.Arn}/invocations
         httpMethod: POST
         type: aws_proxy
 
@@ -224,6 +379,109 @@ components:
           description: |
             Override how long the short code stays active. Defaults to
             newsletter-service's default (730 = 2 years).
+
+    LinkAnalytics:
+      type: object
+      required:
+        - campaign_id
+        - link_id
+        - code
+        - analytics
+      properties:
+        campaign_id:
+          type: string
+        link_id:
+          type: string
+        code:
+          type: string
+        role:
+          type: string
+        platform:
+          type: string
+        url:
+          type: string
+        analytics:
+          type: object
+          properties:
+            code:
+              type: string
+            total_clicks:
+              type: integer
+            by_day:
+              type: object
+              additionalProperties:
+                type: integer
+            by_src:
+              type: object
+              additionalProperties:
+                type: integer
+            first_click_at:
+              type: string
+              format: date-time
+              nullable: true
+            last_click_at:
+              type: string
+              format: date-time
+              nullable: true
+
+    CampaignAnalytics:
+      type: object
+      required:
+        - campaign_id
+        - link_count
+        - total_clicks
+        - by_role
+        - by_platform
+        - links
+      properties:
+        campaign_id:
+          type: string
+        link_count:
+          type: integer
+          minimum: 0
+        total_clicks:
+          type: integer
+          minimum: 0
+        by_role:
+          type: object
+          additionalProperties:
+            type: integer
+        by_platform:
+          type: object
+          additionalProperties:
+            type: integer
+        upstream_failures:
+          type: integer
+          description: How many per-link analytics calls failed (clicks for those links are NOT included in total_clicks)
+        links:
+          type: array
+          items:
+            type: object
+            properties:
+              link_id:
+                type: string
+              code:
+                type: string
+              role:
+                type: string
+              platform:
+                type: string
+              url:
+                type: string
+              total_clicks:
+                type: integer
+              first_click_at:
+                type: string
+                format: date-time
+                nullable: true
+              last_click_at:
+                type: string
+                format: date-time
+                nullable: true
+              error:
+                type: string
+                nullable: true
+                description: Non-null when the per-link analytics fetch failed
 
     Link:
       type: object

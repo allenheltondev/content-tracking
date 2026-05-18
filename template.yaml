@@ -156,6 +156,102 @@ Resources:
             Auth:
               ApiKeyRequired: true
 
+  GetCampaignFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - get-campaign.mjs
+    Properties:
+      CodeUri: functions
+      Handler: get-campaign.handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Query
+              Resource: !GetAtt ContentTrackingTable.Arn
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /campaigns/{campaignId}
+            Method: GET
+            Auth:
+              ApiKeyRequired: true
+
+  GetCampaignLinkAnalyticsFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - get-campaign-link-analytics.mjs
+    Properties:
+      CodeUri: functions
+      Handler: get-campaign-link-analytics.handler
+      Environment:
+        Variables:
+          NEWSLETTER_API_BASE_URL: !Ref NewsletterApiBaseUrl
+          NEWSLETTER_MINT_API_KEY: !Ref NewsletterMintApiKey
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+              Resource: !GetAtt ContentTrackingTable.Arn
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /campaigns/{campaignId}/links/{linkId}/analytics
+            Method: GET
+            Auth:
+              ApiKeyRequired: true
+
+  GetCampaignAnalyticsFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - get-campaign-analytics.mjs
+    Properties:
+      CodeUri: functions
+      Handler: get-campaign-analytics.handler
+      Timeout: 30
+      Environment:
+        Variables:
+          NEWSLETTER_API_BASE_URL: !Ref NewsletterApiBaseUrl
+          NEWSLETTER_MINT_API_KEY: !Ref NewsletterMintApiKey
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Query
+              Resource: !GetAtt ContentTrackingTable.Arn
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /campaigns/{campaignId}/analytics
+            Method: GET
+            Auth:
+              ApiKeyRequired: true
+
   CreateCampaignLinkFunction:
     Type: AWS::Serverless::Function
     Metadata:
