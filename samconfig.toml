@@ -1,0 +1,29 @@
+version = 0.1
+
+[default.build.parameters]
+parallel = true
+cached = false
+beta_features = true
+
+[default.deploy.parameters]
+stack_name = "content-tracking"
+profile = "sandbox"
+resolve_s3 = true
+s3_prefix = "content-tracking"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+  "Environment=sandbox",
+  "NewsletterStackName=newsletter-service",
+]
+
+[prod.deploy.parameters]
+stack_name = "content-tracking"
+resolve_s3 = true
+s3_prefix = "content-tracking"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+  "Environment=production",
+  "NewsletterStackName=newsletter-service",
+]

@@ -1,0 +1,163 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Influencer analytics aggregator. Step 1: link minting + click capture.
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [sandbox, stage, production]
+  NewsletterStackName:
+    Type: String
+    Default: newsletter-service
+    Description: Stack name of the newsletter-service stack that owns the CloudFront KVS and short-redirect log group
+
+Metadata:
+  esbuild-properties: &esbuild-properties
+    Format: esm
+    Minify: true
+    OutExtension:
+      - .js=.mjs
+    Target: es2020
+    Sourcemap: false
+    EntryPoints:
+      - index.mjs
+    Banner:
+      - js=import { createRequire } from 'module'; const require = createRequire(import.meta.url);
+    External: []
+
+Globals:
+  Function:
+    Architectures:
+      - arm64
+    Tracing: Active
+    Timeout: 15
+    MemorySize: 512
+    Runtime: nodejs24.x
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref ContentTrackingTable
+        LOG_LEVEL: info
+
+Resources:
+  ContentTrackingTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: gsi1pk
+          AttributeType: S
+        - AttributeName: gsi1sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: gsi1
+          KeySchema:
+            - AttributeName: gsi1pk
+              KeyType: HASH
+            - AttributeName: gsi1sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  MintShortLinkFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - mint-short-link.mjs
+    Properties:
+      CodeUri: functions
+      Handler: mint-short-link.handler
+      Environment:
+        Variables:
+          KVS_ARN:
+            Fn::ImportValue: !Sub "${NewsletterStackName}-CampaignLinkKvsArn"
+          SHORT_LINK_BASE:
+            Fn::ImportValue: !Sub "${NewsletterStackName}-CampaignShortLinkBase"
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem
+                - dynamodb:Query
+              Resource:
+                - !GetAtt ContentTrackingTable.Arn
+                - !Sub "${ContentTrackingTable.Arn}/index/*"
+            - Effect: Allow
+              Action:
+                - cloudfront-keyvaluestore:DescribeKeyValueStore
+                - cloudfront-keyvaluestore:PutKey
+                - cloudfront-keyvaluestore:GetKey
+                - cloudfront-keyvaluestore:DeleteKey
+              Resource:
+                Fn::ImportValue: !Sub "${NewsletterStackName}-CampaignLinkKvsArn"
+      FunctionUrlConfig:
+        AuthType: AWS_IAM
+        InvokeMode: BUFFERED
+
+  ProcessCampaignClickFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - process-campaign-click.mjs
+    Properties:
+      CodeUri: functions
+      Handler: process-campaign-click.handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource: !GetAtt ContentTrackingTable.Arn
+
+  ProcessCampaignClickLogPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ProcessCampaignClickFunction
+      Principal: !Sub "logs.${AWS::Region}.amazonaws.com"
+      SourceArn: !Sub
+        - "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${LogGroupName}:*"
+        - LogGroupName:
+            Fn::ImportValue: !Sub "${NewsletterStackName}-CampaignRedirectLogGroupName"
+
+  CampaignClickSubscriptionFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    DependsOn: ProcessCampaignClickLogPermission
+    Properties:
+      LogGroupName:
+        Fn::ImportValue: !Sub "${NewsletterStackName}-CampaignRedirectLogGroupName"
+      FilterPattern: '"campaign#"'
+      DestinationArn: !GetAtt ProcessCampaignClickFunction.Arn
+
+Outputs:
+  ContentTrackingTableName:
+    Description: DynamoDB single-table for content-tracking
+    Value: !Ref ContentTrackingTable
+
+  MintShortLinkUrl:
+    Description: Function URL for the short-link mint endpoint (sign with SigV4)
+    Value: !GetAtt MintShortLinkFunctionUrl.FunctionUrl
