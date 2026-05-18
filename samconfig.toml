@@ -15,6 +15,9 @@ capabilities = "CAPABILITY_IAM"
 parameter_overrides = [
   "Environment=sandbox",
   "CampaignRedirectLogGroupName=/newsletter-service/sandbox/campaign-redirect-log-group-name",
+  "NewsletterApiBaseUrl=/newsletter-service/sandbox/newsletter-api-base-url",
+  "NewsletterMintApiKeySecretArn=/newsletter-service/sandbox/campaign-link-api-key-secret-arn",
+  "CampaignShortLinkBase=/newsletter-service/sandbox/campaign-short-link-base",
 ]
 
 [prod.deploy.parameters]
@@ -26,4 +29,7 @@ capabilities = "CAPABILITY_IAM"
 parameter_overrides = [
   "Environment=production",
   "CampaignRedirectLogGroupName=/newsletter-service/production/campaign-redirect-log-group-name",
+  "NewsletterApiBaseUrl=/newsletter-service/production/newsletter-api-base-url",
+  "NewsletterMintApiKeySecretArn=/newsletter-service/production/campaign-link-api-key-secret-arn",
+  "CampaignShortLinkBase=/newsletter-service/production/campaign-short-link-base",
 ]

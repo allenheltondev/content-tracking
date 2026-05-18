@@ -1,0 +1,292 @@
+openapi: 3.0.0
+info:
+  title: Content Tracking API
+  description: |
+    Campaign and Link management for the influencer analytics aggregator.
+    Short-code minting is delegated to newsletter-service; this API owns
+    the Campaign/Link metadata and orchestrates the mint call.
+  version: 1.0.0
+
+x-amazon-apigateway-request-validators:
+  Validate All:
+    validateRequestParameters: true
+    validateRequestBody: true
+x-amazon-apigateway-gateway-responses:
+  BAD_REQUEST_BODY:
+    statusCode: 400
+    responseTemplates:
+      application/json: '{ "message": "$context.error.validationErrorString" }'
+
+tags:
+  - name: Campaigns
+  - name: Links
+
+paths:
+  /campaigns:
+    post:
+      summary: Create a campaign
+      tags:
+        - Campaigns
+      security:
+        - ApiKeyHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCampaignRequest"
+      responses:
+        201:
+          description: Campaign created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+        400:
+          $ref: "#/components/responses/BadRequest"
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-request-validator: Validate All
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreateCampaignFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
+  /campaigns/{campaignId}/links:
+    parameters:
+      - name: campaignId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 64
+        description: The campaign's identifier
+    post:
+      summary: Register a link in a campaign
+      description: |
+        Mints a short code via newsletter-service and saves the Link
+        metadata under this campaign. The destination URL becomes
+        reachable at the returned `short_url` and clicks accrue under
+        the campaign for sponsor reporting.
+      tags:
+        - Links
+      security:
+        - ApiKeyHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLinkRequest"
+      responses:
+        201:
+          description: Link registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Link"
+        400:
+          $ref: "#/components/responses/BadRequest"
+        404:
+          description: Campaign not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        502:
+          description: Upstream mint service returned an error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-request-validator: Validate All
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreateCampaignLinkFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
+components:
+  securitySchemes:
+    ApiKeyHeader:
+      type: apiKey
+      in: header
+      name: x-api-key
+
+  schemas:
+    CreateCampaignRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Human-readable campaign name
+        sponsor:
+          type: string
+          maxLength: 200
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [draft, active, completed]
+          default: active
+        targetMetrics:
+          type: object
+          description: Free-form sponsor targets, stored as-is
+          additionalProperties: true
+
+    Campaign:
+      type: object
+      required:
+        - campaign_id
+        - name
+        - status
+        - created_at
+      properties:
+        campaign_id:
+          type: string
+        name:
+          type: string
+        sponsor:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+          nullable: true
+        endDate:
+          type: string
+          format: date
+          nullable: true
+        status:
+          type: string
+          enum: [draft, active, completed]
+        targetMetrics:
+          type: object
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    CreateLinkRequest:
+      type: object
+      required:
+        - role
+        - platform
+        - url
+      properties:
+        role:
+          type: string
+          enum: [main, cross_post, social_promo]
+        platform:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: |
+            Free-form platform label (readysetcloud, medium, devto,
+            linkedin, x, bluesky, hashnode, etc.). Not enforced to a
+            fixed set so new surfaces can be added without schema
+            changes.
+        url:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          pattern: '^https?://'
+          description: Destination URL the short link redirects to
+        src:
+          type: string
+          maxLength: 64
+          description: Default traffic-source label baked into the short link
+        notes:
+          type: string
+          maxLength: 1000
+        expiresInDays:
+          type: integer
+          minimum: 1
+          maximum: 1825
+          description: |
+            Override how long the short code stays active. Defaults to
+            newsletter-service's default (730 = 2 years).
+
+    Link:
+      type: object
+      required:
+        - campaign_id
+        - link_id
+        - code
+        - short_url
+        - role
+        - platform
+        - url
+        - created_at
+      properties:
+        campaign_id:
+          type: string
+        link_id:
+          type: string
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+        short_url:
+          type: string
+        role:
+          type: string
+          enum: [main, cross_post, social_promo]
+        platform:
+          type: string
+        url:
+          type: string
+        src:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+  responses:
+    BadRequest:
+      description: Unable to process request. Likely due to improperly formatted request.
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - message
+            properties:
+              message:
+                type: string
+    UnknownError:
+      description: An unexpected error occurred on the server.
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - message
+            properties:
+              message:
+                type: string
