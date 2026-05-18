@@ -18,14 +18,26 @@ Parameters:
     Type: AWS::SSM::Parameter::Value<String>
     Default: /newsletter-service/sandbox/newsletter-api-base-url
     Description: SSM path resolving to newsletter-service's NewsletterApi base URL
-  NewsletterMintApiKeySecretArn:
-    Type: AWS::SSM::Parameter::Value<String>
-    Default: /newsletter-service/sandbox/campaign-link-api-key-secret-arn
-    Description: SSM path resolving to the Secrets Manager ARN holding newsletter-service's mint API key
   CampaignShortLinkBase:
     Type: AWS::SSM::Parameter::Value<String>
     Default: /newsletter-service/sandbox/campaign-short-link-base
     Description: SSM path resolving to the campaign short link base URL (e.g. https://rdyset.click/c)
+  ApiKeyValue:
+    Type: String
+    NoEcho: true
+    MinLength: 20
+    Description: |
+      API key value for this stack's REST API (used to call POST /campaigns and
+      POST /campaigns/{id}/links). Provide at deploy time via
+      --parameter-overrides or samconfig.local.toml.
+  NewsletterMintApiKey:
+    Type: String
+    NoEcho: true
+    MinLength: 20
+    Description: |
+      Newsletter-service's campaign-link API key value. Must match the value
+      that stack was deployed with. Used to call POST /links when registering
+      a Campaign Link.
 
 Metadata:
   esbuild-properties: &esbuild-properties
@@ -101,25 +113,14 @@ Resources:
           Parameters:
             Location: ./publicapi.yaml
 
-  ContentTrackingApiKeySecret:
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      Name: !Sub "/content-tracking/${Environment}/api-key"
-      Description: API key value for the content-tracking REST API
-      GenerateSecretString:
-        PasswordLength: 40
-        ExcludePunctuation: true
-
   ContentTrackingApiKey:
     Type: AWS::ApiGateway::ApiKey
-    DependsOn:
-      - ContentTrackingApiv1Stage
-      - ContentTrackingApiKeySecret
+    DependsOn: ContentTrackingApiv1Stage
     Properties:
       Name: !Sub "${AWS::StackName}-api"
       Description: API key for the content-tracking REST API
       Enabled: true
-      Value: !Sub "{{resolve:secretsmanager:/content-tracking/${Environment}/api-key:SecretString}}"
+      Value: !Ref ApiKeyValue
       StageKeys:
         - RestApiId: !Ref ContentTrackingApi
           StageName: v1
@@ -187,7 +188,7 @@ Resources:
       Environment:
         Variables:
           NEWSLETTER_API_BASE_URL: !Ref NewsletterApiBaseUrl
-          NEWSLETTER_API_KEY_SECRET_ARN: !Ref NewsletterMintApiKeySecretArn
+          NEWSLETTER_MINT_API_KEY: !Ref NewsletterMintApiKey
           SHORT_LINK_BASE: !Ref CampaignShortLinkBase
       Policies:
         - AWSLambdaBasicExecutionRole
@@ -198,10 +199,6 @@ Resources:
                 - dynamodb:GetItem
                 - dynamodb:PutItem
               Resource: !GetAtt ContentTrackingTable.Arn
-            - Effect: Allow
-              Action:
-                - secretsmanager:GetSecretValue
-              Resource: !Ref NewsletterMintApiKeySecretArn
       Events:
         Create:
           Type: Api
@@ -257,7 +254,3 @@ Outputs:
   ContentTrackingApiBaseUrl:
     Description: Base URL for the content-tracking REST API
     Value: !Sub "https://${ContentTrackingApi}.execute-api.${AWS::Region}.amazonaws.com/v1"
-
-  ContentTrackingApiKeySecretArn:
-    Description: Secrets Manager ARN holding the content-tracking API key value
-    Value: !Ref ContentTrackingApiKeySecret

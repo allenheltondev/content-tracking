@@ -2,15 +2,13 @@ import { jest } from "@jest/globals";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 
 const { DynamoDBClient, GetItemCommand, PutItemCommand } = await import("@aws-sdk/client-dynamodb");
-const { SecretsManagerClient, GetSecretValueCommand } = await import("@aws-sdk/client-secrets-manager");
 
 process.env.TABLE_NAME = "test-content-tracking";
 process.env.NEWSLETTER_API_BASE_URL = "https://example.execute-api.us-east-1.amazonaws.com/public";
-process.env.NEWSLETTER_API_KEY_SECRET_ARN = "arn:aws:secretsmanager:us-east-1:1234:secret:newsletter-key";
+process.env.NEWSLETTER_MINT_API_KEY = "test-mint-api-key-value";
 process.env.SHORT_LINK_BASE = "https://rdyset.click/c";
 
-const mod = await import("../create-campaign-link.mjs");
-const { handler, _resetApiKeyCache } = mod;
+const { handler } = await import("../create-campaign-link.mjs");
 
 const existingCampaign = marshall({
   pk: "CAMPAIGN#camp_abc",
@@ -35,15 +33,11 @@ const validEvent = (body = validLinkBody, campaignId = "camp_abc") => ({
 
 describe("create-campaign-link", () => {
   let mockDdbSend;
-  let mockSecretsSend;
   let fetchSpy;
 
   beforeEach(() => {
     mockDdbSend = jest.fn();
-    mockSecretsSend = jest.fn().mockResolvedValue({ SecretString: "newsletter-api-key-value" });
     DynamoDBClient.prototype.send = mockDdbSend;
-    SecretsManagerClient.prototype.send = mockSecretsSend;
-    _resetApiKeyCache();
 
     fetchSpy = jest.spyOn(globalThis, "fetch").mockImplementation(async () => ({
       ok: true,
@@ -149,7 +143,7 @@ describe("create-campaign-link", () => {
       const [callUrl, callOpts] = fetchSpy.mock.calls[0];
       expect(callUrl).toBe(`${process.env.NEWSLETTER_API_BASE_URL}/links`);
       expect(callOpts.method).toBe("POST");
-      expect(callOpts.headers["x-api-key"]).toBe("newsletter-api-key-value");
+      expect(callOpts.headers["x-api-key"]).toBe("test-mint-api-key-value");
       const sentBody = JSON.parse(callOpts.body);
       expect(sentBody.url).toBe(validLinkBody.url);
       expect(sentBody.cid).toMatch(/^campaign#camp_abc#link#[0-9A-HJKMNP-TV-Z]{26}$/);
@@ -195,12 +189,6 @@ describe("create-campaign-link", () => {
       const sentBody = JSON.parse(fetchSpy.mock.calls[0][1].body);
       expect(sentBody).not.toHaveProperty("src");
       expect(sentBody).not.toHaveProperty("expiresInDays");
-    });
-
-    test("caches the API key across invocations", async () => {
-      await handler(validEvent());
-      await handler(validEvent());
-      expect(mockSecretsSend).toHaveBeenCalledTimes(1);
     });
   });
 

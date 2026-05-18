@@ -1,15 +1,11 @@
 import { DynamoDBClient, GetItemCommand, PutItemCommand } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
-import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
 import { ulid } from "ulid";
 import { respond } from "./utils/response.mjs";
 
 const ddb = new DynamoDBClient();
-const secrets = new SecretsManagerClient();
 
 const VALID_ROLES = new Set(["main", "cross_post", "social_promo"]);
-
-let cachedApiKey;
 
 export const handler = async (event) => {
   const campaignId = event.pathParameters?.campaignId;
@@ -130,7 +126,6 @@ async function getCampaign(campaignId) {
 }
 
 async function mintShortLink({ url, cid, src, expiresInDays }) {
-  const apiKey = await getMintApiKey();
   const reqBody = { url, cid };
   if (src) reqBody.src = src;
   if (expiresInDays !== undefined) reqBody.expiresInDays = expiresInDays;
@@ -139,7 +134,7 @@ async function mintShortLink({ url, cid, src, expiresInDays }) {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-api-key": apiKey,
+      "x-api-key": process.env.NEWSLETTER_MINT_API_KEY,
     },
     body: JSON.stringify(reqBody),
   });
@@ -154,15 +149,3 @@ async function mintShortLink({ url, cid, src, expiresInDays }) {
 
   return JSON.parse(text);
 }
-
-async function getMintApiKey() {
-  if (cachedApiKey) return cachedApiKey;
-  const result = await secrets.send(new GetSecretValueCommand({
-    SecretId: process.env.NEWSLETTER_API_KEY_SECRET_ARN,
-  }));
-  cachedApiKey = result.SecretString;
-  return cachedApiKey;
-}
-
-// Test seam: clear the in-memory cache between tests
-export const _resetApiKeyCache = () => { cachedApiKey = undefined; };
