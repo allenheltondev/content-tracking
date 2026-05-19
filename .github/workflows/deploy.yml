@@ -16,7 +16,7 @@ permissions:
 env:
   AWS_REGION: us-east-1
   STACK_NAME: content-tracking
-  ENVIRONMENT: sandbox
+  ENVIRONMENT: staging
 
 jobs:
   deploy:

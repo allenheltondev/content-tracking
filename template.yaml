@@ -8,14 +8,14 @@ Description: >
 Parameters:
   Environment:
     Type: String
-    AllowedValues: [sandbox, stage, production]
+    AllowedValues: [staging, production]
   NewsletterApiBaseUrl:
     Type: AWS::SSM::Parameter::Value<String>
-    Default: /newsletter-service/sandbox/newsletter-api-base-url
+    Default: /newsletter-service/staging/newsletter-api-base-url
     Description: SSM path resolving to newsletter-service's NewsletterApi base URL
   CampaignShortLinkBase:
     Type: AWS::SSM::Parameter::Value<String>
-    Default: /newsletter-service/sandbox/campaign-short-link-base
+    Default: /newsletter-service/staging/campaign-short-link-base
     Description: SSM path resolving to the campaign short link base URL (e.g. https://rdyset.click/c)
   CognitoUserPoolArn:
     Type: AWS::SSM::Parameter::Value<String>
