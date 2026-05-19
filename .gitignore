@@ -1,0 +1,9 @@
+node_modules/
+.aws-sam/
+.eslintcache
+coverage/
+.env
+.env.local
+samconfig.local.toml
+*.log
+.claude/

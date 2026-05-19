@@ -1,0 +1,297 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Influencer analytics aggregator. Owns Campaign + Link metadata and the
+  orchestration API. Newsletter-service owns the link service (mint,
+  redirect, click capture, analytics) so this stack is a pure consumer.
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [sandbox, stage, production]
+  NewsletterApiBaseUrl:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /newsletter-service/sandbox/newsletter-api-base-url
+    Description: SSM path resolving to newsletter-service's NewsletterApi base URL
+  CampaignShortLinkBase:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /newsletter-service/sandbox/campaign-short-link-base
+    Description: SSM path resolving to the campaign short link base URL (e.g. https://rdyset.click/c)
+  ApiKeyValue:
+    Type: String
+    NoEcho: true
+    MinLength: 20
+    Description: |
+      API key value for this stack's REST API (used to call POST /campaigns
+      and POST /campaigns/{id}/links). Provide at deploy time via
+      --parameter-overrides or samconfig.local.toml.
+  NewsletterMintApiKey:
+    Type: String
+    NoEcho: true
+    MinLength: 20
+    Description: |
+      Newsletter-service's campaign-link API key value. Must match the value
+      that stack was deployed with. Used to call POST /links when registering
+      a Campaign Link.
+
+Metadata:
+  esbuild-properties: &esbuild-properties
+    Format: esm
+    Minify: true
+    OutExtension:
+      - .js=.mjs
+    Target: es2020
+    Sourcemap: false
+    EntryPoints:
+      - index.mjs
+    Banner:
+      - js=import { createRequire } from 'module'; const require = createRequire(import.meta.url);
+    External: []
+
+Globals:
+  Function:
+    Architectures:
+      - arm64
+    Tracing: Active
+    Timeout: 15
+    MemorySize: 512
+    Runtime: nodejs24.x
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref ContentTrackingTable
+        LOG_LEVEL: info
+
+Resources:
+  ContentTrackingTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  ContentTrackingApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      TracingEnabled: true
+      StageName: v1
+      MethodSettings:
+        - MetricsEnabled: True
+          ResourcePath: "/*"
+          HttpMethod: "*"
+          LoggingLevel: INFO
+      DefinitionBody:
+        Fn::Transform:
+          Name: AWS::Include
+          Parameters:
+            Location: ./publicapi.yaml
+
+  ContentTrackingApiKey:
+    Type: AWS::ApiGateway::ApiKey
+    DependsOn: ContentTrackingApiv1Stage
+    Properties:
+      Name: !Sub "${AWS::StackName}-api"
+      Description: API key for the content-tracking REST API
+      Enabled: true
+      Value: !Ref ApiKeyValue
+      StageKeys:
+        - RestApiId: !Ref ContentTrackingApi
+          StageName: v1
+
+  ContentTrackingUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    DependsOn: ContentTrackingApiv1Stage
+    Properties:
+      UsagePlanName: !Sub "${AWS::StackName}-api"
+      Description: Usage plan for the content-tracking REST API
+      ApiStages:
+        - ApiId: !Ref ContentTrackingApi
+          Stage: v1
+      Throttle:
+        BurstLimit: 10
+        RateLimit: 5
+
+  ContentTrackingUsagePlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    Properties:
+      KeyId: !Ref ContentTrackingApiKey
+      KeyType: API_KEY
+      UsagePlanId: !Ref ContentTrackingUsagePlan
+
+  CreateCampaignFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - create-campaign.mjs
+    Properties:
+      CodeUri: functions
+      Handler: create-campaign.handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+              Resource: !GetAtt ContentTrackingTable.Arn
+      Events:
+        Create:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /campaigns
+            Method: POST
+            Auth:
+              ApiKeyRequired: true
+
+  GetCampaignFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - get-campaign.mjs
+    Properties:
+      CodeUri: functions
+      Handler: get-campaign.handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Query
+              Resource: !GetAtt ContentTrackingTable.Arn
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /campaigns/{campaignId}
+            Method: GET
+            Auth:
+              ApiKeyRequired: true
+
+  GetCampaignLinkAnalyticsFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - get-campaign-link-analytics.mjs
+    Properties:
+      CodeUri: functions
+      Handler: get-campaign-link-analytics.handler
+      Environment:
+        Variables:
+          NEWSLETTER_API_BASE_URL: !Ref NewsletterApiBaseUrl
+          NEWSLETTER_MINT_API_KEY: !Ref NewsletterMintApiKey
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+              Resource: !GetAtt ContentTrackingTable.Arn
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /campaigns/{campaignId}/links/{linkId}/analytics
+            Method: GET
+            Auth:
+              ApiKeyRequired: true
+
+  GetCampaignAnalyticsFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - get-campaign-analytics.mjs
+    Properties:
+      CodeUri: functions
+      Handler: get-campaign-analytics.handler
+      Timeout: 30
+      Environment:
+        Variables:
+          NEWSLETTER_API_BASE_URL: !Ref NewsletterApiBaseUrl
+          NEWSLETTER_MINT_API_KEY: !Ref NewsletterMintApiKey
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Query
+              Resource: !GetAtt ContentTrackingTable.Arn
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /campaigns/{campaignId}/analytics
+            Method: GET
+            Auth:
+              ApiKeyRequired: true
+
+  CreateCampaignLinkFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - create-campaign-link.mjs
+    Properties:
+      CodeUri: functions
+      Handler: create-campaign-link.handler
+      Environment:
+        Variables:
+          NEWSLETTER_API_BASE_URL: !Ref NewsletterApiBaseUrl
+          NEWSLETTER_MINT_API_KEY: !Ref NewsletterMintApiKey
+          SHORT_LINK_BASE: !Ref CampaignShortLinkBase
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+              Resource: !GetAtt ContentTrackingTable.Arn
+      Events:
+        Create:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /campaigns/{campaignId}/links
+            Method: POST
+            Auth:
+              ApiKeyRequired: true
+
+Outputs:
+  ContentTrackingTableName:
+    Description: DynamoDB single-table for content-tracking
+    Value: !Ref ContentTrackingTable
+
+  ContentTrackingApiBaseUrl:
+    Description: Base URL for the content-tracking REST API
+    Value: !Sub "https://${ContentTrackingApi}.execute-api.${AWS::Region}.amazonaws.com/v1"

@@ -1,0 +1,35 @@
+version = 0.1
+
+# Secret parameters (ApiKeyValue, NewsletterMintApiKey) are NOT defined here.
+# Provide them via samconfig.local.toml (gitignored) or
+# `sam deploy --parameter-overrides "ApiKeyValue=... NewsletterMintApiKey=..."`.
+
+[default.build.parameters]
+parallel = true
+cached = false
+beta_features = true
+
+[default.deploy.parameters]
+stack_name = "content-tracking"
+profile = "sandbox"
+resolve_s3 = true
+s3_prefix = "content-tracking"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+  "Environment=sandbox",
+  "NewsletterApiBaseUrl=/newsletter-service/sandbox/newsletter-api-base-url",
+  "CampaignShortLinkBase=/newsletter-service/sandbox/campaign-short-link-base",
+]
+
+[prod.deploy.parameters]
+stack_name = "content-tracking"
+resolve_s3 = true
+s3_prefix = "content-tracking"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+  "Environment=production",
+  "NewsletterApiBaseUrl=/newsletter-service/production/newsletter-api-base-url",
+  "CampaignShortLinkBase=/newsletter-service/production/campaign-short-link-base",
+]
