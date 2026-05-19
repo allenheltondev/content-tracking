@@ -3,6 +3,7 @@ name: Deploy (sandbox)
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: deploy-sandbox
@@ -12,11 +13,18 @@ permissions:
   id-token: write
   contents: read
 
+env:
+  AWS_REGION: us-east-1
+  STACK_NAME: content-tracking
+  ENVIRONMENT: sandbox
+
 jobs:
   deploy:
     name: sam deploy sandbox
     runs-on: ubuntu-latest
-    environment: sandbox
+    environment:
+      name: sandbox
+      url: ${{ steps.outputs.outputs.api-url }}
 
     steps:
       - name: Checkout
@@ -29,7 +37,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Set up Python (for SAM CLI)
         uses: actions/setup-python@v5
@@ -42,10 +50,11 @@ jobs:
           use-installer: true
 
       - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v4.3.1
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: us-east-1
+          role-session-name: GitHubActions-ContentTracking-SandboxDeploy
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: SAM build
         run: sam build
@@ -57,8 +66,81 @@ jobs:
             --no-confirm-changeset \
             --no-fail-on-empty-changeset \
             --parameter-overrides \
-              "Environment=sandbox" \
-              "NewsletterApiBaseUrl=/newsletter-service/sandbox/newsletter-api-base-url" \
-              "CampaignShortLinkBase=/newsletter-service/sandbox/campaign-short-link-base" \
+              "Environment=${{ env.ENVIRONMENT }}" \
+              "NewsletterApiBaseUrl=/newsletter-service/${{ env.ENVIRONMENT }}/newsletter-api-base-url" \
+              "CampaignShortLinkBase=/newsletter-service/${{ env.ENVIRONMENT }}/campaign-short-link-base" \
               "ApiKeyValue=${{ secrets.API_KEY_VALUE }}" \
               "NewsletterMintApiKey=${{ secrets.NEWSLETTER_MINT_API_KEY }}"
+
+      - name: Diagnose failed deploy
+        if: ${{ failure() }}
+        run: |
+          echo "Deploy failed. Dumping CloudFormation diagnostics for ${{ env.STACK_NAME }}."
+
+          echo "==== describe-stacks ===="
+          aws cloudformation describe-stacks \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --region "${{ env.AWS_REGION }}" || true
+
+          echo "==== describe-stack-events (latest 50) ===="
+          aws cloudformation describe-stack-events \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --query "StackEvents[:50].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
+            --output table || true
+
+          echo "==== list-stack-resources ===="
+          aws cloudformation list-stack-resources \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --query "StackResourceSummaries[*].[LogicalResourceId,ResourceType,ResourceStatus,PhysicalResourceId]" \
+            --output table || true
+
+          echo "==== list-change-sets (latest 5) ===="
+          aws cloudformation list-change-sets \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --query "sort_by(Summaries,&CreationTime)[-5:].[ChangeSetName,Status,ExecutionStatus,StatusReason,CreationTime]" \
+            --output table || true
+
+          LATEST_CHANGE_SET=$(aws cloudformation list-change-sets \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --query "sort_by(Summaries,&CreationTime)[-1].ChangeSetName" \
+            --output text 2>/dev/null || true)
+
+          if [ -n "$LATEST_CHANGE_SET" ] && [ "$LATEST_CHANGE_SET" != "None" ]; then
+            echo "==== describe-change-set ($LATEST_CHANGE_SET) ===="
+            aws cloudformation describe-change-set \
+              --stack-name "${{ env.STACK_NAME }}" \
+              --change-set-name "$LATEST_CHANGE_SET" \
+              --region "${{ env.AWS_REGION }}" || true
+          fi
+
+      - name: Read stack outputs
+        id: outputs
+        run: |
+          API_URL=$(aws cloudformation describe-stacks \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --query "Stacks[0].Outputs[?OutputKey=='ContentTrackingApiBaseUrl'].OutputValue" \
+            --output text)
+          TABLE_NAME=$(aws cloudformation describe-stacks \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --query "Stacks[0].Outputs[?OutputKey=='ContentTrackingTableName'].OutputValue" \
+            --output text)
+          echo "api-url=$API_URL" >> "$GITHUB_OUTPUT"
+          echo "table-name=$TABLE_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Write deployment summary
+        run: |
+          {
+            echo "## content-tracking sandbox deploy"
+            echo
+            echo "- **Stack:** \`${{ env.STACK_NAME }}\`"
+            echo "- **Region:** \`${{ env.AWS_REGION }}\`"
+            echo "- **API URL:** ${{ steps.outputs.outputs.api-url }}"
+            echo "- **Table:** \`${{ steps.outputs.outputs.table-name }}\`"
+            echo "- **Commit:** \`${{ github.sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
