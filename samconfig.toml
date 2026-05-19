@@ -1,8 +1,11 @@
 version = 0.1
 
-# Secret parameters (ApiKeyValue, NewsletterMintApiKey) are NOT defined here.
-# Provide them via samconfig.local.toml (gitignored) or
-# `sam deploy --parameter-overrides "ApiKeyValue=... NewsletterMintApiKey=..."`.
+# Secret parameter NewsletterMintApiKey is NOT defined here.
+# Provide it via samconfig.local.toml (gitignored) or
+# `sam deploy --parameter-overrides "NewsletterMintApiKey=..."`.
+#
+# CognitoUserPoolArn resolves from SSM `/readysetcloud/auth/user-pool-arn`
+# (published by rsc-core) at deploy time, no override needed.
 
 [default.build.parameters]
 parallel = true

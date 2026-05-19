@@ -70,7 +70,6 @@ jobs:
               "Environment=${{ env.ENVIRONMENT }}" \
               "NewsletterApiBaseUrl=/newsletter-service/${{ env.ENVIRONMENT }}/newsletter-api-base-url" \
               "CampaignShortLinkBase=/newsletter-service/${{ env.ENVIRONMENT }}/campaign-short-link-base" \
-              "ApiKeyValue=${{ secrets.API_KEY_VALUE_PRODUCTION }}" \
               "NewsletterMintApiKey=${{ secrets.NEWSLETTER_MINT_API_KEY_PRODUCTION }}"
 
       - name: Diagnose failed deploy

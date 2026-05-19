@@ -17,14 +17,10 @@ Parameters:
     Type: AWS::SSM::Parameter::Value<String>
     Default: /newsletter-service/sandbox/campaign-short-link-base
     Description: SSM path resolving to the campaign short link base URL (e.g. https://rdyset.click/c)
-  ApiKeyValue:
-    Type: String
-    NoEcho: true
-    MinLength: 20
-    Description: |
-      API key value for this stack's REST API (used to call POST /campaigns
-      and POST /campaigns/{id}/links). Provide at deploy time via
-      --parameter-overrides or samconfig.local.toml.
+  CognitoUserPoolArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /readysetcloud/auth/user-pool-arn
+    Description: SSM path resolving to the rsc-core Cognito user pool ARN used as the API authorizer
   NewsletterMintApiKey:
     Type: String
     NoEcho: true
@@ -95,38 +91,6 @@ Resources:
           Parameters:
             Location: ./publicapi.yaml
 
-  ContentTrackingApiKey:
-    Type: AWS::ApiGateway::ApiKey
-    DependsOn: ContentTrackingApiv1Stage
-    Properties:
-      Name: !Sub "${AWS::StackName}-api"
-      Description: API key for the content-tracking REST API
-      Enabled: true
-      Value: !Ref ApiKeyValue
-      StageKeys:
-        - RestApiId: !Ref ContentTrackingApi
-          StageName: v1
-
-  ContentTrackingUsagePlan:
-    Type: AWS::ApiGateway::UsagePlan
-    DependsOn: ContentTrackingApiv1Stage
-    Properties:
-      UsagePlanName: !Sub "${AWS::StackName}-api"
-      Description: Usage plan for the content-tracking REST API
-      ApiStages:
-        - ApiId: !Ref ContentTrackingApi
-          Stage: v1
-      Throttle:
-        BurstLimit: 10
-        RateLimit: 5
-
-  ContentTrackingUsagePlanKey:
-    Type: AWS::ApiGateway::UsagePlanKey
-    Properties:
-      KeyId: !Ref ContentTrackingApiKey
-      KeyType: API_KEY
-      UsagePlanId: !Ref ContentTrackingUsagePlan
-
   CreateCampaignFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -153,8 +117,6 @@ Resources:
             RestApiId: !Ref ContentTrackingApi
             Path: /campaigns
             Method: POST
-            Auth:
-              ApiKeyRequired: true
 
   GetCampaignFunction:
     Type: AWS::Serverless::Function
@@ -182,8 +144,6 @@ Resources:
             RestApiId: !Ref ContentTrackingApi
             Path: /campaigns/{campaignId}
             Method: GET
-            Auth:
-              ApiKeyRequired: true
 
   GetCampaignLinkAnalyticsFunction:
     Type: AWS::Serverless::Function
@@ -215,8 +175,6 @@ Resources:
             RestApiId: !Ref ContentTrackingApi
             Path: /campaigns/{campaignId}/links/{linkId}/analytics
             Method: GET
-            Auth:
-              ApiKeyRequired: true
 
   GetCampaignAnalyticsFunction:
     Type: AWS::Serverless::Function
@@ -249,8 +207,6 @@ Resources:
             RestApiId: !Ref ContentTrackingApi
             Path: /campaigns/{campaignId}/analytics
             Method: GET
-            Auth:
-              ApiKeyRequired: true
 
   CreateCampaignLinkFunction:
     Type: AWS::Serverless::Function
@@ -284,8 +240,6 @@ Resources:
             RestApiId: !Ref ContentTrackingApi
             Path: /campaigns/{campaignId}/links
             Method: POST
-            Auth:
-              ApiKeyRequired: true
 
 Outputs:
   ContentTrackingTableName:
