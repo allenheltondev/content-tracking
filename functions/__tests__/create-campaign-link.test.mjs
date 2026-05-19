@@ -143,7 +143,7 @@ describe("create-campaign-link", () => {
       const [callUrl, callOpts] = fetchSpy.mock.calls[0];
       expect(callUrl).toBe(`${process.env.NEWSLETTER_API_BASE_URL}/links`);
       expect(callOpts.method).toBe("POST");
-      expect(callOpts.headers["x-api-key"]).toBe("test-mint-api-key-value");
+      expect(callOpts.headers["Authorization"]).toBe("test-mint-api-key-value");
       const sentBody = JSON.parse(callOpts.body);
       expect(sentBody.url).toBe(validLinkBody.url);
       expect(sentBody).not.toHaveProperty("cid");

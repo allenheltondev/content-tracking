@@ -133,7 +133,7 @@ async function mintShortLink({ url, src, expiresInDays }) {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-api-key": process.env.NEWSLETTER_MINT_API_KEY,
+      "Authorization": process.env.NEWSLETTER_MINT_API_KEY,
     },
     body: JSON.stringify(reqBody),
   });

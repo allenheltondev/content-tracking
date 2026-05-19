@@ -104,7 +104,7 @@ async function queryPartition(pk) {
 async function fetchAnalytics(code) {
   const response = await fetch(`${process.env.NEWSLETTER_API_BASE_URL}/links/${code}/analytics`, {
     method: "GET",
-    headers: { "x-api-key": process.env.NEWSLETTER_MINT_API_KEY },
+    headers: { "Authorization": process.env.NEWSLETTER_MINT_API_KEY },
   });
   const text = await response.text();
   if (!response.ok) {

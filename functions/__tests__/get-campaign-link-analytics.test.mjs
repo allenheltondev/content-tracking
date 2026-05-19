@@ -81,7 +81,7 @@ describe("get-campaign-link-analytics", () => {
     const [callUrl, callOpts] = fetchSpy.mock.calls[0];
     expect(callUrl).toBe(`${process.env.NEWSLETTER_API_BASE_URL}/links/aB3xKp/analytics`);
     expect(callOpts.method).toBe("GET");
-    expect(callOpts.headers["x-api-key"]).toBe("test-mint-key");
+    expect(callOpts.headers["Authorization"]).toBe("test-mint-key");
   });
 
   test("returns 502 when upstream fails", async () => {
