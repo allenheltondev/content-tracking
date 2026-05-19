@@ -1,7 +1,7 @@
 import { jest } from "@jest/globals";
 import { unmarshall } from "@aws-sdk/util-dynamodb";
 
-const { DynamoDBClient, PutItemCommand } = await import("@aws-sdk/client-dynamodb");
+const { DynamoDBClient } = await import("@aws-sdk/client-dynamodb");
 
 process.env.TABLE_NAME = "test-content-tracking";
 

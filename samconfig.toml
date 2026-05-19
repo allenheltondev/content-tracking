@@ -22,6 +22,18 @@ parameter_overrides = [
   "CampaignShortLinkBase=/newsletter-service/sandbox/campaign-short-link-base",
 ]
 
+[ci.deploy.parameters]
+stack_name = "content-tracking"
+resolve_s3 = true
+s3_prefix = "content-tracking"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+  "Environment=sandbox",
+  "NewsletterApiBaseUrl=/newsletter-service/sandbox/newsletter-api-base-url",
+  "CampaignShortLinkBase=/newsletter-service/sandbox/campaign-short-link-base",
+]
+
 [prod.deploy.parameters]
 stack_name = "content-tracking"
 resolve_s3 = true
