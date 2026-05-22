@@ -29,6 +29,20 @@ Parameters:
       samconfig.local.toml. Other cross-service URLs (newsletter API base,
       campaign short-link base) are resolved at runtime via SSM through
       Powertools parameters.
+  BedrockModelId:
+    Type: String
+    Default: us.amazon.nova-pro-v1:0
+    Description: |
+      Bedrock model identifier used by POST /briefs. Cross-region inference
+      profile prefix (us./eu.) is included to balance load across regions.
+      Override per env via samconfig if you want to test a different model.
+  BedrockRegion:
+    Type: String
+    Default: us-east-1
+    Description: |
+      Region the BedrockRuntime client is configured for. Stays separate
+      from the stack region so you can route to a region where the model
+      is available without moving the rest of the stack.
 
 Metadata:
   esbuild-properties: &esbuild-properties
@@ -62,6 +76,9 @@ Globals:
         # paths embed ENVIRONMENT so the same Lambda code resolves the
         # right value per stack.
         NEWSLETTER_MINT_API_KEY: !Ref NewsletterMintApiKey
+        BRIEFS_BUCKET: !Ref BriefsBucket
+        BEDROCK_MODEL_ID: !Ref BedrockModelId
+        BEDROCK_REGION: !Ref BedrockRegion
 
 Resources:
   ContentTrackingTable:
@@ -107,6 +124,46 @@ Resources:
         Enabled: true
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
+
+  # Holds raw brief uploads (PDFs uploaded via presigned URL from the client,
+  # plus chat transcripts the brief pipeline writes inline). Separate
+  # bucket per environment so staging tests can't accidentally read prod
+  # briefs. Lifecycle policy ages out raw uploads after a year; brief
+  # summaries (which live in DynamoDB) stay indefinitely.
+  BriefsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "content-tracking-briefs-${Environment}-${AWS::AccountId}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ArchiveRawAfter90Days
+            Status: Enabled
+            Prefix: uploads/
+            Transitions:
+              - StorageClass: STANDARD_IA
+                TransitionInDays: 90
+            ExpirationInDays: 365
+          - Id: ExpireFailedUploadsAfter7Days
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      CorsConfiguration:
+        # Allow browsers to PUT directly to the presigned URL from the
+        # dashboard origin.
+        CorsRules:
+          - AllowedMethods: [PUT]
+            AllowedOrigins: ["*"]
+            AllowedHeaders: ["*"]
+            MaxAge: 300
 
   ContentTrackingApi:
     Type: AWS::Serverless::Api
@@ -173,6 +230,28 @@ Resources:
                 - ssm:GetParameters
               Resource:
                 - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/newsletter-service/${Environment}/*"
+            # S3: read + write objects in the briefs bucket. PutObject is
+            # used by the chat-source flow (writing transcripts inline) and
+            # by presigned-URL signing for PDF uploads. GetObject is used
+            # both by the brief pipeline (reading uploads back) and by the
+            # presigned download URL for the audit view.
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:GetObject
+                - s3:DeleteObject
+              Resource:
+                - !Sub "${BriefsBucket.Arn}/*"
+            # Bedrock: invoke the configured model. Cross-region inference
+            # profiles (us./eu. prefixes) are foundation-model ARNs in the
+            # bedrock region with a wildcard for the variant.
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:Converse
+              Resource:
+                - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
+                - !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/*"
       Events:
         ProxyAny:
           Type: Api
