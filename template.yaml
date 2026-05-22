@@ -1,34 +1,34 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  Influencer analytics aggregator. Owns Campaign + Link metadata and the
-  orchestration API. Newsletter-service owns the link service (mint,
-  redirect, click capture, analytics) so this stack is a pure consumer.
+  Influencer analytics aggregator. Owns Campaign + Vendor + Link metadata
+  and the orchestration API. Single monolithic Lambda routed via Lambda
+  Powertools event-handler. Newsletter-service owns the link service
+  (mint, redirect, click capture, analytics) so this stack is a pure
+  consumer.
 
 Parameters:
   Environment:
     Type: String
     AllowedValues: [staging, production]
-  NewsletterApiBaseUrl:
-    Type: AWS::SSM::Parameter::Value<String>
-    Default: /newsletter-service/staging/newsletter-api-base-url
-    Description: SSM path resolving to newsletter-service's NewsletterApi base URL
-  CampaignShortLinkBase:
-    Type: AWS::SSM::Parameter::Value<String>
-    Default: /newsletter-service/staging/campaign-short-link-base
-    Description: SSM path resolving to the campaign short link base URL (e.g. https://rdyset.click/c)
   CognitoUserPoolArn:
     Type: AWS::SSM::Parameter::Value<String>
     Default: /readysetcloud/auth/user-pool-arn
-    Description: SSM path resolving to the rsc-core Cognito user pool ARN used as the API authorizer
+    Description: |
+      SSM path resolving to the rsc-core Cognito user pool ARN used as
+      the API authorizer. Resolved at deploy time because the API
+      Gateway authorizer can't read SSM at runtime.
   NewsletterMintApiKey:
     Type: String
     NoEcho: true
     MinLength: 20
     Description: |
-      Newsletter-service's campaign-link API key value. Must match the value
-      that stack was deployed with. Used to call POST /links when registering
-      a Campaign Link.
+      Newsletter-service's campaign-link API key. Used to call POST /links
+      when registering a Campaign Link and DELETE /links/{code} when removing
+      one. Provide at deploy time via --parameter-overrides or
+      samconfig.local.toml. Other cross-service URLs (newsletter API base,
+      campaign short-link base) are resolved at runtime via SSM through
+      Powertools parameters.
 
 Metadata:
   esbuild-properties: &esbuild-properties
@@ -36,7 +36,7 @@ Metadata:
     Minify: true
     OutExtension:
       - .js=.mjs
-    Target: es2020
+    Target: es2022
     Sourcemap: false
     EntryPoints:
       - index.mjs
@@ -46,8 +46,7 @@ Metadata:
 
 Globals:
   Function:
-    Architectures:
-      - arm64
+    Architectures: [arm64]
     Tracing: Active
     Timeout: 15
     MemorySize: 512
@@ -56,6 +55,13 @@ Globals:
       Variables:
         TABLE_NAME: !Ref ContentTrackingTable
         LOG_LEVEL: info
+        ENVIRONMENT: !Ref Environment
+        POWERTOOLS_SERVICE_NAME: content-tracking
+        # NewsletterApiBaseUrl and CampaignShortLinkBase are fetched from
+        # SSM at runtime via Powertools parameters (5-min cache). The SSM
+        # paths embed ENVIRONMENT so the same Lambda code resolves the
+        # right value per stack.
+        NEWSLETTER_MINT_API_KEY: !Ref NewsletterMintApiKey
 
 Resources:
   ContentTrackingTable:
@@ -67,11 +73,38 @@ Resources:
           AttributeType: S
         - AttributeName: sk
           AttributeType: S
+        - AttributeName: gsi1pk
+          AttributeType: S
+        - AttributeName: gsi1sk
+          AttributeType: S
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
         - AttributeName: sk
           KeyType: RANGE
+      GlobalSecondaryIndexes:
+        # GSI1 backs the "list all of entity X sorted by created_at" and
+        # "campaigns in date range" patterns so every read path is a Query
+        # (no Scans anywhere).
+        #
+        # gsi1pk = ENTITY name (CAMPAIGNS, VENDORS)
+        # gsi1sk = "{ISO createdAt}#{ulid}" so date-range KeyConditionExpressions
+        #          on gsi1sk work and ties within the same millisecond
+        #          stay ordered.
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: gsi1pk
+              KeyType: HASH
+            - AttributeName: gsi1sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      # `expiresAt` powers TTL-based cleanup of idempotency records the
+      # Lambda writes under pk=IDEMPOTENCY#{hash} (Powertools' DynamoDB
+      # persistence layer manages those entries).
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
 
@@ -85,391 +118,74 @@ Resources:
           ResourcePath: "/*"
           HttpMethod: "*"
           LoggingLevel: INFO
-      DefinitionBody:
-        Fn::Transform:
-          Name: AWS::Include
-          Parameters:
-            Location: ./publicapi.yaml
+      # Authorizer is configured at the SAM Api level rather than via an
+      # OpenAPI DefinitionBody so it applies to every route (including the
+      # proxy catch-all). publicapi.yaml stays in the repo as documentation
+      # but is no longer fed into API Gateway.
+      Auth:
+        DefaultAuthorizer: CognitoUserPoolAuthorizer
+        Authorizers:
+          CognitoUserPoolAuthorizer:
+            UserPoolArn: !Ref CognitoUserPoolArn
 
-  CreateCampaignFunction:
+  ApiFunction:
     Type: AWS::Serverless::Function
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
         <<: *esbuild-properties
         EntryPoints:
-          - create-campaign.mjs
+          - index.mjs
     Properties:
-      CodeUri: functions
-      Handler: create-campaign.handler
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - Version: 2012-10-17
-          Statement:
-            # GetItem: vendor existence check before transactional write
-            # PutItem: campaign metadata + optional campaign-by-vendor index entry (via TransactWriteItems)
-            - Effect: Allow
-              Action:
-                - dynamodb:GetItem
-                - dynamodb:PutItem
-              Resource: !GetAtt ContentTrackingTable.Arn
-      Events:
-        Create:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ContentTrackingApi
-            Path: /campaigns
-            Method: POST
-
-  GetCampaignFunction:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        <<: *esbuild-properties
-        EntryPoints:
-          - get-campaign.mjs
-    Properties:
-      CodeUri: functions
-      Handler: get-campaign.handler
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - Version: 2012-10-17
-          Statement:
-            - Effect: Allow
-              Action:
-                - dynamodb:Query
-              Resource: !GetAtt ContentTrackingTable.Arn
-      Events:
-        Get:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ContentTrackingApi
-            Path: /campaigns/{campaignId}
-            Method: GET
-
-  GetCampaignLinkAnalyticsFunction:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        <<: *esbuild-properties
-        EntryPoints:
-          - get-campaign-link-analytics.mjs
-    Properties:
-      CodeUri: functions
-      Handler: get-campaign-link-analytics.handler
-      Environment:
-        Variables:
-          NEWSLETTER_API_BASE_URL: !Ref NewsletterApiBaseUrl
-          NEWSLETTER_MINT_API_KEY: !Ref NewsletterMintApiKey
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - Version: 2012-10-17
-          Statement:
-            - Effect: Allow
-              Action:
-                - dynamodb:GetItem
-              Resource: !GetAtt ContentTrackingTable.Arn
-      Events:
-        Get:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ContentTrackingApi
-            Path: /campaigns/{campaignId}/links/{linkId}/analytics
-            Method: GET
-
-  GetCampaignAnalyticsFunction:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        <<: *esbuild-properties
-        EntryPoints:
-          - get-campaign-analytics.mjs
-    Properties:
-      CodeUri: functions
-      Handler: get-campaign-analytics.handler
+      CodeUri: functions/api
+      Handler: index.handler
+      # Bigger memory and longer timeout than the per-route functions because
+      # this single Lambda serves every route. Revenue rollups and Bedrock
+      # calls are the heaviest paths.
+      MemorySize: 1024
       Timeout: 30
-      Environment:
-        Variables:
-          NEWSLETTER_API_BASE_URL: !Ref NewsletterApiBaseUrl
-          NEWSLETTER_MINT_API_KEY: !Ref NewsletterMintApiKey
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: 2012-10-17
           Statement:
-            - Effect: Allow
-              Action:
-                - dynamodb:Query
-              Resource: !GetAtt ContentTrackingTable.Arn
-      Events:
-        Get:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ContentTrackingApi
-            Path: /campaigns/{campaignId}/analytics
-            Method: GET
-
-  CreateCampaignLinkFunction:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        <<: *esbuild-properties
-        EntryPoints:
-          - create-campaign-link.mjs
-    Properties:
-      CodeUri: functions
-      Handler: create-campaign-link.handler
-      Environment:
-        Variables:
-          NEWSLETTER_API_BASE_URL: !Ref NewsletterApiBaseUrl
-          NEWSLETTER_MINT_API_KEY: !Ref NewsletterMintApiKey
-          SHORT_LINK_BASE: !Ref CampaignShortLinkBase
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - Version: 2012-10-17
-          Statement:
+            # DynamoDB: union of every per-route operation across the API.
+            # Limited to the main table + its indexes. No Scan anywhere.
             - Effect: Allow
               Action:
                 - dynamodb:GetItem
                 - dynamodb:PutItem
-              Resource: !GetAtt ContentTrackingTable.Arn
-      Events:
-        Create:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ContentTrackingApi
-            Path: /campaigns/{campaignId}/links
-            Method: POST
-
-  CreateVendorFunction:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        <<: *esbuild-properties
-        EntryPoints:
-          - create-vendor.mjs
-    Properties:
-      CodeUri: functions
-      Handler: create-vendor.handler
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - Version: 2012-10-17
-          Statement:
-            - Effect: Allow
-              Action:
-                - dynamodb:PutItem
-              Resource: !GetAtt ContentTrackingTable.Arn
-      Events:
-        Create:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ContentTrackingApi
-            Path: /vendors
-            Method: POST
-
-  ListVendorsFunction:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        <<: *esbuild-properties
-        EntryPoints:
-          - list-vendors.mjs
-    Properties:
-      CodeUri: functions
-      Handler: list-vendors.handler
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - Version: 2012-10-17
-          Statement:
-            - Effect: Allow
-              Action:
-                - dynamodb:Scan
-              Resource: !GetAtt ContentTrackingTable.Arn
-      Events:
-        List:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ContentTrackingApi
-            Path: /vendors
-            Method: GET
-
-  GetVendorFunction:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        <<: *esbuild-properties
-        EntryPoints:
-          - get-vendor.mjs
-    Properties:
-      CodeUri: functions
-      Handler: get-vendor.handler
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - Version: 2012-10-17
-          Statement:
-            - Effect: Allow
-              Action:
-                - dynamodb:GetItem
-              Resource: !GetAtt ContentTrackingTable.Arn
-      Events:
-        Get:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ContentTrackingApi
-            Path: /vendors/{vendorId}
-            Method: GET
-
-  UpdateVendorFunction:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        <<: *esbuild-properties
-        EntryPoints:
-          - update-vendor.mjs
-    Properties:
-      CodeUri: functions
-      Handler: update-vendor.handler
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - Version: 2012-10-17
-          Statement:
-            - Effect: Allow
-              Action:
                 - dynamodb:UpdateItem
-              Resource: !GetAtt ContentTrackingTable.Arn
-      Events:
-        Update:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ContentTrackingApi
-            Path: /vendors/{vendorId}
-            Method: PUT
-
-  DeleteVendorFunction:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        <<: *esbuild-properties
-        EntryPoints:
-          - delete-vendor.mjs
-    Properties:
-      CodeUri: functions
-      Handler: delete-vendor.handler
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - Version: 2012-10-17
-          Statement:
-            # Query: check for linked campaigns before allowing the delete
-            # DeleteItem: remove the vendor metadata record
-            - Effect: Allow
-              Action:
-                - dynamodb:Query
                 - dynamodb:DeleteItem
-              Resource: !GetAtt ContentTrackingTable.Arn
-      Events:
-        Delete:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ContentTrackingApi
-            Path: /vendors/{vendorId}
-            Method: DELETE
-
-  ListVendorCampaignsFunction:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        <<: *esbuild-properties
-        EntryPoints:
-          - list-vendor-campaigns.mjs
-    Properties:
-      CodeUri: functions
-      Handler: list-vendor-campaigns.handler
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - Version: 2012-10-17
-          Statement:
-            # GetItem: confirm the vendor exists before querying
-            # Query: read the campaign-by-vendor index entries
-            - Effect: Allow
-              Action:
-                - dynamodb:GetItem
                 - dynamodb:Query
-              Resource: !GetAtt ContentTrackingTable.Arn
-      Events:
-        List:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ContentTrackingApi
-            Path: /vendors/{vendorId}/campaigns
-            Method: GET
-
-  UpdateCampaignPayoutFunction:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        <<: *esbuild-properties
-        EntryPoints:
-          - update-campaign-payout.mjs
-    Properties:
-      CodeUri: functions
-      Handler: update-campaign-payout.handler
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - Version: 2012-10-17
-          Statement:
+                - dynamodb:BatchGetItem
+                - dynamodb:BatchWriteItem
+                - dynamodb:TransactWriteItems
+                - dynamodb:ConditionCheckItem
+              Resource:
+                - !GetAtt ContentTrackingTable.Arn
+                - !Sub "${ContentTrackingTable.Arn}/index/*"
+            # SSM: runtime reads for newsletter-service URLs. Scope to the
+            # exact paths the Lambda fetches so a misconfig can't pull
+            # unrelated parameters.
             - Effect: Allow
               Action:
-                - dynamodb:UpdateItem
-              Resource: !GetAtt ContentTrackingTable.Arn
+                - ssm:GetParameter
+                - ssm:GetParameters
+              Resource:
+                - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/newsletter-service/${Environment}/*"
       Events:
-        UpdatePayout:
+        ProxyAny:
           Type: Api
           Properties:
             RestApiId: !Ref ContentTrackingApi
-            Path: /campaigns/{campaignId}/payout
-            Method: PATCH
-
-  GetRevenueFunction:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        <<: *esbuild-properties
-        EntryPoints:
-          - get-revenue.mjs
-    Properties:
-      CodeUri: functions
-      Handler: get-revenue.handler
-      # Revenue rollups Scan the whole table and aggregate in memory. The
-      # campaign cardinality this stack targets keeps that well under the
-      # default 15s timeout, but bump it a bit for safety as the dataset
-      # grows.
-      Timeout: 30
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - Version: 2012-10-17
-          Statement:
-            - Effect: Allow
-              Action:
-                - dynamodb:Scan
-              Resource: !GetAtt ContentTrackingTable.Arn
-      Events:
-        Get:
+            Path: /{proxy+}
+            Method: ANY
+        Root:
           Type: Api
           Properties:
             RestApiId: !Ref ContentTrackingApi
-            Path: /revenue
-            Method: GET
+            Path: /
+            Method: ANY
 
 Outputs:
   ContentTrackingTableName:

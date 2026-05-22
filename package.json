@@ -10,12 +10,18 @@
     "lint": "eslint --cache --cache-location .eslintcache \"**/*.mjs\""
   },
   "dependencies": {
+    "@aws-lambda-powertools/event-handler": "^2.33.0",
+    "@aws-lambda-powertools/idempotency": "^2.33.0",
     "@aws-lambda-powertools/logger": "^2.33.0",
+    "@aws-lambda-powertools/parameters": "^2.33.0",
+    "@aws-lambda-powertools/validation": "^2.33.0",
+    "@aws-sdk/client-dynamodb": "^3.1052.0",
+    "@aws-sdk/client-ssm": "^3.1052.0",
+    "@aws-sdk/lib-dynamodb": "^3.1052.0",
+    "@aws-sdk/util-dynamodb": "^3.996.2",
     "ulid": "^3.0.2"
   },
   "devDependencies": {
-    "@aws-sdk/client-dynamodb": "^3.1052.0",
-    "@aws-sdk/util-dynamodb": "^3.996.2",
     "@babel/core": "^7.29.0",
     "@babel/preset-env": "^7.29.2",
     "@eslint/js": "^10.0.1",
