@@ -1,4 +1,4 @@
-import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
+import { DynamoDBClient, TransactWriteItemsCommand, GetItemCommand } from "@aws-sdk/client-dynamodb";
 import { marshall } from "@aws-sdk/util-dynamodb";
 import { ulid } from "ulid";
 import { respond } from "./utils/response.mjs";
@@ -6,6 +6,7 @@ import { respond } from "./utils/response.mjs";
 const ddb = new DynamoDBClient();
 
 const VALID_STATUSES = new Set(["draft", "active", "completed"]);
+const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
 export const handler = async (event) => {
   if (!event.body) {
@@ -19,7 +20,7 @@ export const handler = async (event) => {
     return respond(400, "Invalid JSON body");
   }
 
-  const { name, sponsor, startDate, endDate, status, targetMetrics } = body;
+  const { name, sponsor, vendor_id, startDate, endDate, status, targetMetrics } = body;
 
   if (!name || typeof name !== "string" || name.trim().length === 0) {
     return respond(400, "name is required");
@@ -27,8 +28,13 @@ export const handler = async (event) => {
   if (name.length > 200) {
     return respond(400, "name exceeds 200 chars");
   }
-  if (sponsor !== undefined && (typeof sponsor !== "string" || sponsor.length > 200)) {
+  if (sponsor !== undefined && sponsor !== null && (typeof sponsor !== "string" || sponsor.length > 200)) {
     return respond(400, "sponsor must be a string up to 200 chars");
+  }
+  if (vendor_id !== undefined && vendor_id !== null) {
+    if (typeof vendor_id !== "string" || !ULID_RE.test(vendor_id)) {
+      return respond(400, "vendor_id must be a ULID");
+    }
   }
   if (status !== undefined && !VALID_STATUSES.has(status)) {
     return respond(400, `status must be one of ${[...VALID_STATUSES].join(", ")}`);
@@ -43,11 +49,26 @@ export const handler = async (event) => {
     return respond(400, "targetMetrics must be an object");
   }
 
+  // If vendor_id is supplied, confirm the vendor exists before we attempt
+  // the transactional write. Returning 404 here is the only way to give a
+  // useful error — a TransactionCanceledException out of a ConditionCheck
+  // wouldn't tell the caller which item failed.
+  if (vendor_id) {
+    const vendorCheck = await ddb.send(new GetItemCommand({
+      TableName: process.env.TABLE_NAME,
+      Key: marshall({ pk: `VENDOR#${vendor_id}`, sk: "METADATA" }),
+      ProjectionExpression: "pk",
+    }));
+    if (!vendorCheck.Item) {
+      return respond(404, `Vendor ${vendor_id} not found`);
+    }
+  }
+
   const campaignId = ulid();
   const createdAt = new Date().toISOString();
   const finalStatus = status || "active";
 
-  const item = {
+  const metadata = {
     pk: `CAMPAIGN#${campaignId}`,
     sk: "METADATA",
     entity: "Campaign",
@@ -56,25 +77,61 @@ export const handler = async (event) => {
     status: finalStatus,
     createdAt,
   };
-  if (sponsor) item.sponsor = sponsor;
-  if (startDate) item.startDate = startDate;
-  if (endDate) item.endDate = endDate;
-  if (targetMetrics) item.targetMetrics = targetMetrics;
+  if (sponsor) metadata.sponsor = sponsor;
+  if (vendor_id) metadata.vendorId = vendor_id;
+  if (startDate) metadata.startDate = startDate;
+  if (endDate) metadata.endDate = endDate;
+  if (targetMetrics) metadata.targetMetrics = targetMetrics;
 
-  await ddb.send(new PutItemCommand({
-    TableName: process.env.TABLE_NAME,
-    Item: marshall(item, { removeUndefinedValues: true }),
-    ConditionExpression: "attribute_not_exists(pk)",
-  }));
+  // Write the campaign metadata and, when linked to a vendor, the
+  // campaign-by-vendor index entry, in a single transaction. The index
+  // entry denormalizes the fields needed for vendor detail views so
+  // GET /vendors/{id}/campaigns doesn't need a fan-out GetItem per
+  // campaign.
+  const transactItems = [
+    {
+      Put: {
+        TableName: process.env.TABLE_NAME,
+        Item: marshall(metadata, { removeUndefinedValues: true }),
+        ConditionExpression: "attribute_not_exists(pk)",
+      },
+    },
+  ];
+
+  if (vendor_id) {
+    const indexEntry = {
+      pk: `VENDOR#${vendor_id}`,
+      sk: `CAMPAIGN#${campaignId}`,
+      entity: "CampaignByVendor",
+      campaignId,
+      vendorId: vendor_id,
+      name: metadata.name,
+      status: finalStatus,
+      createdAt,
+    };
+    if (startDate) indexEntry.startDate = startDate;
+    if (endDate) indexEntry.endDate = endDate;
+
+    transactItems.push({
+      Put: {
+        TableName: process.env.TABLE_NAME,
+        Item: marshall(indexEntry, { removeUndefinedValues: true }),
+        ConditionExpression: "attribute_not_exists(pk)",
+      },
+    });
+  }
+
+  await ddb.send(new TransactWriteItemsCommand({ TransactItems: transactItems }));
 
   return respond(201, {
     campaign_id: campaignId,
-    name: item.name,
-    sponsor: item.sponsor ?? null,
-    startDate: item.startDate ?? null,
-    endDate: item.endDate ?? null,
+    name: metadata.name,
+    sponsor: metadata.sponsor ?? null,
+    vendor_id: metadata.vendorId ?? null,
+    startDate: metadata.startDate ?? null,
+    endDate: metadata.endDate ?? null,
     status: finalStatus,
-    targetMetrics: item.targetMetrics ?? null,
+    targetMetrics: metadata.targetMetrics ?? null,
     created_at: createdAt,
   });
 };

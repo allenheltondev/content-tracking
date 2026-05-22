@@ -106,8 +106,11 @@ Resources:
         - AWSLambdaBasicExecutionRole
         - Version: 2012-10-17
           Statement:
+            # GetItem: vendor existence check before transactional write
+            # PutItem: campaign metadata + optional campaign-by-vendor index entry (via TransactWriteItems)
             - Effect: Allow
               Action:
+                - dynamodb:GetItem
                 - dynamodb:PutItem
               Resource: !GetAtt ContentTrackingTable.Arn
       Events:
@@ -240,6 +243,174 @@ Resources:
             RestApiId: !Ref ContentTrackingApi
             Path: /campaigns/{campaignId}/links
             Method: POST
+
+  CreateVendorFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - create-vendor.mjs
+    Properties:
+      CodeUri: functions
+      Handler: create-vendor.handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+              Resource: !GetAtt ContentTrackingTable.Arn
+      Events:
+        Create:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /vendors
+            Method: POST
+
+  ListVendorsFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - list-vendors.mjs
+    Properties:
+      CodeUri: functions
+      Handler: list-vendors.handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Scan
+              Resource: !GetAtt ContentTrackingTable.Arn
+      Events:
+        List:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /vendors
+            Method: GET
+
+  GetVendorFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - get-vendor.mjs
+    Properties:
+      CodeUri: functions
+      Handler: get-vendor.handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+              Resource: !GetAtt ContentTrackingTable.Arn
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /vendors/{vendorId}
+            Method: GET
+
+  UpdateVendorFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - update-vendor.mjs
+    Properties:
+      CodeUri: functions
+      Handler: update-vendor.handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:UpdateItem
+              Resource: !GetAtt ContentTrackingTable.Arn
+      Events:
+        Update:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /vendors/{vendorId}
+            Method: PUT
+
+  DeleteVendorFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - delete-vendor.mjs
+    Properties:
+      CodeUri: functions
+      Handler: delete-vendor.handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            # Query: check for linked campaigns before allowing the delete
+            # DeleteItem: remove the vendor metadata record
+            - Effect: Allow
+              Action:
+                - dynamodb:Query
+                - dynamodb:DeleteItem
+              Resource: !GetAtt ContentTrackingTable.Arn
+      Events:
+        Delete:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /vendors/{vendorId}
+            Method: DELETE
+
+  ListVendorCampaignsFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - list-vendor-campaigns.mjs
+    Properties:
+      CodeUri: functions
+      Handler: list-vendor-campaigns.handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            # GetItem: confirm the vendor exists before querying
+            # Query: read the campaign-by-vendor index entries
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:Query
+              Resource: !GetAtt ContentTrackingTable.Arn
+      Events:
+        List:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /vendors/{vendorId}/campaigns
+            Method: GET
 
 Outputs:
   ContentTrackingTableName:
