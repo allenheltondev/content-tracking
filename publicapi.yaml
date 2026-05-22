@@ -215,6 +215,107 @@ paths:
         httpMethod: POST
         type: aws_proxy
 
+  /campaigns/{campaignId}/links/{linkId}:
+    parameters:
+      - name: campaignId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 64
+      - name: linkId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 64
+    put:
+      summary: Update an existing Link (partial update; null clears nullable fields)
+      description: |
+        Updates the editable subset of a Link. Immutable identity fields
+        (`code`, `short_url`, `url`, `role`, `platform`, `link_id`,
+        `campaign_id`) cannot be changed and will be rejected with 400.
+        Explicit `null` on `notes` or `src` clears the field; `expires_at`
+        is replaced with the value provided.
+      tags:
+        - Links
+      security:
+        - CognitoUserPoolAuthorizer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateLinkRequest"
+      responses:
+        200:
+          description: Updated Link record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Link"
+        400:
+          $ref: "#/components/responses/BadRequest"
+        404:
+          description: Link not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-request-validator: Validate All
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UpdateCampaignLinkFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
+    delete:
+      summary: Delete a Link
+      description: |
+        Removes the Link's short code from newsletter-service and then
+        deletes the local Link record. If newsletter-service responds 404
+        (the code is already gone) the local delete still proceeds so the
+        two stores converge.
+      tags:
+        - Links
+      security:
+        - CognitoUserPoolAuthorizer: []
+      responses:
+        204:
+          description: Link deleted
+        404:
+          description: Link not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        502:
+          description: Newsletter-service rejected or failed the unmint call; local record was NOT deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DeleteCampaignLinkFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
   /campaigns/{campaignId}/links/{linkId}/analytics:
     parameters:
       - name: campaignId
@@ -1042,6 +1143,31 @@ components:
           description: |
             Override how long the short code stays active. Defaults to
             newsletter-service's default (730 = 2 years).
+
+    UpdateLinkRequest:
+      type: object
+      description: |
+        Partial update of a Link's editable fields. Only `notes`, `src`,
+        and `expires_at` may be changed. Identity fields (`code`,
+        `short_url`, `url`, `role`, `platform`, `link_id`, `campaign_id`)
+        are immutable. Explicit `null` clears a nullable field.
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        notes:
+          type: string
+          maxLength: 1000
+          nullable: true
+        src:
+          type: string
+          minLength: 1
+          maxLength: 64
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: ISO 8601 timestamp the short link expires.
 
     LinkAnalytics:
       type: object
