@@ -159,4 +159,60 @@ describe("create-campaign", () => {
       expect(indexEntry.startDate).toBe("2026-05-01");
     });
   });
+
+  describe("payout", () => {
+    test("returns 400 when payout.amount is negative", async () => {
+      const res = await invoke({ name: "Launch", payout: { amount: -1 } });
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body).message).toMatch(/amount/);
+    });
+
+    test("returns 400 when payout.currency is malformed", async () => {
+      const res = await invoke({ name: "Launch", payout: { amount: 5000, currency: "usd" } });
+      expect(res.statusCode).toBe(400);
+    });
+
+    test("creates with payout defaults (USD, paid=false)", async () => {
+      const res = await invoke({ name: "Launch", payout: { amount: 5000 } });
+      expect(res.statusCode).toBe(201);
+
+      const body = JSON.parse(res.body);
+      expect(body.payout).toEqual({
+        amount: 5000,
+        currency: "USD",
+        paid: false,
+        paid_at: null,
+        invoice_ref: null,
+      });
+
+      const transactInput = mockDdbSend.mock.calls[0][0].input;
+      const item = unmarshall(transactInput.TransactItems[0].Put.Item);
+      expect(item.payout).toMatchObject({ amount: 5000, currency: "USD", paid: false });
+    });
+
+    test("creates with explicit payout fields", async () => {
+      const res = await invoke({
+        name: "Launch",
+        payout: {
+          amount: 7500,
+          currency: "USD",
+          paid: true,
+          paid_at: "2026-04-15",
+          invoice_ref: "INV-2026-042",
+        },
+      });
+      expect(res.statusCode).toBe(201);
+
+      const body = JSON.parse(res.body);
+      expect(body.payout.paid).toBe(true);
+      expect(body.payout.paid_at).toBe("2026-04-15");
+      expect(body.payout.invoice_ref).toBe("INV-2026-042");
+    });
+
+    test("returns payout=null when payout is not provided", async () => {
+      const res = await invoke({ name: "Launch" });
+      const body = JSON.parse(res.body);
+      expect(body.payout).toBeNull();
+    });
+  });
 });

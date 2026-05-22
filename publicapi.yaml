@@ -488,6 +488,117 @@ paths:
         httpMethod: POST
         type: aws_proxy
 
+  /campaigns/{campaignId}/payout:
+    parameters:
+      - name: campaignId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 64
+    patch:
+      summary: Update a campaign's payout (partial update; sets paid_at automatically when paid=true)
+      tags:
+        - Campaigns
+      security:
+        - CognitoUserPoolAuthorizer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePayoutRequest"
+      responses:
+        200:
+          description: Updated campaign with the new payout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+        400:
+          $ref: "#/components/responses/BadRequest"
+        404:
+          description: Campaign not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-request-validator: Validate All
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UpdateCampaignPayoutFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
+  /revenue:
+    get:
+      summary: Aggregate campaign payouts (booked vs received, grouped by month/year/vendor)
+      tags:
+        - Revenue
+      security:
+        - CognitoUserPoolAuthorizer: []
+      parameters:
+        - name: year
+          in: query
+          description: Calendar year. Defaults to current. Mutually exclusive with startDate/endDate.
+          schema:
+            type: integer
+            minimum: 1900
+            maximum: 2999
+        - name: startDate
+          in: query
+          description: ISO 8601 date (inclusive). Mutually exclusive with year.
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          description: ISO 8601 date (inclusive). Mutually exclusive with year.
+          schema:
+            type: string
+            format: date
+        - name: vendorId
+          in: query
+          description: ULID. Scope to one vendor.
+          schema:
+            type: string
+            pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+        - name: grouping
+          in: query
+          description: How to roll up `groups`. Default `month`.
+          schema:
+            type: string
+            enum: [year, month, vendor]
+            default: month
+        - name: paidOnly
+          in: query
+          description: When true, exclude campaigns that haven't been marked paid.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        200:
+          description: Revenue rollup
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevenueResponse"
+        400:
+          $ref: "#/components/responses/BadRequest"
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetRevenueFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
 components:
   securitySchemes:
     CognitoUserPoolAuthorizer:
@@ -538,6 +649,8 @@ components:
           type: object
           description: Free-form sponsor targets, stored as-is
           additionalProperties: true
+        payout:
+          $ref: "#/components/schemas/Payout"
 
     Campaign:
       type: object
@@ -571,9 +684,157 @@ components:
         targetMetrics:
           type: object
           nullable: true
+        payout:
+          allOf:
+            - $ref: "#/components/schemas/Payout"
+          nullable: true
         created_at:
           type: string
           format: date-time
+
+    Payout:
+      type: object
+      required:
+        - amount
+      properties:
+        amount:
+          type: number
+          minimum: 0
+          description: Numeric amount in the payout's currency.
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          default: USD
+          description: ISO 4217 alphabetic code. Only USD aggregates in /revenue today.
+        paid:
+          type: boolean
+          default: false
+        paid_at:
+          type: string
+          format: date
+          nullable: true
+        invoice_ref:
+          type: string
+          maxLength: 200
+          nullable: true
+
+    UpdatePayoutRequest:
+      type: object
+      description: |
+        Partial update of a campaign's payout. Fields not present are left
+        unchanged. Setting `paid: true` without a `paid_at` defaults paid_at
+        to today's date. Setting `paid: false` without paid_at clears it.
+        Only `paid_at` and `invoice_ref` accept explicit `null` (to clear).
+      properties:
+        amount:
+          type: number
+          minimum: 0
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+        paid:
+          type: boolean
+        paid_at:
+          type: string
+          format: date
+          nullable: true
+        invoice_ref:
+          type: string
+          maxLength: 200
+          nullable: true
+
+    RevenueAggregate:
+      type: object
+      required:
+        - amount
+        - campaignCount
+      properties:
+        amount:
+          type: number
+        campaignCount:
+          type: integer
+
+    RevenueGroup:
+      type: object
+      required:
+        - key
+        - amount
+        - campaignCount
+      properties:
+        key:
+          type: string
+          description: |
+            Bucket key. For grouping=month it's YYYY-MM; grouping=year it's
+            YYYY; grouping=vendor it's the vendor_id or "unassigned".
+        amount:
+          type: number
+        campaignCount:
+          type: integer
+        bookedAmount:
+          type: number
+        bookedCount:
+          type: integer
+        receivedAmount:
+          type: number
+        receivedCount:
+          type: integer
+
+    RevenueSkipped:
+      type: object
+      required:
+        - campaign_id
+        - currency
+        - amount
+        - reason
+      properties:
+        campaign_id:
+          type: string
+        currency:
+          type: string
+        amount:
+          type: number
+        reason:
+          type: string
+
+    RevenueResponse:
+      type: object
+      required:
+        - currency
+        - range
+        - total
+        - booked
+        - received
+        - groups
+        - skipped
+      properties:
+        currency:
+          type: string
+          description: Currency the aggregation is denominated in (USD today).
+        range:
+          type: object
+          properties:
+            startDate:
+              type: string
+              format: date
+              nullable: true
+            endDate:
+              type: string
+              format: date
+              nullable: true
+        total:
+          $ref: "#/components/schemas/RevenueAggregate"
+        booked:
+          $ref: "#/components/schemas/RevenueAggregate"
+        received:
+          $ref: "#/components/schemas/RevenueAggregate"
+        groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/RevenueGroup"
+        skipped:
+          type: array
+          items:
+            $ref: "#/components/schemas/RevenueSkipped"
 
     CreateVendorRequest:
       type: object

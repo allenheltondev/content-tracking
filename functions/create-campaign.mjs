@@ -2,6 +2,7 @@ import { DynamoDBClient, TransactWriteItemsCommand, GetItemCommand } from "@aws-
 import { marshall } from "@aws-sdk/util-dynamodb";
 import { ulid } from "ulid";
 import { respond } from "./utils/response.mjs";
+import { formatPayout, validatePayoutPayload } from "./utils/payout.mjs";
 
 const ddb = new DynamoDBClient();
 
@@ -20,7 +21,7 @@ export const handler = async (event) => {
     return respond(400, "Invalid JSON body");
   }
 
-  const { name, sponsor, vendor_id, startDate, endDate, status, targetMetrics } = body;
+  const { name, sponsor, vendor_id, startDate, endDate, status, targetMetrics, payout } = body;
 
   if (!name || typeof name !== "string" || name.trim().length === 0) {
     return respond(400, "name is required");
@@ -47,6 +48,15 @@ export const handler = async (event) => {
   }
   if (targetMetrics !== undefined && (typeof targetMetrics !== "object" || Array.isArray(targetMetrics) || targetMetrics === null)) {
     return respond(400, "targetMetrics must be an object");
+  }
+
+  let validatedPayout;
+  if (payout !== undefined && payout !== null) {
+    const payoutValidation = validatePayoutPayload(payout, { partial: false });
+    if (!payoutValidation.ok) {
+      return respond(400, payoutValidation.message);
+    }
+    validatedPayout = payoutValidation.value;
   }
 
   // If vendor_id is supplied, confirm the vendor exists before we attempt
@@ -82,6 +92,7 @@ export const handler = async (event) => {
   if (startDate) metadata.startDate = startDate;
   if (endDate) metadata.endDate = endDate;
   if (targetMetrics) metadata.targetMetrics = targetMetrics;
+  if (validatedPayout) metadata.payout = validatedPayout;
 
   // Write the campaign metadata and, when linked to a vendor, the
   // campaign-by-vendor index entry, in a single transaction. The index
@@ -132,6 +143,7 @@ export const handler = async (event) => {
     endDate: metadata.endDate ?? null,
     status: finalStatus,
     targetMetrics: metadata.targetMetrics ?? null,
+    payout: formatPayout(metadata.payout),
     created_at: createdAt,
   });
 };
