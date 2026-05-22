@@ -1,0 +1,114 @@
+import { logger } from "./logger.mjs";
+import { ApiError } from "./errors.mjs";
+
+// Wraps a Powertools Router with the conventions every route in this
+// service shares: JSON responses, CORS headers, correlation IDs, and
+// uniform error → status code mapping.
+//
+// Ported from olivias-garden-foundation's services/okra-api/src/services/
+// http-handler.mjs, adapted to this stack (no tenant-routing, no auth
+// extraction — API Gateway's Cognito authorizer handled that already).
+
+const CORS_HEADERS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers": "authorization,content-type,idempotency-key",
+  "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+};
+
+const JSON_HEADERS = {
+  "content-type": "application/json",
+  ...CORS_HEADERS,
+};
+
+export function createHttpRouterHandler({ app, handlerName }) {
+  return async (event, context) => {
+    const correlationId = getCorrelationId(event);
+    logger.appendKeys({ correlationId, handler: handlerName });
+
+    // CORS preflight short-circuit — API Gateway sometimes routes
+    // OPTIONS through the integration when the SAM Auth.DefaultAuthorizer
+    // is set. Return immediately with the allow headers.
+    if (event.httpMethod === "OPTIONS" || event.requestContext?.http?.method === "OPTIONS") {
+      return {
+        statusCode: 204,
+        headers: CORS_HEADERS,
+        body: "",
+      };
+    }
+
+    try {
+      const response = await app.resolve(event, context);
+      return finalize(response);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        logger.warn(`${handlerName} mapped error`, {
+          statusCode: err.statusCode,
+          code: err.code,
+          message: err.message,
+        });
+        return jsonResponse(err.statusCode, { message: err.message, code: err.code });
+      }
+      logger.error(`${handlerName} unhandled error`, {
+        error: err?.message,
+        stack: err?.stack,
+      });
+      return jsonResponse(500, { message: "Internal server error" });
+    } finally {
+      // Clear request-scoped logger keys so the next invocation starts fresh.
+      logger.resetKeys();
+    }
+  };
+}
+
+export function jsonResponse(statusCode, body) {
+  return {
+    statusCode,
+    headers: JSON_HEADERS,
+    body: typeof body === "string" ? JSON.stringify({ message: body }) : JSON.stringify(body),
+  };
+}
+
+export function emptyResponse(statusCode = 204) {
+  return {
+    statusCode,
+    headers: CORS_HEADERS,
+    body: "",
+  };
+}
+
+// Normalizes the Powertools Router return value into the API Gateway
+// response shape. The Router can return either a `Response` instance
+// (Fetch API style) or a plain object — handle both.
+async function finalize(response) {
+  if (response && typeof response === "object" && "statusCode" in response) {
+    // Already-shaped API Gateway response. Just ensure CORS headers exist.
+    return {
+      ...response,
+      headers: { ...CORS_HEADERS, ...(response.headers ?? {}) },
+    };
+  }
+
+  if (typeof Response !== "undefined" && response instanceof Response) {
+    const body = await response.text();
+    const headers = {};
+    for (const [k, v] of response.headers.entries()) headers[k] = v;
+    return {
+      statusCode: response.status,
+      headers: { ...CORS_HEADERS, ...headers },
+      body,
+    };
+  }
+
+  // Bare object — assume 200 JSON.
+  return jsonResponse(200, response);
+}
+
+function getCorrelationId(event) {
+  const headers = event?.headers ?? {};
+  return (
+    headers["x-correlation-id"] ||
+    headers["X-Correlation-Id"] ||
+    event?.requestContext?.requestId ||
+    null
+  );
+}
