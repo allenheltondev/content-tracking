@@ -1,7 +1,7 @@
 import { jest } from "@jest/globals";
 import { marshall } from "@aws-sdk/util-dynamodb";
 
-const { DynamoDBClient, GetItemCommand } = await import("@aws-sdk/client-dynamodb");
+const { DynamoDBClient } = await import("@aws-sdk/client-dynamodb");
 
 process.env.TABLE_NAME = "test-content-tracking";
 process.env.NEWSLETTER_API_BASE_URL = "https://example.execute-api.us-east-1.amazonaws.com/public";

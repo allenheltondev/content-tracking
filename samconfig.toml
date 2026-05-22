@@ -1,8 +1,11 @@
 version = 0.1
 
-# Secret parameters (ApiKeyValue, NewsletterMintApiKey) are NOT defined here.
-# Provide them via samconfig.local.toml (gitignored) or
-# `sam deploy --parameter-overrides "ApiKeyValue=... NewsletterMintApiKey=..."`.
+# Secret parameter NewsletterMintApiKey is NOT defined here.
+# Provide it via samconfig.local.toml (gitignored) or
+# `sam deploy --parameter-overrides "NewsletterMintApiKey=..."`.
+#
+# CognitoUserPoolArn resolves from SSM `/readysetcloud/auth/user-pool-arn`
+# (published by rsc-core) at deploy time, no override needed.
 
 [default.build.parameters]
 parallel = true
@@ -17,9 +20,21 @@ s3_prefix = "content-tracking"
 region = "us-east-1"
 capabilities = "CAPABILITY_IAM"
 parameter_overrides = [
-  "Environment=sandbox",
-  "NewsletterApiBaseUrl=/newsletter-service/sandbox/newsletter-api-base-url",
-  "CampaignShortLinkBase=/newsletter-service/sandbox/campaign-short-link-base",
+  "Environment=staging",
+  "NewsletterApiBaseUrl=/newsletter-service/staging/newsletter-api-base-url",
+  "CampaignShortLinkBase=/newsletter-service/staging/campaign-short-link-base",
+]
+
+[ci.deploy.parameters]
+stack_name = "content-tracking"
+resolve_s3 = true
+s3_prefix = "content-tracking"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+  "Environment=staging",
+  "NewsletterApiBaseUrl=/newsletter-service/staging/newsletter-api-base-url",
+  "CampaignShortLinkBase=/newsletter-service/staging/campaign-short-link-base",
 ]
 
 [prod.deploy.parameters]

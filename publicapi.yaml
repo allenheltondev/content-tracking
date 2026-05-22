@@ -28,7 +28,7 @@ paths:
       tags:
         - Campaigns
       security:
-        - ApiKeyHeader: []
+        - CognitoUserPoolAuthorizer: []
       requestBody:
         required: true
         content:
@@ -67,7 +67,7 @@ paths:
       tags:
         - Campaigns
       security:
-        - ApiKeyHeader: []
+        - CognitoUserPoolAuthorizer: []
       responses:
         200:
           description: Campaign with its registered links
@@ -118,7 +118,7 @@ paths:
       tags:
         - Campaigns
       security:
-        - ApiKeyHeader: []
+        - CognitoUserPoolAuthorizer: []
       responses:
         200:
           description: Campaign-level click rollup
@@ -172,7 +172,7 @@ paths:
       tags:
         - Links
       security:
-        - ApiKeyHeader: []
+        - CognitoUserPoolAuthorizer: []
       requestBody:
         required: true
         content:
@@ -237,7 +237,7 @@ paths:
       tags:
         - Links
       security:
-        - ApiKeyHeader: []
+        - CognitoUserPoolAuthorizer: []
       responses:
         200:
           description: Analytics for the link
@@ -273,10 +273,15 @@ paths:
 
 components:
   securitySchemes:
-    ApiKeyHeader:
+    CognitoUserPoolAuthorizer:
       type: apiKey
       in: header
-      name: x-api-key
+      name: Authorization
+      x-amazon-apigateway-authtype: cognito_user_pools
+      x-amazon-apigateway-authorizer:
+        type: cognito_user_pools
+        providerARNs:
+          - Fn::Sub: "${CognitoUserPoolArn}"
 
   schemas:
     CreateCampaignRequest:
