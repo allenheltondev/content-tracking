@@ -1,6 +1,7 @@
 import { DynamoDBClient, QueryCommand } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { respond } from "./utils/response.mjs";
+import { formatPayout } from "./utils/payout.mjs";
 
 const ddb = new DynamoDBClient();
 
@@ -54,6 +55,7 @@ function formatCampaign(row) {
     endDate: row.endDate ?? null,
     status: row.status,
     targetMetrics: row.targetMetrics ?? null,
+    payout: formatPayout(row.payout),
     created_at: row.createdAt,
   };
 }

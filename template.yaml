@@ -412,6 +412,65 @@ Resources:
             Path: /vendors/{vendorId}/campaigns
             Method: GET
 
+  UpdateCampaignPayoutFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - update-campaign-payout.mjs
+    Properties:
+      CodeUri: functions
+      Handler: update-campaign-payout.handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:UpdateItem
+              Resource: !GetAtt ContentTrackingTable.Arn
+      Events:
+        UpdatePayout:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /campaigns/{campaignId}/payout
+            Method: PATCH
+
+  GetRevenueFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - get-revenue.mjs
+    Properties:
+      CodeUri: functions
+      Handler: get-revenue.handler
+      # Revenue rollups Scan the whole table and aggregate in memory. The
+      # campaign cardinality this stack targets keeps that well under the
+      # default 15s timeout, but bump it a bit for safety as the dataset
+      # grows.
+      Timeout: 30
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Scan
+              Resource: !GetAtt ContentTrackingTable.Arn
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /revenue
+            Method: GET
+
 Outputs:
   ContentTrackingTableName:
     Description: DynamoDB single-table for content-tracking
