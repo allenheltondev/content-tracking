@@ -49,6 +49,7 @@ function formatCampaign(row) {
     campaign_id: row.campaignId,
     name: row.name,
     sponsor: row.sponsor ?? null,
+    vendor_id: row.vendorId ?? null,
     startDate: row.startDate ?? null,
     endDate: row.endDate ?? null,
     status: row.status,

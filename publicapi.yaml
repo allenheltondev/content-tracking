@@ -271,6 +271,223 @@ paths:
         httpMethod: POST
         type: aws_proxy
 
+  /vendors:
+    post:
+      summary: Create a vendor
+      tags:
+        - Vendors
+      security:
+        - CognitoUserPoolAuthorizer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVendorRequest"
+      responses:
+        201:
+          description: Vendor created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vendor"
+        400:
+          $ref: "#/components/responses/BadRequest"
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-request-validator: Validate All
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreateVendorFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
+    get:
+      summary: List vendors
+      tags:
+        - Vendors
+      security:
+        - CognitoUserPoolAuthorizer: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+        - name: startKey
+          in: query
+          description: Base64-encoded pagination token returned as nextStartKey
+          schema:
+            type: string
+      responses:
+        200:
+          description: Vendor list (paginated)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VendorList"
+        400:
+          $ref: "#/components/responses/BadRequest"
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ListVendorsFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
+  /vendors/{vendorId}:
+    parameters:
+      - name: vendorId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+    get:
+      summary: Get a vendor by id
+      tags:
+        - Vendors
+      security:
+        - CognitoUserPoolAuthorizer: []
+      responses:
+        200:
+          description: Vendor record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vendor"
+        404:
+          description: Vendor not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetVendorFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
+    put:
+      summary: Update a vendor (partial update; null values clear optional fields)
+      tags:
+        - Vendors
+      security:
+        - CognitoUserPoolAuthorizer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateVendorRequest"
+      responses:
+        200:
+          description: Updated vendor record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vendor"
+        400:
+          $ref: "#/components/responses/BadRequest"
+        404:
+          description: Vendor not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-request-validator: Validate All
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UpdateVendorFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
+    delete:
+      summary: Delete a vendor (fails with 409 if linked campaigns exist)
+      tags:
+        - Vendors
+      security:
+        - CognitoUserPoolAuthorizer: []
+      responses:
+        204:
+          description: Vendor deleted
+        404:
+          description: Vendor not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        409:
+          description: Vendor has linked campaigns
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DeleteVendorFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
+  /vendors/{vendorId}/campaigns:
+    parameters:
+      - name: vendorId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+    get:
+      summary: List campaigns linked to a vendor
+      tags:
+        - Vendors
+      security:
+        - CognitoUserPoolAuthorizer: []
+      responses:
+        200:
+          description: Campaigns associated with this vendor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VendorCampaignList"
+        404:
+          description: Vendor not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ListVendorCampaignsFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
 components:
   securitySchemes:
     CognitoUserPoolAuthorizer:
@@ -297,6 +514,16 @@ components:
         sponsor:
           type: string
           maxLength: 200
+          description: |
+            Free-form sponsor name. Legacy field; prefer vendor_id when
+            the sponsor exists as a Vendor record. Both may be omitted.
+        vendor_id:
+          type: string
+          pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+          description: |
+            ULID of an existing Vendor. When provided, also writes a
+            campaign-by-vendor index entry so GET /vendors/{id}/campaigns
+            includes this campaign.
         startDate:
           type: string
           format: date
@@ -327,6 +554,9 @@ components:
         sponsor:
           type: string
           nullable: true
+        vendor_id:
+          type: string
+          nullable: true
         startDate:
           type: string
           format: date
@@ -344,6 +574,173 @@ components:
         created_at:
           type: string
           format: date-time
+
+    CreateVendorRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        website:
+          type: string
+          maxLength: 500
+        contact_name:
+          type: string
+          maxLength: 200
+        contact_email:
+          type: string
+          format: email
+          maxLength: 320
+        payment_terms:
+          type: string
+          maxLength: 500
+          description: Free-form notes (net 30, etc.). Not validated semantically.
+        tags:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            minLength: 1
+            maxLength: 50
+        notes:
+          type: string
+          maxLength: 2000
+
+    UpdateVendorRequest:
+      type: object
+      description: |
+        Partial update. Only fields present in the body are touched. Explicit
+        null clears an optional field (cannot clear `name`).
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        website:
+          type: string
+          maxLength: 500
+          nullable: true
+        contact_name:
+          type: string
+          maxLength: 200
+          nullable: true
+        contact_email:
+          type: string
+          format: email
+          maxLength: 320
+          nullable: true
+        payment_terms:
+          type: string
+          maxLength: 500
+          nullable: true
+        tags:
+          type: array
+          maxItems: 20
+          nullable: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 50
+        notes:
+          type: string
+          maxLength: 2000
+          nullable: true
+
+    Vendor:
+      type: object
+      required:
+        - vendor_id
+        - name
+        - created_at
+        - updated_at
+      properties:
+        vendor_id:
+          type: string
+          pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+        name:
+          type: string
+        website:
+          type: string
+          nullable: true
+        contact_name:
+          type: string
+          nullable: true
+        contact_email:
+          type: string
+          nullable: true
+        payment_terms:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+        notes:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    VendorList:
+      type: object
+      required:
+        - vendors
+      properties:
+        vendors:
+          type: array
+          items:
+            $ref: "#/components/schemas/Vendor"
+        nextStartKey:
+          type: string
+          nullable: true
+          description: Base64-encoded pagination token. Null when there are no more pages.
+
+    VendorCampaignSummary:
+      type: object
+      required:
+        - campaign_id
+        - name
+        - status
+        - created_at
+      properties:
+        campaign_id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [draft, active, completed]
+        startDate:
+          type: string
+          format: date
+          nullable: true
+        endDate:
+          type: string
+          format: date
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    VendorCampaignList:
+      type: object
+      required:
+        - vendor_id
+        - campaigns
+      properties:
+        vendor_id:
+          type: string
+        campaigns:
+          type: array
+          items:
+            $ref: "#/components/schemas/VendorCampaignSummary"
 
     CreateLinkRequest:
       type: object
