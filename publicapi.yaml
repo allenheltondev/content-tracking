@@ -53,6 +53,54 @@ paths:
         httpMethod: POST
         type: aws_proxy
 
+    get:
+      summary: List campaigns
+      tags:
+        - Campaigns
+      security:
+        - CognitoUserPoolAuthorizer: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+        - name: startKey
+          in: query
+          description: Base64-encoded pagination token returned as nextStartKey
+          schema:
+            type: string
+        - name: vendorId
+          in: query
+          description: ULID. Filter to a single vendor's campaigns.
+          schema:
+            type: string
+            pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+        - name: status
+          in: query
+          description: Filter by campaign status.
+          schema:
+            type: string
+            enum: [draft, active, completed]
+      responses:
+        200:
+          description: Campaign list (paginated, sorted by created_at descending)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignList"
+        400:
+          $ref: "#/components/responses/BadRequest"
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ListCampaignsFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
   /campaigns/{campaignId}:
     parameters:
       - name: campaignId
@@ -691,6 +739,20 @@ components:
         created_at:
           type: string
           format: date-time
+
+    CampaignList:
+      type: object
+      required:
+        - campaigns
+      properties:
+        campaigns:
+          type: array
+          items:
+            $ref: "#/components/schemas/Campaign"
+        nextStartKey:
+          type: string
+          nullable: true
+          description: Base64-encoded pagination token. Null when there are no more pages.
 
     Payout:
       type: object

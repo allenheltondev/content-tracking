@@ -148,6 +148,33 @@ Resources:
             Path: /campaigns/{campaignId}
             Method: GET
 
+  ListCampaignsFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - list-campaigns.mjs
+    Properties:
+      CodeUri: functions
+      Handler: list-campaigns.handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Scan
+              Resource: !GetAtt ContentTrackingTable.Arn
+      Events:
+        List:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /campaigns
+            Method: GET
+
   GetCampaignLinkAnalyticsFunction:
     Type: AWS::Serverless::Function
     Metadata:
