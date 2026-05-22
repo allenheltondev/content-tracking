@@ -7,3 +7,6 @@ coverage/
 samconfig.local.toml
 *.log
 .claude/
+
+# dashboard-ui build output
+dashboard-ui/dist/
