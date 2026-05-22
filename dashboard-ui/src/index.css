@@ -1,0 +1,106 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: #1a1a1a;
+  background-color: #f6f7f9;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+a {
+  color: #0b66c2;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+h1,
+h2,
+h3 {
+  margin-top: 0;
+  line-height: 1.25;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  padding: 0.75rem 1.5rem;
+  background: #ffffff;
+  border-bottom: 1px solid #e3e6eb;
+}
+
+.app-brand {
+  font-weight: 600;
+}
+
+.brand-link {
+  color: #1a1a1a;
+}
+
+.app-nav {
+  display: flex;
+  gap: 1rem;
+}
+
+.nav-link {
+  color: #4a4a4a;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.nav-link:hover {
+  background: #f0f2f5;
+  text-decoration: none;
+}
+
+.nav-link-active {
+  color: #0b66c2;
+  background: #e8f0fa;
+}
+
+.app-main {
+  flex: 1;
+  padding: 1.5rem;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.placeholder {
+  background: #ffffff;
+  border: 1px solid #e3e6eb;
+  border-radius: 6px;
+  padding: 1.5rem;
+}
+
+.placeholder-meta {
+  color: #6a6a6a;
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+}
