@@ -54,6 +54,7 @@ export function registerAnalyticsRoutes(app) {
         total_clicks: 0,
         by_role: {},
         by_platform: {},
+        by_day: {},
         upstream_failures: 0,
         links: [],
       });
@@ -103,14 +104,21 @@ function aggregate(perLink) {
   let totalClicks = 0;
   const byRole = {};
   const byPlatform = {};
+  const byDay = {};
   for (const { link, analytics } of perLink) {
     if (!analytics) continue;
     const clicks = analytics.total_clicks ?? 0;
     totalClicks += clicks;
     byRole[link.role] = (byRole[link.role] || 0) + clicks;
     byPlatform[link.platform] = (byPlatform[link.platform] || 0) + clicks;
+    if (analytics.by_day && typeof analytics.by_day === "object") {
+      for (const [day, count] of Object.entries(analytics.by_day)) {
+        const n = typeof count === "number" ? count : 0;
+        byDay[day] = (byDay[day] || 0) + n;
+      }
+    }
   }
-  return { total_clicks: totalClicks, by_role: byRole, by_platform: byPlatform };
+  return { total_clicks: totalClicks, by_role: byRole, by_platform: byPlatform, by_day: byDay };
 }
 
 async function runInBatches(ops, batchSize) {
