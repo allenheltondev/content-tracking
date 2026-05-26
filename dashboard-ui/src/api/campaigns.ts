@@ -1,0 +1,56 @@
+import type { ApiFetch } from '../auth/useApiFetch';
+import type {
+  Campaign,
+  CampaignAnalyticsResponse,
+  CampaignDetailResponse,
+  CampaignLink,
+  CampaignListResponse,
+  CampaignStatus,
+  CreateCampaignRequest,
+  CreateLinkRequest,
+} from './types';
+
+export async function listCampaigns(
+  apiFetch: ApiFetch,
+  options: { status?: CampaignStatus; limit?: number; startKey?: string } = {},
+): Promise<CampaignListResponse> {
+  return apiFetch<CampaignListResponse>('/campaigns', {
+    query: {
+      status: options.status,
+      limit: options.limit ?? 100,
+      startKey: options.startKey,
+    },
+  });
+}
+
+export async function getCampaign(
+  apiFetch: ApiFetch,
+  campaignId: string,
+): Promise<CampaignDetailResponse> {
+  return apiFetch<CampaignDetailResponse>(`/campaigns/${campaignId}`);
+}
+
+export async function getCampaignAnalytics(
+  apiFetch: ApiFetch,
+  campaignId: string,
+): Promise<CampaignAnalyticsResponse> {
+  return apiFetch<CampaignAnalyticsResponse>(`/campaigns/${campaignId}/analytics`);
+}
+
+export async function createCampaign(
+  apiFetch: ApiFetch,
+  payload: CreateCampaignRequest,
+): Promise<Campaign> {
+  return apiFetch<Campaign>('/campaigns', { method: 'POST', body: payload });
+}
+
+export async function createLink(
+  apiFetch: ApiFetch,
+  campaignId: string,
+  payload: CreateLinkRequest,
+): Promise<CampaignLink> {
+  return apiFetch<CampaignLink>(`/campaigns/${campaignId}/links`, {
+    method: 'POST',
+    body: payload,
+  });
+}
