@@ -14,7 +14,8 @@ import { TABLE_NAME } from "./ddb.mjs";
 // The Idempotency-Key request header is the source of the idempotency
 // hash. POST routes wrap their handlers in `withIdempotency(...)` so
 // retries with the same header return the cached response without
-// re-executing side effects.
+// re-executing side effects. The header is optional: requests without
+// it just execute normally with no idempotency record written.
 
 const persistence = new DynamoDBPersistenceLayer({
   tableName: TABLE_NAME,
@@ -31,13 +32,15 @@ const persistence = new DynamoDBPersistenceLayer({
 });
 
 const config = new IdempotencyConfig({
-  // JMESPath against the API Gateway event. Header lookups in
-  // API Gateway are case-sensitive; OGF handles both casings the same
-  // way.
-  eventKeyJmesPath: 'headers."Idempotency-Key" || headers."idempotency-key"',
-  // Header is required on POST routes that opt into idempotency. The
-  // wrapper below catches the resulting error and surfaces it as 400.
-  throwOnNoIdempotencyKey: true,
+  // JMESPath against the wrapped Router reqCtx (the first argument of
+  // route handlers). The Router nests the API Gateway event one level
+  // deep at `.event`, so headers live at `event.headers.*` rather than
+  // at the root. Both casings handled because API Gateway header
+  // lookups are case-sensitive.
+  eventKeyJmesPath: 'event.headers."Idempotency-Key" || event.headers."idempotency-key"',
+  // Header is optional. When absent, makeIdempotent skips the
+  // DynamoDB write and just executes the handler.
+  throwOnNoIdempotencyKey: false,
   expiresAfterSeconds: 24 * 60 * 60,
 });
 
