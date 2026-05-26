@@ -128,7 +128,7 @@ deploy time; these are not secrets):
 The Cognito user pool ARN itself is always read from
 `/readysetcloud/auth/user-pool-arn`.
 
-After SAM deploys, both workflows also build `dashboard-ui/` with these
+After SAM deploys, both workflows also build `ui/` with these
 variables (the redirect URIs are derived from the `DashboardUrl` stack
 output), sync the output to the `DashboardBucket`, and invalidate the
 CloudFront distribution. The deploy summary lists both the API URL and
@@ -224,7 +224,7 @@ them via `--parameter-overrides` in the deploy workflow.
 
 ## Dashboard UI
 
-`dashboard-ui/` is a Vite + React app that signs users into the shared
+`ui/` is a Vite + React app that signs users into the shared
 `RSCUserPool` via aws-amplify (USER_PASSWORD_AUTH) and calls this
 stack's API with the resulting access token. Same auth approach
 newsletter-service uses, so an existing newsletter-service account
@@ -248,10 +248,10 @@ then logs in here with the same email + password.
 ### Local dev
 
 ```bash
-cp dashboard-ui/.env.example dashboard-ui/.env.local
+cp ui/.env.example ui/.env.local
 # fill in VITE_USER_POOL_ID, VITE_USER_POOL_CLIENT_ID, and
 # VITE_API_BASE_URL
-cd dashboard-ui
+cd ui
 npm install
 npm run dev
 ```

@@ -12,7 +12,7 @@ function required(name: string): string {
   const value = import.meta.env[name];
   if (typeof value !== 'string' || value.length === 0) {
     throw new Error(
-      `Missing required env var ${name}. Copy dashboard-ui/.env.example to .env.local and fill it in.`,
+      `Missing required env var ${name}. Copy ui/.env.example to .env.local and fill it in.`,
     );
   }
   return value;

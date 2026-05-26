@@ -8,5 +8,5 @@ samconfig.local.toml
 *.log
 .claude/
 
-# dashboard-ui build output
-dashboard-ui/dist/
+# dashboard UI build output
+ui/dist/

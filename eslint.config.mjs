@@ -21,6 +21,6 @@ export default [
     },
   },
   {
-    ignores: ['.aws-sam/**', 'coverage/**', 'node_modules/**', 'dashboard-ui/**'],
+    ignores: ['.aws-sam/**', 'coverage/**', 'node_modules/**', 'ui/**'],
   },
 ];
