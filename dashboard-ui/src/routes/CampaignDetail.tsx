@@ -140,7 +140,17 @@ export default function CampaignDetail(): ReactElement {
             </p>
           )}
         </div>
-        <span className={`status-pill status-${campaign.status}`}>{campaign.status}</span>
+        <div className="flex items-center gap-2">
+          <Link
+            to={`/campaigns/${campaign.campaign_id}/report`}
+            target="_blank"
+            rel="noreferrer"
+            className="btn-secondary"
+          >
+            Sponsor report
+          </Link>
+          <span className={`status-pill status-${campaign.status}`}>{campaign.status}</span>
+        </div>
       </header>
 
       <dl className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">

@@ -5,6 +5,7 @@ import Home from './routes/Home';
 import SignIn from './routes/SignIn';
 import Campaigns from './routes/Campaigns';
 import CampaignDetail from './routes/CampaignDetail';
+import CampaignReport from './routes/CampaignReport';
 import Vendors from './routes/Vendors';
 import VendorDetail from './routes/VendorDetail';
 import VendorNew from './routes/VendorNew';
@@ -17,6 +18,16 @@ export const router = createBrowserRouter([
   {
     path: '/signin',
     element: <SignIn />,
+  },
+  {
+    // Sponsor-facing print report. Sits outside the App shell so the
+    // nav header / sign-out button don't show up in the printed PDF.
+    path: '/campaigns/:campaignId/report',
+    element: (
+      <ProtectedRoute>
+        <CampaignReport />
+      </ProtectedRoute>
+    ),
   },
   {
     path: '/',
