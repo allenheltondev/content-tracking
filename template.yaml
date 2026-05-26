@@ -43,6 +43,29 @@ Parameters:
       Region the BedrockRuntime client is configured for. Stays separate
       from the stack region so you can route to a region where the model
       is available without moving the rest of the stack.
+  DashboardCustomDomain:
+    Type: String
+    Default: ""
+    Description: |
+      Optional custom domain for the dashboard (e.g. tracking.example.com).
+      Leave empty to serve the dashboard from the CloudFront-issued
+      domain only. When set, DashboardHostedZoneId and
+      DashboardCertificateArn must also be provided.
+  DashboardHostedZoneId:
+    Type: String
+    Default: ""
+    Description: |
+      Route53 hosted zone id containing DashboardCustomDomain. Required
+      when DashboardCustomDomain is set.
+  DashboardCertificateArn:
+    Type: String
+    Default: ""
+    Description: |
+      ACM certificate ARN (must live in us-east-1 for CloudFront) covering
+      DashboardCustomDomain. Required when DashboardCustomDomain is set.
+
+Conditions:
+  HasDashboardCustomDomain: !Not [!Equals [!Ref DashboardCustomDomain, ""]]
 
 Metadata:
   esbuild-properties: &esbuild-properties
@@ -269,6 +292,145 @@ Resources:
             Path: /
             Method: ANY
 
+  # Static hosting for dashboard-ui. Bucket is private; only the
+  # CloudFront distribution (via OAC) can read it. SPA routing is
+  # handled by rewriting 403/404 to /index.html so deep links survive a
+  # refresh. The CI deploy step builds dashboard-ui, syncs the output
+  # here, and invalidates the distribution.
+  DashboardBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "content-tracking-dashboard-${Environment}-${AWS::AccountId}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+
+  DashboardOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-${Environment}-dashboard-oac"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy.
+  # Applied to every response served by the distribution. We pin
+  # frame-ancestors to deny because nothing in the dashboard needs to
+  # be embedded.
+  DashboardResponseHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub "${AWS::StackName}-${Environment}-dashboard-headers"
+        SecurityHeadersConfig:
+          ContentTypeOptions:
+            Override: true
+          FrameOptions:
+            FrameOption: DENY
+            Override: true
+          ReferrerPolicy:
+            ReferrerPolicy: strict-origin-when-cross-origin
+            Override: true
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 63072000
+            IncludeSubdomains: true
+            Preload: true
+            Override: true
+
+  DashboardDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "${AWS::StackName} dashboard (${Environment})"
+        DefaultRootObject: index.html
+        HttpVersion: http2
+        IPV6Enabled: true
+        # PriceClass_100 keeps cost down (US/EU edges only). Personal-scale
+        # usage; revisit if a non-US/EU audience matters later.
+        PriceClass: PriceClass_100
+        Aliases: !If
+          - HasDashboardCustomDomain
+          - [!Ref DashboardCustomDomain]
+          - !Ref AWS::NoValue
+        ViewerCertificate: !If
+          - HasDashboardCustomDomain
+          - AcmCertificateArn: !Ref DashboardCertificateArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
+        Origins:
+          - Id: dashboard-origin
+            DomainName: !GetAtt DashboardBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+            OriginAccessControlId: !GetAtt DashboardOAC.Id
+        DefaultCacheBehavior:
+          TargetOriginId: dashboard-origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          # CachingOptimized — AWS managed cache policy id. Honors
+          # origin Cache-Control headers, which is exactly what the CI
+          # sync uses to split index.html (no-cache) from /assets/*
+          # (immutable, 1y).
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          ResponseHeadersPolicyId: !Ref DashboardResponseHeadersPolicy
+        CustomErrorResponses:
+          # SPA routing — react-router needs /index.html for any path
+          # the bucket doesn't have an object for. OAC + private bucket
+          # returns 403 for missing keys (not 404), so we rewrite both.
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+
+  DashboardBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DashboardBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFrontOACRead
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${DashboardBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${DashboardDistribution}"
+
+  # Z2FDTNDATAQYW2 is the CloudFront alias hosted zone — constant for
+  # every distribution per AWS docs.
+  DashboardDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: HasDashboardCustomDomain
+    Properties:
+      HostedZoneId: !Ref DashboardHostedZoneId
+      Name: !Ref DashboardCustomDomain
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt DashboardDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+        EvaluateTargetHealth: false
+
 Outputs:
   ContentTrackingTableName:
     Description: DynamoDB single-table for content-tracking
@@ -277,3 +439,18 @@ Outputs:
   ContentTrackingApiBaseUrl:
     Description: Base URL for the content-tracking REST API
     Value: !Sub "https://${ContentTrackingApi}.execute-api.${AWS::Region}.amazonaws.com/v1"
+
+  DashboardBucketName:
+    Description: S3 bucket holding the dashboard static bundle
+    Value: !Ref DashboardBucket
+
+  DashboardDistributionId:
+    Description: CloudFront distribution id (used by the deploy workflow for invalidations)
+    Value: !Ref DashboardDistribution
+
+  DashboardUrl:
+    Description: URL the dashboard is served at
+    Value: !If
+      - HasDashboardCustomDomain
+      - !Sub "https://${DashboardCustomDomain}"
+      - !Sub "https://${DashboardDistribution.DomainName}"

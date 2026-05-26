@@ -38,7 +38,12 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts
+        run: |
+          npm ci --ignore-scripts
+          # See deploy.yml for the rationale: --ignore-scripts blocks
+          # esbuild's postinstall (and rollup's etc.), npm rebuild
+          # runs only the install scripts of already-pinned packages.
+          npm rebuild
 
       - name: Set up Python (for SAM CLI)
         uses: actions/setup-python@v6
@@ -61,6 +66,8 @@ jobs:
         run: sam build
 
       - name: SAM deploy
+        # NewsletterApiBaseUrl and CampaignShortLinkBase were removed
+        # from the template in PR #35; see deploy.yml for context.
         run: |
           sam deploy \
             --config-env prod \
@@ -68,8 +75,6 @@ jobs:
             --no-fail-on-empty-changeset \
             --parameter-overrides \
               "Environment=${{ env.ENVIRONMENT }}" \
-              "NewsletterApiBaseUrl=/newsletter-service/${{ env.ENVIRONMENT }}/newsletter-api-base-url" \
-              "CampaignShortLinkBase=/newsletter-service/${{ env.ENVIRONMENT }}/campaign-short-link-base" \
               "NewsletterMintApiKey=${{ secrets.NEWSLETTER_MINT_API_KEY }}"
 
       - name: Diagnose failed deploy
@@ -120,18 +125,57 @@ jobs:
       - name: Read stack outputs
         id: outputs
         run: |
-          API_URL=$(aws cloudformation describe-stacks \
+          OUTPUTS=$(aws cloudformation describe-stacks \
             --stack-name "${{ env.STACK_NAME }}" \
             --region "${{ env.AWS_REGION }}" \
-            --query "Stacks[0].Outputs[?OutputKey=='ContentTrackingApiBaseUrl'].OutputValue" \
-            --output text)
-          TABLE_NAME=$(aws cloudformation describe-stacks \
-            --stack-name "${{ env.STACK_NAME }}" \
-            --region "${{ env.AWS_REGION }}" \
-            --query "Stacks[0].Outputs[?OutputKey=='ContentTrackingTableName'].OutputValue" \
-            --output text)
-          echo "api-url=$API_URL" >> "$GITHUB_OUTPUT"
-          echo "table-name=$TABLE_NAME" >> "$GITHUB_OUTPUT"
+            --query "Stacks[0].Outputs" \
+            --output json)
+          read_out() {
+            echo "$OUTPUTS" | jq -r --arg k "$1" '.[] | select(.OutputKey==$k) | .OutputValue'
+          }
+          {
+            echo "api-url=$(read_out ContentTrackingApiBaseUrl)"
+            echo "table-name=$(read_out ContentTrackingTableName)"
+            echo "dashboard-bucket=$(read_out DashboardBucketName)"
+            echo "dashboard-distribution-id=$(read_out DashboardDistributionId)"
+            echo "dashboard-url=$(read_out DashboardUrl)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install dashboard dependencies
+        working-directory: dashboard-ui
+        run: |
+          npm ci --ignore-scripts
+          npm rebuild
+
+      - name: Build dashboard
+        working-directory: dashboard-ui
+        env:
+          VITE_API_BASE_URL: ${{ steps.outputs.outputs.api-url }}
+          VITE_COGNITO_AUTHORITY: ${{ vars.COGNITO_AUTHORITY }}
+          VITE_COGNITO_HOSTED_UI_DOMAIN: ${{ vars.COGNITO_HOSTED_UI_DOMAIN }}
+          VITE_COGNITO_CLIENT_ID: ${{ vars.COGNITO_CLIENT_ID }}
+          VITE_COGNITO_REDIRECT_URI: ${{ steps.outputs.outputs.dashboard-url }}/auth/callback
+          VITE_COGNITO_POST_LOGOUT_URI: ${{ steps.outputs.outputs.dashboard-url }}/
+        run: npm run build
+
+      - name: Sync dashboard to S3
+        run: |
+          BUCKET="${{ steps.outputs.outputs.dashboard-bucket }}"
+          aws s3 sync dashboard-ui/dist/ "s3://${BUCKET}/" \
+            --delete \
+            --cache-control "public, max-age=31536000, immutable" \
+            --exclude "*.html"
+          aws s3 sync dashboard-ui/dist/ "s3://${BUCKET}/" \
+            --cache-control "public, max-age=0, must-revalidate" \
+            --content-type "text/html; charset=utf-8" \
+            --exclude "*" \
+            --include "*.html"
+
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ steps.outputs.outputs.dashboard-distribution-id }}" \
+            --paths "/*"
 
       - name: Write deployment summary
         run: |
@@ -141,6 +185,7 @@ jobs:
             echo "- **Stack:** \`${{ env.STACK_NAME }}\`"
             echo "- **Region:** \`${{ env.AWS_REGION }}\`"
             echo "- **API URL:** ${{ steps.outputs.outputs.api-url }}"
+            echo "- **Dashboard URL:** ${{ steps.outputs.outputs.dashboard-url }}"
             echo "- **Table:** \`${{ steps.outputs.outputs.table-name }}\`"
             echo "- **Tag:** \`${{ github.ref_name }}\`"
             echo "- **Commit:** \`${{ github.sha }}\`"
