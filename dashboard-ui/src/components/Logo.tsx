@@ -5,15 +5,14 @@ interface Props {
   alt?: string;
 }
 
-// Renders the Booked mark with prefers-color-scheme branching. The
-// light-fill SVG (dark ink) draws on light backgrounds; the dark-fill
-// SVG (white ink) draws on dark backgrounds once dark mode lands. Both
-// assets live in /public so they're cache-stable across deploys.
+// The dashboard renders light-mode-only right now, so we always serve
+// the dark-inked SVG (legible on the light background). When in-app
+// dark mode lands, swap this to a <picture> with prefers-color-scheme
+// (or, better, gate on the app's theme class rather than the OS
+// preference -- the OS-level swap is what made the white logo
+// disappear on the light backdrop initially). The favicon in
+// index.html keeps its OS-level swap because that one's painted by
+// browser chrome, which does follow OS theme.
 export default function Logo({ className, alt = 'Booked' }: Props): ReactElement {
-  return (
-    <picture>
-      <source srcSet="/booked-logo-dark.svg" media="(prefers-color-scheme: dark)" />
-      <img src="/booked-logo-light.svg" alt={alt} className={className} />
-    </picture>
-  );
+  return <img src="/booked-logo-light.svg" alt={alt} className={className} />;
 }
