@@ -1047,3 +1047,61 @@ button.danger:disabled {
   background: #f0f2f5;
   text-decoration: none;
 }
+
+/* Revenue page */
+.revenue-page {
+  background: #ffffff;
+  border: 1px solid #e3e6eb;
+  border-radius: 6px;
+  padding: 1.5rem;
+}
+
+.year-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.year-selector .field-label {
+  margin: 0;
+}
+
+.year-selector select {
+  border: 1px solid #c5c9cf;
+  border-radius: 4px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.95rem;
+}
+
+.skipped-banner {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.skipped-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.875rem;
+}
+
+.chart-tooltip {
+  background: #ffffff;
+  border: 1px solid #c5c9cf;
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.chart-tooltip strong {
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.chart-tooltip-meta {
+  margin-top: 0.25rem;
+  color: #6a6a6a;
+  font-size: 0.8125rem;
+}
