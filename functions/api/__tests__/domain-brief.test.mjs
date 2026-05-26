@@ -8,11 +8,14 @@ process.env.BEDROCK_MODEL_ID = "us.amazon.nova-pro-v1:0";
 
 const { DynamoDBDocumentClient } = await import("@aws-sdk/lib-dynamodb");
 const {
+  confirmBriefAsCampaign,
   createBriefRecord,
   getBriefWithCampaign,
   persistBriefSummary,
   newBriefId,
 } = await import("../domain/brief.mjs");
+
+const VALID_VENDOR_ID = "01HV0AABBCCDDEEFFGGHHJJKKM";
 
 describe("domain/brief", () => {
   let mockSend;
@@ -100,6 +103,121 @@ describe("domain/brief", () => {
       });
       const { campaignId } = await getBriefWithCampaign("B1");
       expect(campaignId).toBeNull();
+    });
+  });
+
+  describe("confirmBriefAsCampaign", () => {
+    test("returns existing campaign id when already confirmed", async () => {
+      // First call: getBriefWithCampaign Query returns metadata + link
+      mockSend.mockResolvedValueOnce({
+        Items: [
+          { sk: "METADATA", briefId: "B1", summary: "x", sourceType: "chat" },
+          { sk: "CAMPAIGN#EXISTING", campaignId: "EXISTING" },
+        ],
+      });
+      const result = await confirmBriefAsCampaign({
+        briefId: "B1",
+        campaignFields: { name: "Edited" },
+        acceptedSuggestion: { name: "Edited" },
+      });
+      expect(result.alreadyConfirmed).toBe(true);
+      expect(result.campaignId).toBe("EXISTING");
+      // Only the Query, no transaction
+      expect(mockSend).toHaveBeenCalledTimes(1);
+    });
+
+    test("404 when brief is missing", async () => {
+      mockSend.mockResolvedValueOnce({ Items: [] });
+      await expect(
+        confirmBriefAsCampaign({
+          briefId: "B1",
+          campaignFields: { name: "Edited" },
+          acceptedSuggestion: { name: "Edited" },
+        }),
+      ).rejects.toThrow(/Brief B1 not found/);
+    });
+
+    test("404 when vendorId points to missing vendor", async () => {
+      mockSend.mockResolvedValueOnce({
+        Items: [{ sk: "METADATA", briefId: "B1", summary: "x", sourceType: "chat" }],
+      });
+      mockSend.mockResolvedValueOnce({}); // findVendor: no Item
+      await expect(
+        confirmBriefAsCampaign({
+          briefId: "B1",
+          campaignFields: { name: "Edited", vendorId: VALID_VENDOR_ID },
+          acceptedSuggestion: { name: "Edited" },
+        }),
+      ).rejects.toThrow(/Vendor .* not found/);
+    });
+
+    test("writes 3-item transaction without vendor", async () => {
+      mockSend.mockResolvedValueOnce({
+        Items: [{ sk: "METADATA", briefId: "B1", summary: "x", sourceType: "chat" }],
+      });
+      mockSend.mockResolvedValueOnce({}); // transaction
+      const result = await confirmBriefAsCampaign({
+        briefId: "B1",
+        campaignFields: { name: "Edited", status: "draft" },
+        acceptedSuggestion: { name: "Edited", deliverables: [{ platform: "ig", type: "reel" }] },
+      });
+      expect(result.alreadyConfirmed).toBe(false);
+      expect(result.campaignId).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+
+      const transactCall = mockSend.mock.calls.find((c) => c[0].input?.TransactItems);
+      expect(transactCall).toBeDefined();
+      const items = transactCall[0].input.TransactItems;
+      expect(items.length).toBe(3);
+
+      const campaignPut = items[0].Put.Item;
+      expect(campaignPut.entity).toBe("Campaign");
+      expect(campaignPut.name).toBe("Edited");
+      expect(campaignPut.briefId).toBe("B1");
+      expect(campaignPut.gsi1pk).toBe("CAMPAIGNS");
+
+      const briefLink = items[1].Put.Item;
+      expect(briefLink.pk).toBe("BRIEF#B1");
+      expect(briefLink.sk).toBe(`CAMPAIGN#${result.campaignId}`);
+
+      const briefUpdate = items[2].Update;
+      expect(briefUpdate.Key).toEqual({ pk: "BRIEF#B1", sk: "METADATA" });
+      expect(briefUpdate.ExpressionAttributeValues[":sc"].deliverables).toEqual([
+        { platform: "ig", type: "reel" },
+      ]);
+    });
+
+    test("includes vendor index entry when vendorId given", async () => {
+      mockSend.mockResolvedValueOnce({
+        Items: [{ sk: "METADATA", briefId: "B1", summary: "x", sourceType: "chat" }],
+      });
+      mockSend.mockResolvedValueOnce({ Item: { pk: `VENDOR#${VALID_VENDOR_ID}` } }); // findVendor
+      mockSend.mockResolvedValueOnce({}); // transaction
+      await confirmBriefAsCampaign({
+        briefId: "B1",
+        campaignFields: { name: "Edited", status: "draft", vendorId: VALID_VENDOR_ID },
+        acceptedSuggestion: { name: "Edited" },
+      });
+      const transactCall = mockSend.mock.calls.find((c) => c[0].input?.TransactItems);
+      const items = transactCall[0].input.TransactItems;
+      expect(items.length).toBe(4);
+      expect(items[3].Put.Item.pk).toBe(`VENDOR#${VALID_VENDOR_ID}`);
+      expect(items[3].Put.Item.entity).toBe("CampaignByVendor");
+    });
+
+    test("carries payout into the campaign metadata", async () => {
+      mockSend.mockResolvedValueOnce({
+        Items: [{ sk: "METADATA", briefId: "B1", summary: "x", sourceType: "chat" }],
+      });
+      mockSend.mockResolvedValueOnce({});
+      await confirmBriefAsCampaign({
+        briefId: "B1",
+        campaignFields: { name: "Edited", status: "draft" },
+        acceptedSuggestion: { name: "Edited" },
+        payout: { amount: 2000, currency: "USD", paid: false },
+      });
+      const transactCall = mockSend.mock.calls.find((c) => c[0].input?.TransactItems);
+      const campaignPut = transactCall[0].input.TransactItems[0].Put.Item;
+      expect(campaignPut.payout).toEqual({ amount: 2000, currency: "USD", paid: false });
     });
   });
 
