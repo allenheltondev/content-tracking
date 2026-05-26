@@ -5,6 +5,7 @@ import { registerLinkRoutes } from "./routes/links.mjs";
 import { registerAnalyticsRoutes } from "./routes/analytics.mjs";
 import { registerPayoutRoutes } from "./routes/payout.mjs";
 import { registerRevenueRoutes } from "./routes/revenue.mjs";
+import { registerBriefRoutes } from "./routes/briefs.mjs";
 import { logger } from "./services/logger.mjs";
 import { jsonResponse } from "./services/http-handler.mjs";
 
@@ -16,6 +17,7 @@ registerLinkRoutes(app);
 registerAnalyticsRoutes(app);
 registerPayoutRoutes(app);
 registerRevenueRoutes(app);
+registerBriefRoutes(app);
 
 app.notFound(({ event }) => {
   const method = event.httpMethod || event?.requestContext?.http?.method;
