@@ -57,11 +57,63 @@ export interface BriefDetailResponse {
 export interface Vendor {
   vendor_id: string;
   name: string;
+  website: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  payment_terms: string | null;
+  tags: string[];
+  notes: string | null;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface VendorPayload {
+  name?: string;
   website?: string | null;
-  contactEmail?: string | null;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  payment_terms?: string | null;
+  tags?: string[] | null;
   notes?: string | null;
-  tags?: string[];
-  paymentTerms?: string | null;
+}
+
+export interface VendorCampaignSummary {
+  campaign_id: string;
+  name: string;
+  status: 'draft' | 'active' | 'completed';
+  startDate: string | null;
+  endDate: string | null;
+  created_at: string;
+}
+
+export interface VendorCampaignsResponse {
+  vendor_id: string;
+  campaigns: VendorCampaignSummary[];
+}
+
+export interface RevenueAggregate {
+  amount: number;
+  campaignCount: number;
+}
+
+export interface RevenueGroup {
+  key: string;
+  amount: number;
+  campaignCount: number;
+  bookedAmount: number;
+  bookedCount: number;
+  receivedAmount: number;
+  receivedCount: number;
+}
+
+export interface RevenueResponse {
+  currency: string;
+  range: { startDate: string; endDate: string };
+  total: RevenueAggregate;
+  booked: RevenueAggregate;
+  received: RevenueAggregate;
+  groups: RevenueGroup[];
+  skipped: { campaign_id: string; currency: string; amount: number; reason: string }[];
 }
 
 export type CampaignStatus = 'draft' | 'active' | 'completed';
