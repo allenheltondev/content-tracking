@@ -145,8 +145,6 @@ Resources:
       TimeToLiveSpecification:
         AttributeName: expiresAt
         Enabled: true
-      PointInTimeRecoverySpecification:
-        PointInTimeRecoveryEnabled: true
 
   # Holds raw brief uploads (PDFs uploaded via presigned URL from the client,
   # plus chat transcripts the brief pipeline writes inline). Separate
