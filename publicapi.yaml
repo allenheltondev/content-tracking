@@ -1,6 +1,6 @@
 openapi: 3.0.0
 info:
-  title: Content Tracking API
+  title: Booked API
   description: |
     Campaign and Link management for the influencer analytics aggregator.
     Short-code minting is delegated to newsletter-service; this API owns

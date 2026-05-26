@@ -21,7 +21,7 @@ export default function App(): ReactElement {
       <header className="bg-surface border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center gap-6">
           <NavLink to="/" className="text-base font-semibold text-foreground">
-            content-tracking
+            Booked
           </NavLink>
           <nav className="flex items-center gap-1 flex-1" aria-label="Primary">
             <NavLink to="/campaigns" className={navLinkClass}>

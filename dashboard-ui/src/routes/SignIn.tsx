@@ -55,7 +55,7 @@ export default function SignIn(): ReactElement {
   return (
     <section className="min-h-screen flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <h1 className="text-2xl font-semibold text-foreground">content-tracking</h1>
+        <h1 className="text-2xl font-semibold text-foreground">Booked</h1>
         <p className="text-muted-foreground mt-1 text-sm">
           Sign in to manage campaigns, vendors, and revenue.
         </p>

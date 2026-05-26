@@ -6,5 +6,5 @@ import { createHttpRouterHandler } from "./services/http-handler.mjs";
 // dispatches based on method + path inside the wrapper.
 export const handler = createHttpRouterHandler({
   app,
-  handlerName: "content-tracking-api",
+  handlerName: "booked-api",
 });

@@ -1,7 +1,7 @@
 {
-  "name": "content-tracking",
+  "name": "booked",
   "version": "0.1.0",
-  "description": "Influencer analytics aggregator backend",
+  "description": "Booked — influencer analytics aggregator backend",
   "author": "allenheltondev",
   "type": "module",
   "license": "ISC",

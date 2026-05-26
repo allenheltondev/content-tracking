@@ -12,7 +12,7 @@ export default function Home(): ReactElement {
   return (
     <section className="space-y-8">
       <header className="space-y-2">
-        <h1 className="text-3xl font-semibold text-foreground">content-tracking</h1>
+        <h1 className="text-3xl font-semibold text-foreground">Booked</h1>
         <p className="text-muted-foreground max-w-2xl">
           Campaigns, vendors, and revenue for the newsletter and adjacent content channels.
         </p>
