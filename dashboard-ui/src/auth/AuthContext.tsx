@@ -1,13 +1,24 @@
 import type { ReactElement, ReactNode } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import {
+  confirmResetPassword as amplifyConfirmResetPassword,
+  confirmSignUp as amplifyConfirmSignUp,
   fetchAuthSession,
   getCurrentUser,
+  resendSignUpCode as amplifyResendSignUpCode,
+  resetPassword as amplifyResetPassword,
   signIn as amplifySignIn,
   signOut as amplifySignOut,
+  signUp as amplifySignUp,
   type AuthUser,
 } from 'aws-amplify/auth';
-import { AuthContext, type AuthState, type SignInResult, type User } from './authContextValue';
+import {
+  AuthContext,
+  type AuthState,
+  type SignInResult,
+  type SignUpResult,
+  type User,
+} from './authContextValue';
 import './config'; // side-effect: Amplify.configure runs on import
 
 function toUser(current: AuthUser): User {
@@ -56,6 +67,52 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
     [],
   );
 
+  const signUp = useCallback(
+    async (
+      email: string,
+      password: string,
+      firstName: string,
+      lastName: string,
+    ): Promise<SignUpResult> => {
+      const { isSignUpComplete } = await amplifySignUp({
+        username: email,
+        password,
+        options: {
+          userAttributes: {
+            email,
+            given_name: firstName,
+            family_name: lastName,
+          },
+        },
+      });
+      return isSignUpComplete ? { kind: 'success' } : { kind: 'needs-confirmation' };
+    },
+    [],
+  );
+
+  const confirmSignUp = useCallback(async (email: string, code: string): Promise<void> => {
+    await amplifyConfirmSignUp({ username: email, confirmationCode: code });
+  }, []);
+
+  const resendSignUpCode = useCallback(async (email: string): Promise<void> => {
+    await amplifyResendSignUpCode({ username: email });
+  }, []);
+
+  const resetPassword = useCallback(async (email: string): Promise<void> => {
+    await amplifyResetPassword({ username: email });
+  }, []);
+
+  const confirmResetPassword = useCallback(
+    async (email: string, code: string, newPassword: string): Promise<void> => {
+      await amplifyConfirmResetPassword({
+        username: email,
+        confirmationCode: code,
+        newPassword,
+      });
+    },
+    [],
+  );
+
   const signOut = useCallback(async () => {
     await amplifySignOut();
     setUser(null);
@@ -75,6 +132,11 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
     isAuthenticated: user !== null,
     isLoading,
     signIn,
+    signUp,
+    confirmSignUp,
+    resendSignUpCode,
+    resetPassword,
+    confirmResetPassword,
     signOut,
     getAccessToken,
   };
