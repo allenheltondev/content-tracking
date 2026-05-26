@@ -142,11 +142,11 @@ jobs:
 
       - name: Install dashboard dependencies
         # See deploy.yml for rationale.
-        working-directory: dashboard-ui
+        working-directory: ui
         run: npm ci
 
       - name: Build dashboard
-        working-directory: dashboard-ui
+        working-directory: ui
         env:
           VITE_API_BASE_URL: ${{ steps.outputs.outputs.api-url }}
           VITE_AWS_REGION: ${{ env.AWS_REGION }}
@@ -157,11 +157,11 @@ jobs:
       - name: Sync dashboard to S3
         run: |
           BUCKET="${{ steps.outputs.outputs.dashboard-bucket }}"
-          aws s3 sync dashboard-ui/dist/ "s3://${BUCKET}/" \
+          aws s3 sync ui/dist/ "s3://${BUCKET}/" \
             --delete \
             --cache-control "public, max-age=31536000, immutable" \
             --exclude "*.html"
-          aws s3 sync dashboard-ui/dist/ "s3://${BUCKET}/" \
+          aws s3 sync ui/dist/ "s3://${BUCKET}/" \
             --cache-control "public, max-age=0, must-revalidate" \
             --content-type "text/html; charset=utf-8" \
             --exclude "*" \

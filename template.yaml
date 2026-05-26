@@ -314,7 +314,7 @@ Resources:
         EntryPoints:
           - index.mjs
     Properties:
-      CodeUri: functions/api
+      CodeUri: api
       Handler: index.handler
       # Bigger memory and longer timeout than the per-route functions because
       # this single Lambda serves every route. Revenue rollups and Bedrock
@@ -386,11 +386,11 @@ Resources:
             Path: /
             Method: ANY
 
-  # Static hosting for dashboard-ui. Bucket is private; only the
+  # Static hosting for the dashboard UI. Bucket is private; only the
   # CloudFront distribution (via OAC) can read it. SPA routing is
   # handled by rewriting 403/404 to /index.html so deep links survive a
-  # refresh. The CI deploy step builds dashboard-ui, syncs the output
-  # here, and invalidates the distribution.
+  # refresh. The CI deploy step builds ui/, syncs the output here, and
+  # invalidates the distribution.
   DashboardBucket:
     Type: AWS::S3::Bucket
     Properties:
