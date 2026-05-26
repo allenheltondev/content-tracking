@@ -47,16 +47,22 @@ export function useApiFetch(): ApiFetch {
         }
       }
 
+      const method = options.method ?? 'GET';
       const headers: Record<string, string> = {
         Authorization: token,
         ...(options.body !== undefined ? { 'content-type': 'application/json' } : {}),
+        // POST is the only non-idempotent method exposed by the API.
+        // Attach a per-call key so safe client-side retries dedupe
+        // server-side instead of creating duplicate resources. Callers
+        // can override by passing their own Idempotency-Key in headers.
+        ...(method === 'POST' ? { 'idempotency-key': crypto.randomUUID() } : {}),
         ...(options.headers ?? {}),
       };
 
       let response: Response;
       try {
         response = await fetch(url.toString(), {
-          method: options.method ?? 'GET',
+          method,
           headers,
           body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
         });

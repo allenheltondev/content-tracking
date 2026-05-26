@@ -1,11 +1,9 @@
 import {
   IdempotencyConfig,
-  IdempotencyKeyError,
   makeIdempotent,
 } from "@aws-lambda-powertools/idempotency";
 import { DynamoDBPersistenceLayer } from "@aws-lambda-powertools/idempotency/dynamodb";
 import { TABLE_NAME } from "./ddb.mjs";
-import { BadRequestError } from "./errors.mjs";
 
 // Idempotency records live in the main table under a constant partition
 // `IDEMPOTENCY` with the idempotency hash as the sort key. Records carry
@@ -16,7 +14,8 @@ import { BadRequestError } from "./errors.mjs";
 // The Idempotency-Key request header is the source of the idempotency
 // hash. POST routes wrap their handlers in `withIdempotency(...)` so
 // retries with the same header return the cached response without
-// re-executing side effects.
+// re-executing side effects. The header is optional: requests without
+// it just execute normally with no idempotency record written.
 
 const persistence = new DynamoDBPersistenceLayer({
   tableName: TABLE_NAME,
@@ -39,9 +38,9 @@ const config = new IdempotencyConfig({
   // at the root. Both casings handled because API Gateway header
   // lookups are case-sensitive.
   eventKeyJmesPath: 'event.headers."Idempotency-Key" || event.headers."idempotency-key"',
-  // Header is required on POST routes that opt into idempotency. The
-  // wrapper below catches the resulting error and surfaces it as 400.
-  throwOnNoIdempotencyKey: true,
+  // Header is optional. When absent, makeIdempotent skips the
+  // DynamoDB write and just executes the handler.
+  throwOnNoIdempotencyKey: false,
   expiresAfterSeconds: 24 * 60 * 60,
 });
 
@@ -55,19 +54,9 @@ const config = new IdempotencyConfig({
 // argument of the wrapped function, which is the Router event object
 // (since route handlers receive ({ event, context })).
 export function withIdempotency(fn) {
-  const wrapped = makeIdempotent(fn, {
+  return makeIdempotent(fn, {
     persistenceStore: persistence,
     config,
     dataIndexArgument: 0,
   });
-  return async (reqCtx) => {
-    try {
-      return await wrapped(reqCtx);
-    } catch (err) {
-      if (err instanceof IdempotencyKeyError || err?.name === "IdempotencyKeyError") {
-        throw new BadRequestError("Idempotency-Key header is required");
-      }
-      throw err;
-    }
-  };
 }
