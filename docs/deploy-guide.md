@@ -185,3 +185,57 @@ GitHub Environment.
 A 401 response with no body means API Gateway rejected the token before
 it reached the Lambda. Verify the token's `aud`/`client_id` matches a
 client in `RSCUserPool` and that the token is unexpired.
+
+## Dashboard UI
+
+`dashboard-ui/` is a Vite + React app that signs in via Cognito Hosted
+UI and calls this stack's API.
+
+### Cognito App Client (one-time)
+
+Create an App Client in the shared `RSCUserPool`:
+
+- **App type:** Public client (no client secret).
+- **Authentication flows:** Authorization code grant.
+- **Identity providers:** Cognito user pool (or whichever SAML / IdP
+  providers `RSCUserPool` is wired to).
+- **OAuth scopes:** `openid` and `email`.
+- **Allowed callback URLs:**
+  - `http://localhost:5173/auth/callback` (local dev)
+  - The deployed dashboard origin + `/auth/callback` (once #8 lands)
+- **Allowed sign-out URLs:**
+  - `http://localhost:5173/`
+  - The deployed dashboard origin + `/`
+- **Hosted UI domain:** enable a hosted UI domain on the user pool if
+  one isn't already configured. The dashboard's sign-out flow needs it
+  to invalidate the session cookie.
+
+### Local dev
+
+```bash
+cp dashboard-ui/.env.example dashboard-ui/.env.local
+# fill in the Cognito values plus VITE_API_BASE_URL
+cd dashboard-ui
+npm install
+npm run dev
+```
+
+Open <http://localhost:5173>. The first load redirects to the Hosted UI
+sign-in, then bounces back to `/auth/callback` and on to `/`. The
+access token sits in `localStorage` and is sent on every API call as the
+raw `Authorization` header (not `Bearer X`, per the API's authorizer
+config).
+
+### Required env vars
+
+| Var | Example | Purpose |
+| --- | --- | --- |
+| `VITE_API_BASE_URL` | `https://api.tracking.readysetcloud.io` | Base of the deployed API. |
+| `VITE_COGNITO_AUTHORITY` | `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_XXXX` | OIDC issuer (User Pool, not Hosted UI). |
+| `VITE_COGNITO_HOSTED_UI_DOMAIN` | `rsc-core-auth.auth.us-east-1.amazoncognito.com` | Used to build the sign-out URL. |
+| `VITE_COGNITO_CLIENT_ID` | `abcd1234efgh5678` | The App Client created above. |
+| `VITE_COGNITO_REDIRECT_URI` | `http://localhost:5173/auth/callback` | Must match the App Client's callback URL. |
+| `VITE_COGNITO_POST_LOGOUT_URI` | `http://localhost:5173/` | Must match the App Client's sign-out URL. |
+
+The required-env check throws at module load time, so missing vars fail
+loudly during dev rather than at the first API call.

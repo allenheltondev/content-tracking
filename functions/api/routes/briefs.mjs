@@ -11,12 +11,14 @@ import {
 } from "../services/s3.mjs";
 import { summarizeBrief } from "../services/bedrock.mjs";
 import {
+  confirmBriefAsCampaign,
   createBriefRecord,
   getBriefWithCampaign,
   persistBriefSummary,
 } from "../domain/brief.mjs";
 import {
   conversationToTranscript,
+  validateBriefConfirm,
   validateBriefSubmission,
   validateUploadUrlRequest,
 } from "../validation/brief.mjs";
@@ -168,6 +170,40 @@ export function registerBriefRoutes(app) {
       campaign_id: campaignId ?? null,
     });
   }));
+
+  // POST /briefs/:briefId/confirm
+  //
+  // Promotes a previously-summarized brief into a real Campaign using
+  // the user's edited suggested_campaign payload. The brief intake UI
+  // calls this after the review/edit step: POST /briefs (no createDraft)
+  // returns the summary + suggested fields, the user edits, then this
+  // route commits the final values.
+  //
+  // Idempotent: a brief that's already been confirmed returns its
+  // existing campaign_id with 200, not 201.
+  app.post("/briefs/:briefId/confirm", async ({ event }) => {
+    const { briefId } = event.pathParameters ?? {};
+    if (!briefId || !ULID_RE.test(briefId)) {
+      throw new BadRequestError("briefId must be a ULID");
+    }
+    const body = parseBody(event);
+    const { campaignFields, acceptedSuggestion, payout } = validateBriefConfirm(body);
+
+    const { campaignId, alreadyConfirmed } = await confirmBriefAsCampaign({
+      briefId,
+      campaignFields,
+      acceptedSuggestion,
+      payout,
+    });
+
+    logger.info("Brief confirmed", { briefId, campaignId, alreadyConfirmed });
+
+    return jsonResponse(alreadyConfirmed ? 200 : 201, {
+      brief_id: briefId,
+      campaign_id: campaignId,
+      already_confirmed: alreadyConfirmed,
+    });
+  });
 
   // GET /briefs/:briefId
   //
