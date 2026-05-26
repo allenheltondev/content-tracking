@@ -157,12 +157,15 @@ Resources:
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: 7
       CorsConfiguration:
-        # Allow browsers to PUT directly to the presigned URL from the
-        # dashboard origin.
+        # Browsers PUT directly to presigned URLs (upload flow) and GET
+        # them back for the audit-view download URLs returned by
+        # GET /briefs/{briefId}. Both need to be allowed cross-origin
+        # so the dashboard at a different origin can use them.
         CorsRules:
-          - AllowedMethods: [PUT]
+          - AllowedMethods: [GET, PUT]
             AllowedOrigins: ["*"]
             AllowedHeaders: ["*"]
+            ExposedHeaders: [ETag]
             MaxAge: 300
 
   ContentTrackingApi:
