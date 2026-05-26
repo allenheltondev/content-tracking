@@ -104,8 +104,10 @@ GitHub Actions workflows in `.github/workflows/`:
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
 | `ci.yml` | Pull requests and pushes to `main` | `npm ci` + `npm run lint` + `npm test` |
-| `deploy.yml` | Push to `main`, `workflow_dispatch` | `sam build` + `sam deploy` to the `Staging` GitHub Environment via OIDC |
+| `deploy.yml` | Push to `main`, pull requests targeting `main`, `workflow_dispatch` | `sam build` + `sam deploy` to the `Staging` GitHub Environment via OIDC. PRs deploy to the *same* Staging stack so the PR sidebar shows the deployed dashboard URL. |
 | `prod-deploy.yml` | Push of a tag matching `v*.*.*`, `workflow_dispatch` | Same, but targets the `Production` GitHub Environment |
+
+PR deploys and `main` deploys share the `deploy-staging` concurrency group, so they serialize — a PR push won't race with a main deploy already in flight. Staging is whatever was last pushed; in a solo workflow this is the trade for cheap preview deploys. If a second contributor joins, switch to per-PR stacks before the race condition bites.
 
 Required GitHub Environments:
 

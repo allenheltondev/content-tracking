@@ -3,9 +3,15 @@ name: Deploy (staging)
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
+  # Single shared group across `push: main` and `pull_request` so PR
+  # deploys and main deploys serialize against each other instead of
+  # racing on the same Staging stack. cancel-in-progress is false so
+  # mid-deploy CFN updates never get torn out from under themselves.
   group: deploy-staging
   cancel-in-progress: false
 
@@ -24,7 +30,10 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: Staging
-      url: ${{ steps.outputs.outputs.api-url }}
+      # Dashboard URL is the user-facing surface. Surfaces on the PR
+      # as "Deployed to Staging" with this URL once the workflow
+      # finishes, so reviewers can click straight through.
+      url: ${{ steps.outputs.outputs.dashboard-url }}
 
     steps:
       - name: Checkout
