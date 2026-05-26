@@ -1,6 +1,6 @@
 import type { FormEvent, ReactElement } from 'react';
 import { useState } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 import Logo from '../components/Logo';
 
@@ -106,10 +106,19 @@ export default function SignIn(): ReactElement {
         <button type="submit" className="btn-primary w-full" disabled={busy}>
           {busy ? 'Signing in...' : 'Sign in'}
         </button>
+
+        <div className="text-center">
+          <Link to="/forgot-password" className="btn-link">
+            Forgot password?
+          </Link>
+        </div>
       </form>
 
       <p className="mt-6 text-center text-sm text-muted-foreground">
-        Account managed in the shared user pool. Sign up via newsletter-service first.
+        Don&apos;t have an account?{' '}
+        <Link to="/signup" className="text-primary-600 hover:text-primary-700 font-medium">
+          Sign up
+        </Link>
       </p>
     </section>
   );

@@ -3,6 +3,8 @@ import App from './App';
 import ProtectedRoute from './auth/ProtectedRoute';
 import Home from './routes/Home';
 import SignIn from './routes/SignIn';
+import SignUp from './routes/SignUp';
+import ForgotPassword from './routes/ForgotPassword';
 import Campaigns from './routes/Campaigns';
 import CampaignDetail from './routes/CampaignDetail';
 import CampaignReport from './routes/CampaignReport';
@@ -18,6 +20,14 @@ export const router = createBrowserRouter([
   {
     path: '/signin',
     element: <SignIn />,
+  },
+  {
+    path: '/signup',
+    element: <SignUp />,
+  },
+  {
+    path: '/forgot-password',
+    element: <ForgotPassword />,
   },
   {
     // Sponsor-facing print report. Sits outside the App shell so the
