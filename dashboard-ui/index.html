@@ -2,9 +2,23 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <!-- Browsers respect the media query and swap the favicon when the
+         OS theme flips. Light scheme uses the dark-inked logo (legible
+         on white tabs); dark scheme uses the white-inked logo. -->
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="/booked-logo-light.svg"
+      media="(prefers-color-scheme: light)"
+    />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="/booked-logo-dark.svg"
+      media="(prefers-color-scheme: dark)"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>content-tracking dashboard</title>
+    <title>Booked</title>
   </head>
   <body>
     <div id="root"></div>

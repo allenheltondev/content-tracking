@@ -1,6 +1,6 @@
 # API reference
 
-Complete reference for the Content Tracking REST API. Schemas are
+Complete reference for the Booked REST API. Schemas are
 derived from [`publicapi.yaml`](../publicapi.yaml); that file is the
 source of truth.
 

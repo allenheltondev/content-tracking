@@ -1,9 +1,9 @@
 {
-  "name": "content-tracking-dashboard",
+  "name": "booked-dashboard",
   "private": true,
   "version": "0.0.1",
   "type": "module",
-  "description": "Dashboard UI for the content-tracking service",
+  "description": "Dashboard UI for Booked, the influencer analytics aggregator",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

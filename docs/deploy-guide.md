@@ -1,6 +1,6 @@
 # Deploy guide
 
-End-to-end walkthrough for deploying content-tracking, locally and via
+End-to-end walkthrough for deploying Booked, locally and via
 GitHub Actions. Read this before your first deploy.
 
 ## Prerequisites
@@ -205,14 +205,14 @@ attach a stable custom domain, set both CFN parameters:
 
 | CFN parameter | Notes |
 | --- | --- |
-| `ApiCustomDomain` | The fully-qualified hostname (e.g. `api.tracking.example.com`). |
+| `ApiCustomDomain` | The fully-qualified hostname (e.g. `api.booked.example.com`). |
 | `ApiHostedZoneId` | The Route53 hosted zone id containing that hostname. |
 
 The stack auto-provisions an ACM certificate via DNS validation
 through that hosted zone — no separate cert-must-exist-first step. The
 base-path mapping has no `BasePath`, so the custom-domain root maps
 directly to the v1 stage. Callers use
-`https://api.tracking.example.com/campaigns` (no `/v1` prefix). The
+`https://api.booked.example.com/campaigns` (no `/v1` prefix). The
 `ContentTrackingApiBaseUrl` stack output and the dashboard's
 `VITE_API_BASE_URL` automatically reflect the custom domain when it's
 configured.
@@ -266,7 +266,7 @@ config).
 
 | Var | Example | Purpose |
 | --- | --- | --- |
-| `VITE_API_BASE_URL` | `https://api.tracking.readysetcloud.io` | Base of the deployed API. |
+| `VITE_API_BASE_URL` | `https://api.booked.readysetcloud.io` | Base of the deployed API. |
 | `VITE_AWS_REGION` | `us-east-1` | Region the user pool lives in. |
 | `VITE_USER_POOL_ID` | `us-east-1_XXXXXXXXX` | The shared `RSCUserPool` id. |
 | `VITE_USER_POOL_CLIENT_ID` | `abcd1234efgh5678` | The App Client created above. |
@@ -295,7 +295,7 @@ set both:
 
 | CFN parameter | Notes |
 | --- | --- |
-| `DashboardCustomDomain` | The fully-qualified hostname (e.g. `tracking.example.com`). |
+| `DashboardCustomDomain` | The fully-qualified hostname (e.g. `booked.example.com`). |
 | `DashboardHostedZoneId` | The Route53 hosted zone id containing that hostname. |
 
 The stack auto-provisions the ACM certificate via DNS validation

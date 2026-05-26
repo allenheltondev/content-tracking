@@ -191,7 +191,7 @@ export default function CampaignReport(): ReactElement {
       </section>
 
       <footer className="mt-8 pt-4 border-t border-border text-xs text-muted-foreground">
-        Generated from content-tracking on {new Date().toISOString().slice(0, 10)}.
+        Generated from Booked on {new Date().toISOString().slice(0, 10)}.
       </footer>
     </main>
   );

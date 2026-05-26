@@ -1,4 +1,4 @@
-# content-tracking
+# Booked
 
 Influencer analytics aggregator backend. Owns Campaign, Vendor, and Link
 metadata plus revenue tracking. Delegates short-link minting and redirect

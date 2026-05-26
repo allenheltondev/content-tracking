@@ -1,6 +1,6 @@
 import { jest } from "@jest/globals";
 
-process.env.TABLE_NAME = "test-content-tracking";
+process.env.TABLE_NAME = "test-booked";
 process.env.ENVIRONMENT = "staging";
 process.env.NEWSLETTER_MINT_API_KEY = "test-mint-key";
 process.env.BRIEFS_BUCKET = "test-briefs-bucket";

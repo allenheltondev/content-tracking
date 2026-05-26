@@ -70,7 +70,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v6.1.1
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          role-session-name: GitHubActions-ContentTracking-StagingDeploy
+          role-session-name: GitHubActions-Booked-StagingDeploy
           aws-region: ${{ env.AWS_REGION }}
 
       - name: SAM build
@@ -204,7 +204,7 @@ jobs:
       - name: Write deployment summary
         run: |
           {
-            echo "## content-tracking staging deploy"
+            echo "## Booked staging deploy"
             echo
             echo "- **Stack:** \`${{ env.STACK_NAME }}\`"
             echo "- **Region:** \`${{ env.AWS_REGION }}\`"
