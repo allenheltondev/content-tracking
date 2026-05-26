@@ -2,6 +2,7 @@ import type { FormEvent, ReactElement } from 'react';
 import { useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
+import Logo from '../components/Logo';
 
 interface LocationState {
   from?: string;
@@ -54,9 +55,10 @@ export default function SignIn(): ReactElement {
 
   return (
     <section className="min-h-screen flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center space-y-3">
+        <Logo className="h-14 w-auto mx-auto" />
         <h1 className="text-2xl font-semibold text-foreground">Booked</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
+        <p className="text-muted-foreground text-sm">
           Sign in to manage campaigns, vendors, and revenue.
         </p>
       </div>

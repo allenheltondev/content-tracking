@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from './auth/useAuth';
+import Logo from './components/Logo';
 
 const baseLink = 'px-3 py-1.5 rounded-md text-sm font-medium transition-colors';
 const navLinkClass = ({ isActive }: { isActive: boolean }): string =>
@@ -20,7 +21,8 @@ export default function App(): ReactElement {
     <div className="min-h-screen flex flex-col">
       <header className="bg-surface border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center gap-6">
-          <NavLink to="/" className="text-base font-semibold text-foreground">
+          <NavLink to="/" className="flex items-center gap-2 text-base font-semibold text-foreground">
+            <Logo className="h-6 w-auto" />
             Booked
           </NavLink>
           <nav className="flex items-center gap-1 flex-1" aria-label="Primary">
