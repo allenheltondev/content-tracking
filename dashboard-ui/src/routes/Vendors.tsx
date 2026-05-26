@@ -38,17 +38,18 @@ export default function Vendors(): ReactElement {
   }, [vendors, search]);
 
   return (
-    <section className="vendors-list">
-      <header className="page-header">
-        <h1>Vendors</h1>
-        <Link to="/vendors/new" className="primary as-button">
+    <section className="space-y-4">
+      <header className="flex items-start justify-between gap-4">
+        <h1 className="text-2xl font-semibold text-foreground">Vendors</h1>
+        <Link to="/vendors/new" className="btn-primary">
           Add vendor
         </Link>
       </header>
 
-      <div className="filter-bar">
+      <div className="flex items-center gap-3">
         <input
           type="search"
+          className="input max-w-sm"
           placeholder="Search name, tag, or email"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -56,17 +57,17 @@ export default function Vendors(): ReactElement {
       </div>
 
       {error && <p className="form-error">{error}</p>}
-      {filtered === null && !error && <p>Loading...</p>}
+      {filtered === null && !error && <p className="text-muted-foreground">Loading...</p>}
       {filtered && filtered.length === 0 && vendors && vendors.length === 0 && (
-        <div className="empty-state">
-          <p>No vendors yet.</p>
-          <Link to="/vendors/new" className="primary as-button">
+        <div className="card card-body text-center py-12 space-y-4">
+          <p className="text-muted-foreground">No vendors yet.</p>
+          <Link to="/vendors/new" className="btn-primary inline-block">
             Add your first vendor
           </Link>
         </div>
       )}
       {filtered && filtered.length === 0 && vendors && vendors.length > 0 && (
-        <p className="empty-state-inline">No vendors match "{search}".</p>
+        <p className="text-muted-foreground text-sm">No vendors match "{search}".</p>
       )}
       {filtered && filtered.length > 0 && (
         <table className="data-table">
@@ -82,19 +83,25 @@ export default function Vendors(): ReactElement {
             {filtered.map((v) => (
               <tr key={v.vendor_id}>
                 <td>
-                  <Link to={`/vendors/${v.vendor_id}`}>{v.name}</Link>
+                  <Link to={`/vendors/${v.vendor_id}`} className="text-primary-600 hover:underline">
+                    {v.name}
+                  </Link>
                 </td>
-                <td>{v.contact_email ?? '-'}</td>
+                <td className="text-muted-foreground">{v.contact_email ?? '-'}</td>
                 <td>
-                  {v.tags.length === 0
-                    ? '-'
-                    : v.tags.map((t) => (
-                        <span className="tag-chip tag-chip-static" key={t}>
+                  {v.tags.length === 0 ? (
+                    <span className="text-muted-foreground">-</span>
+                  ) : (
+                    <div className="flex flex-wrap gap-1">
+                      {v.tags.map((t) => (
+                        <span className="tag-chip" key={t}>
                           {t}
                         </span>
                       ))}
+                    </div>
+                  )}
                 </td>
-                <td>{v.created_at.slice(0, 10)}</td>
+                <td className="text-muted-foreground">{v.created_at.slice(0, 10)}</td>
               </tr>
             ))}
           </tbody>

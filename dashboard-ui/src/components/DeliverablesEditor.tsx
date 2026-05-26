@@ -20,40 +20,40 @@ export default function DeliverablesEditor({ deliverables, onChange }: Props): R
   };
 
   return (
-    <div className="deliverables-editor">
+    <div className="space-y-2">
       {deliverables.length === 0 && (
-        <p className="kv-empty">No deliverables. Add one to track scope.</p>
+        <p className="text-sm text-muted-foreground">No deliverables. Add one to track scope.</p>
       )}
       {deliverables.map((d, i) => (
-        <div className="deliverable-row" key={i}>
+        <div className="grid grid-cols-[1.3fr_1.3fr_0.5fr_2fr_auto] gap-2" key={i}>
           <input
-            className="deliverable-platform"
+            className="input"
             placeholder="platform (instagram, youtube, ...)"
             value={d.platform}
             onChange={(e) => update(i, { platform: e.target.value })}
           />
           <input
-            className="deliverable-type"
+            className="input"
             placeholder="type (reel, post, ...)"
             value={d.type}
             onChange={(e) => update(i, { type: e.target.value })}
           />
           <input
-            className="deliverable-count"
+            className="input"
             type="number"
             min={1}
             value={d.count ?? 1}
             onChange={(e) => update(i, { count: Math.max(1, Number(e.target.value) || 1) })}
           />
           <input
-            className="deliverable-notes"
+            className="input"
             placeholder="notes"
             value={d.notes ?? ''}
             onChange={(e) => update(i, { notes: e.target.value })}
           />
           <button
             type="button"
-            className="deliverable-remove"
+            className="btn-ghost px-2 text-error-600 hover:bg-error-50"
             onClick={() => remove(i)}
             aria-label="Remove deliverable"
           >
@@ -61,7 +61,11 @@ export default function DeliverablesEditor({ deliverables, onChange }: Props): R
           </button>
         </div>
       ))}
-      <button type="button" className="kv-add" onClick={add}>
+      <button
+        type="button"
+        className="text-sm border border-dashed border-border text-muted-foreground hover:bg-muted hover:text-foreground rounded-md px-3 py-1.5"
+        onClick={add}
+      >
         + Add deliverable
       </button>
     </div>

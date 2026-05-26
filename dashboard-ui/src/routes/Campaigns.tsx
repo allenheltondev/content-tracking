@@ -49,18 +49,19 @@ export default function Campaigns(): ReactElement {
   };
 
   return (
-    <section className="campaigns-list">
-      <header className="page-header">
-        <h1>Campaigns</h1>
-        <button type="button" className="primary" onClick={() => setModalOpen(true)}>
+    <section className="space-y-4">
+      <header className="flex items-start justify-between gap-4">
+        <h1 className="text-2xl font-semibold text-foreground">Campaigns</h1>
+        <button type="button" className="btn-primary" onClick={() => setModalOpen(true)}>
           Create campaign
         </button>
       </header>
 
-      <div className="filter-bar">
-        <label>
-          <span className="field-label">Status</span>
+      <div className="flex items-center gap-3">
+        <label className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Status</span>
           <select
+            className="input w-auto py-1.5"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
           >
@@ -73,11 +74,11 @@ export default function Campaigns(): ReactElement {
       </div>
 
       {error && <p className="form-error">{error}</p>}
-      {campaigns === null && !error && <p>Loading...</p>}
+      {campaigns === null && !error && <p className="text-muted-foreground">Loading...</p>}
       {campaigns && campaigns.length === 0 && (
-        <div className="empty-state">
-          <p>No campaigns yet.</p>
-          <button type="button" className="primary" onClick={() => setModalOpen(true)}>
+        <div className="card card-body text-center py-12 space-y-4">
+          <p className="text-muted-foreground">No campaigns yet.</p>
+          <button type="button" className="btn-primary" onClick={() => setModalOpen(true)}>
             Create your first campaign
           </button>
         </div>
@@ -97,14 +98,16 @@ export default function Campaigns(): ReactElement {
             {campaigns.map((c) => (
               <tr key={c.campaign_id}>
                 <td>
-                  <Link to={`/campaigns/${c.campaign_id}`}>{c.name}</Link>
+                  <Link to={`/campaigns/${c.campaign_id}`} className="text-primary-600 hover:underline">
+                    {c.name}
+                  </Link>
                 </td>
-                <td>{c.sponsor ?? '-'}</td>
+                <td className="text-muted-foreground">{c.sponsor ?? '-'}</td>
                 <td>
                   <span className={`status-pill status-${c.status}`}>{c.status}</span>
                 </td>
-                <td>{formatDateRange(c.startDate, c.endDate)}</td>
-                <td>{formatCreatedAt(c.created_at)}</td>
+                <td className="text-muted-foreground">{formatDateRange(c.startDate, c.endDate)}</td>
+                <td className="text-muted-foreground">{formatCreatedAt(c.created_at)}</td>
               </tr>
             ))}
           </tbody>

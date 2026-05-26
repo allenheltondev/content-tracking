@@ -48,9 +48,10 @@ export default function VendorAutocomplete({ vendorId, vendorName, onChange }: P
   );
 
   return (
-    <div className="vendor-autocomplete">
+    <div className="relative">
       <input
         type="text"
+        className="input"
         value={vendorName}
         onFocus={() => setOpen(true)}
         onBlur={() => {
@@ -64,18 +65,24 @@ export default function VendorAutocomplete({ vendorId, vendorName, onChange }: P
         placeholder="Vendor name"
       />
       {vendorId && exactMatch && (
-        <p className="vendor-bound">Bound to vendor: {exactMatch.name}</p>
+        <p className="text-xs text-muted-foreground mt-1">Bound to vendor: {exactMatch.name}</p>
       )}
       {!vendorId && vendorName.trim().length > 0 && (
-        <p className="vendor-free">Free-text sponsor (no vendor record).</p>
+        <p className="text-xs text-muted-foreground mt-1">Free-text sponsor (no vendor record).</p>
       )}
-      {loadError && <p className="vendor-error">Could not load vendor list: {loadError}</p>}
+      {loadError && (
+        <p className="text-xs text-error-600 mt-1">Could not load vendor list: {loadError}</p>
+      )}
       {open && matches.length > 0 && (
-        <ul className="vendor-options" role="listbox">
+        <ul
+          className="absolute top-full left-0 right-0 z-10 mt-1 max-h-60 overflow-y-auto bg-surface border border-border rounded-lg shadow-medium"
+          role="listbox"
+        >
           {matches.map((v) => (
             <li key={v.vendor_id}>
               <button
                 type="button"
+                className="block w-full text-left px-3 py-1.5 text-sm hover:bg-muted"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   onChange({ vendorId: v.vendor_id, vendorName: v.name });

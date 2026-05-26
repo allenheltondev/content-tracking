@@ -73,11 +73,12 @@ export default function VendorForm({
   };
 
   return (
-    <div className="vendor-form">
-      <label className="field">
+    <div className="card card-body space-y-3 max-w-2xl">
+      <label className="block">
         <span className="field-label">Name</span>
         <input
           type="text"
+          className="input"
           value={form.name}
           onChange={(e) => update('name', e.target.value)}
           disabled={busy}
@@ -85,10 +86,11 @@ export default function VendorForm({
         />
       </label>
 
-      <label className="field">
+      <label className="block">
         <span className="field-label">Website</span>
         <input
           type="url"
+          className="input"
           value={form.website}
           onChange={(e) => update('website', e.target.value)}
           placeholder="https://example.com"
@@ -96,20 +98,22 @@ export default function VendorForm({
         />
       </label>
 
-      <div className="field-row">
-        <label className="field">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <label className="block">
           <span className="field-label">Contact name</span>
           <input
             type="text"
+            className="input"
             value={form.contact_name}
             onChange={(e) => update('contact_name', e.target.value)}
             disabled={busy}
           />
         </label>
-        <label className="field">
+        <label className="block">
           <span className="field-label">Contact email</span>
           <input
             type="email"
+            className="input"
             value={form.contact_email}
             onChange={(e) => update('contact_email', e.target.value)}
             disabled={busy}
@@ -117,10 +121,11 @@ export default function VendorForm({
         </label>
       </div>
 
-      <label className="field">
+      <label className="block">
         <span className="field-label">Payment terms</span>
         <input
           type="text"
+          className="input"
           value={form.payment_terms}
           onChange={(e) => update('payment_terms', e.target.value)}
           placeholder="Net 30, paid on publish, ..."
@@ -128,19 +133,16 @@ export default function VendorForm({
         />
       </label>
 
-      <label className="field">
+      <label className="block">
         <span className="field-label">Tags</span>
-        <TagsInput
-          tags={form.tags}
-          onChange={(tags) => update('tags', tags)}
-          disabled={busy}
-        />
+        <TagsInput tags={form.tags} onChange={(tags) => update('tags', tags)} disabled={busy} />
       </label>
 
-      <label className="field">
+      <label className="block">
         <span className="field-label">Notes</span>
         <textarea
           rows={4}
+          className="input"
           value={form.notes}
           onChange={(e) => update('notes', e.target.value)}
           disabled={busy}
@@ -150,11 +152,11 @@ export default function VendorForm({
       {validationError && <p className="form-error">{validationError}</p>}
       {serverError && <p className="form-error">{serverError}</p>}
 
-      <div className="form-actions">
-        <button type="button" className="secondary" onClick={onCancel} disabled={busy}>
+      <div className="flex justify-end gap-2 pt-2">
+        <button type="button" className="btn-secondary" onClick={onCancel} disabled={busy}>
           Cancel
         </button>
-        <button type="button" className="primary" onClick={submit} disabled={busy}>
+        <button type="button" className="btn-primary" onClick={submit} disabled={busy}>
           {busy ? 'Saving...' : submitLabel}
         </button>
       </div>

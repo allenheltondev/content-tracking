@@ -171,14 +171,12 @@ jobs:
           # points at the API that was just deployed in the same run.
           VITE_API_BASE_URL: ${{ steps.outputs.outputs.api-url }}
           # Cognito config lives on the GitHub environment as variables
-          # (App Client ids and Hosted UI domains aren't secrets but
-          # they're env-specific). The redirect URIs are derived from
-          # the dashboard URL the stack just exposed.
-          VITE_COGNITO_AUTHORITY: ${{ vars.COGNITO_AUTHORITY }}
-          VITE_COGNITO_HOSTED_UI_DOMAIN: ${{ vars.COGNITO_HOSTED_UI_DOMAIN }}
-          VITE_COGNITO_CLIENT_ID: ${{ vars.COGNITO_CLIENT_ID }}
-          VITE_COGNITO_REDIRECT_URI: ${{ steps.outputs.outputs.dashboard-url }}/auth/callback
-          VITE_COGNITO_POST_LOGOUT_URI: ${{ steps.outputs.outputs.dashboard-url }}/
+          # (App Client ids and User Pool ids aren't secrets but they
+          # are env-specific). Same shape newsletter-service uses --
+          # Amplify reads these directly to call Cognito InitiateAuth.
+          VITE_AWS_REGION: ${{ env.AWS_REGION }}
+          VITE_USER_POOL_ID: ${{ vars.USER_POOL_ID }}
+          VITE_USER_POOL_CLIENT_ID: ${{ vars.USER_POOL_CLIENT_ID }}
         run: npm run build
 
       - name: Sync dashboard to S3

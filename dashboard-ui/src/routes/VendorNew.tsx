@@ -26,9 +26,9 @@ export default function VendorNew(): ReactElement {
   };
 
   return (
-    <section className="vendor-edit">
-      <header className="page-header">
-        <h1>New vendor</h1>
+    <section className="space-y-4">
+      <header>
+        <h1 className="text-2xl font-semibold text-foreground">New vendor</h1>
       </header>
       <VendorForm
         busy={busy}

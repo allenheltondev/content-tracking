@@ -46,27 +46,29 @@ export default function VendorEdit(): ReactElement {
 
   if (loadError) {
     return (
-      <section className="vendor-edit">
-        <h1>Vendor not found</h1>
+      <section className="space-y-2">
+        <h1 className="text-2xl font-semibold">Vendor not found</h1>
         <p className="form-error">{loadError}</p>
-        <Link to="/vendors">Back to vendors</Link>
+        <Link to="/vendors" className="btn-link">
+          Back to vendors
+        </Link>
       </section>
     );
   }
 
   if (!vendor) {
     return (
-      <section className="vendor-edit">
-        <h1>Edit vendor</h1>
-        <p>Loading...</p>
+      <section>
+        <h1 className="text-2xl font-semibold">Edit vendor</h1>
+        <p className="text-muted-foreground">Loading...</p>
       </section>
     );
   }
 
   return (
-    <section className="vendor-edit">
-      <header className="page-header">
-        <h1>Edit {vendor.name}</h1>
+    <section className="space-y-4">
+      <header>
+        <h1 className="text-2xl font-semibold text-foreground">Edit {vendor.name}</h1>
       </header>
       <VendorForm
         initial={vendor}

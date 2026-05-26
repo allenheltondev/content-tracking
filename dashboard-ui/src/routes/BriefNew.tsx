@@ -77,11 +77,11 @@ export default function BriefNew(): ReactElement {
   };
 
   return (
-    <section className="brief-new">
-      <h1>New brief</h1>
+    <section className="space-y-4">
+      <h1 className="text-2xl font-semibold text-foreground">New brief</h1>
       {phase === 'pick' && (
         <>
-          <p className="lead">
+          <p className="text-muted-foreground max-w-2xl">
             Drop in a vendor brief. The model produces a structured summary you can edit before
             creating a campaign.
           </p>

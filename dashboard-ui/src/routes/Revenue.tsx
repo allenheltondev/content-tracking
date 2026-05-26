@@ -112,12 +112,16 @@ export default function Revenue(): ReactElement {
   }, [byVendor, vendorMap]);
 
   return (
-    <section className="revenue-page">
-      <header className="page-header">
-        <h1>Revenue</h1>
-        <label className="year-selector">
-          <span className="field-label">Year</span>
-          <select value={year} onChange={(e) => setYear(Number(e.target.value))}>
+    <section className="space-y-6">
+      <header className="flex items-start justify-between gap-4">
+        <h1 className="text-2xl font-semibold text-foreground">Revenue</h1>
+        <label className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Year</span>
+          <select
+            className="input w-auto py-1.5"
+            value={year}
+            onChange={(e) => setYear(Number(e.target.value))}
+          >
             {availableYears.map((y) => (
               <option key={y} value={y}>
                 {y}
@@ -133,55 +137,55 @@ export default function Revenue(): ReactElement {
 
       {monthly && (
         <>
-          <div className="analytics-tiles">
-            <div className="tile">
-              <span className="tile-label">Booked ({year})</span>
-              <span className="tile-value">
-                {formatMoney(monthly.booked.amount, monthly.currency)}
-              </span>
-            </div>
-            <div className="tile">
-              <span className="tile-label">Received ({year})</span>
-              <span className="tile-value">
-                {formatMoney(monthly.received.amount, monthly.currency)}
-              </span>
-            </div>
-            <div className="tile">
-              <span className="tile-label">Campaigns</span>
-              <span className="tile-value">{monthly.total.campaignCount}</span>
-            </div>
-            <div className="tile">
-              <span className="tile-label">Avg / campaign</span>
-              <span className="tile-value">
-                {monthly.total.campaignCount > 0
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <RevenueTile
+              label={`Booked (${year})`}
+              value={formatMoney(monthly.booked.amount, monthly.currency)}
+            />
+            <RevenueTile
+              label={`Received (${year})`}
+              value={formatMoney(monthly.received.amount, monthly.currency)}
+            />
+            <RevenueTile label="Campaigns" value={String(monthly.total.campaignCount)} />
+            <RevenueTile
+              label="Avg / campaign"
+              value={
+                monthly.total.campaignCount > 0
                   ? formatMoney(
                       monthly.total.amount / monthly.total.campaignCount,
                       monthly.currency,
                     )
-                  : '-'}
-              </span>
-            </div>
+                  : '-'
+              }
+            />
           </div>
 
           {monthly.skipped.length > 0 && (
-            <aside className="form-warning skipped-banner">
-              <div>
-                {monthly.skipped.length} campaign
-                {monthly.skipped.length === 1 ? '' : 's'} skipped (non-USD currency).
+            <aside className="rounded-md border border-warning-200 bg-warning-50 text-warning-900 px-3 py-2 space-y-2">
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span>
+                  {monthly.skipped.length} campaign
+                  {monthly.skipped.length === 1 ? '' : 's'} skipped (non-USD currency).
+                </span>
                 <button
                   type="button"
-                  className="link-button"
+                  className="btn-link"
                   onClick={() => setShowSkipped((s) => !s)}
                 >
                   {showSkipped ? 'Hide' : 'See details'}
                 </button>
               </div>
               {showSkipped && (
-                <ul className="skipped-list">
+                <ul className="ml-4 list-disc text-sm space-y-0.5">
                   {monthly.skipped.map((s) => (
                     <li key={s.campaign_id}>
-                      <Link to={`/campaigns/${s.campaign_id}`}>{s.campaign_id}</Link>:{' '}
-                      {s.amount} {s.currency}
+                      <Link
+                        to={`/campaigns/${s.campaign_id}`}
+                        className="text-primary-600 hover:underline"
+                      >
+                        {s.campaign_id}
+                      </Link>
+                      : {s.amount} {s.currency}
                     </li>
                   ))}
                 </ul>
@@ -189,8 +193,8 @@ export default function Revenue(): ReactElement {
             </aside>
           )}
 
-          <section className="analytics-section">
-            <h2>Trend</h2>
+          <section className="space-y-3">
+            <h2 className="text-lg font-semibold text-foreground">Trend</h2>
             <RevenueChart
               year={year}
               monthGroups={monthly.groups}
@@ -200,14 +204,14 @@ export default function Revenue(): ReactElement {
         </>
       )}
 
-      <section className="links-section">
-        <h2>By vendor</h2>
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-foreground">By vendor</h2>
         {vendorError && (
           <p className="form-error">Could not load vendor breakdown: {vendorError}</p>
         )}
-        {!byVendor && !vendorError && <p>Loading...</p>}
+        {!byVendor && !vendorError && <p className="text-muted-foreground">Loading...</p>}
         {vendorRows && vendorRows.length === 0 && (
-          <p>No revenue recorded for {year}.</p>
+          <p className="text-muted-foreground">No revenue recorded for {year}.</p>
         )}
         {vendorRows && vendorRows.length > 0 && byVendor && (
           <table className="data-table">
@@ -225,7 +229,12 @@ export default function Revenue(): ReactElement {
                 <tr key={row.vendorId ?? 'unassigned'}>
                   <td>
                     {row.vendorId ? (
-                      <Link to={`/vendors/${row.vendorId}`}>{row.name}</Link>
+                      <Link
+                        to={`/vendors/${row.vendorId}`}
+                        className="text-primary-600 hover:underline"
+                      >
+                        {row.name}
+                      </Link>
                     ) : (
                       <span>{row.name}</span>
                     )}
@@ -241,6 +250,15 @@ export default function Revenue(): ReactElement {
         )}
       </section>
     </section>
+  );
+}
+
+function RevenueTile({ label, value }: { label: string; value: string }): ReactElement {
+  return (
+    <div className="card card-body !py-3">
+      <span className="text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className="text-2xl font-semibold text-foreground mt-1 block">{value}</span>
+    </div>
   );
 }
 

@@ -43,11 +43,12 @@ export default function CreateCampaignForm({
   };
 
   return (
-    <div className="campaign-form-modal">
-      <label className="field">
+    <div className="space-y-3">
+      <label className="block">
         <span className="field-label">Name</span>
         <input
           type="text"
+          className="input"
           value={name}
           onChange={(e) => setName(e.target.value)}
           disabled={busy}
@@ -55,7 +56,7 @@ export default function CreateCampaignForm({
         />
       </label>
 
-      <label className="field">
+      <label className="block">
         <span className="field-label">Vendor</span>
         <VendorAutocomplete
           vendorId={vendorId}
@@ -67,28 +68,31 @@ export default function CreateCampaignForm({
         />
       </label>
 
-      <div className="field-row">
-        <label className="field">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <label className="block">
           <span className="field-label">Start date</span>
           <input
             type="date"
+            className="input"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
             disabled={busy}
           />
         </label>
-        <label className="field">
+        <label className="block">
           <span className="field-label">End date</span>
           <input
             type="date"
+            className="input"
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
             disabled={busy}
           />
         </label>
-        <label className="field">
+        <label className="block">
           <span className="field-label">Status</span>
           <select
+            className="input"
             value={status}
             onChange={(e) => setStatus(e.target.value as CampaignStatus)}
             disabled={busy}
@@ -103,11 +107,11 @@ export default function CreateCampaignForm({
       {validationError && <p className="form-error">{validationError}</p>}
       {serverError && <p className="form-error">{serverError}</p>}
 
-      <div className="form-actions">
-        <button type="button" className="secondary" onClick={onCancel} disabled={busy}>
+      <div className="flex justify-end gap-2 pt-2">
+        <button type="button" className="btn-secondary" onClick={onCancel} disabled={busy}>
           Cancel
         </button>
-        <button type="button" className="primary" onClick={submit} disabled={busy}>
+        <button type="button" className="btn-primary" onClick={submit} disabled={busy}>
           {busy ? 'Creating...' : 'Create campaign'}
         </button>
       </div>

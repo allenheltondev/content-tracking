@@ -31,33 +31,33 @@ export default function DeleteVendorModal({
   return (
     <Modal open={open} title="Delete vendor" onClose={() => (!busy ? onClose() : undefined)}>
       {isBlocked ? (
-        <>
-          <p>
+        <div className="space-y-3">
+          <p className="text-sm text-foreground">
             <strong>{vendorName}</strong> can't be deleted while it has{' '}
             {blockingCampaignCount} linked campaign
             {blockingCampaignCount === 1 ? '' : 's'}. Reassign or delete those campaigns first.
           </p>
-          <div className="form-actions">
-            <button type="button" className="primary" onClick={onClose}>
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn-primary" onClick={onClose}>
               Close
             </button>
           </div>
-        </>
+        </div>
       ) : (
-        <>
-          <p>
+        <div className="space-y-3">
+          <p className="text-sm text-foreground">
             Permanently delete <strong>{vendorName}</strong>? This can't be undone.
           </p>
           {serverError && <p className="form-error">{serverError}</p>}
-          <div className="form-actions">
-            <button type="button" className="secondary" onClick={onClose} disabled={busy}>
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>
               Cancel
             </button>
-            <button type="button" className="danger" onClick={onConfirm} disabled={busy}>
+            <button type="button" className="btn-destructive" onClick={onConfirm} disabled={busy}>
               {busy ? 'Deleting...' : 'Delete vendor'}
             </button>
           </div>
-        </>
+        </div>
       )}
     </Modal>
   );

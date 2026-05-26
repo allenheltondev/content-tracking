@@ -1,13 +1,11 @@
-import type { AuthProviderProps } from 'react-oidc-context';
-import { WebStorageStateStore } from 'oidc-client-ts';
+import { Amplify } from 'aws-amplify';
+import type { ResourcesConfig } from 'aws-amplify';
 
 interface RuntimeEnv {
   apiBaseUrl: string;
-  cognitoAuthority: string;
-  cognitoHostedUiDomain: string;
-  cognitoClientId: string;
-  cognitoRedirectUri: string;
-  cognitoPostLogoutUri: string;
+  awsRegion: string;
+  userPoolId: string;
+  userPoolClientId: string;
 }
 
 function required(name: string): string {
@@ -22,40 +20,30 @@ function required(name: string): string {
 
 export const env: RuntimeEnv = {
   apiBaseUrl: required('VITE_API_BASE_URL').replace(/\/$/, ''),
-  cognitoAuthority: required('VITE_COGNITO_AUTHORITY'),
-  cognitoHostedUiDomain: required('VITE_COGNITO_HOSTED_UI_DOMAIN'),
-  cognitoClientId: required('VITE_COGNITO_CLIENT_ID'),
-  cognitoRedirectUri: required('VITE_COGNITO_REDIRECT_URI'),
-  cognitoPostLogoutUri: required('VITE_COGNITO_POST_LOGOUT_URI'),
+  awsRegion: required('VITE_AWS_REGION'),
+  userPoolId: required('VITE_USER_POOL_ID'),
+  userPoolClientId: required('VITE_USER_POOL_CLIENT_ID'),
 };
 
-// Removes the `?code=...&state=...` Cognito appends after sign-in so the
-// browser URL stays clean. Without this every refresh tries to re-process
-// the same authorization code and the library throws.
-function stripAuthCodeFromUrl(): void {
-  window.history.replaceState({}, document.title, window.location.pathname);
-}
+// Mirrors newsletter-service's Amplify config so the same `RSCUserPool`
+// users have a consistent sign-in experience across both apps. We don't
+// configure the API category here -- the dashboard's API client builds
+// its own fetch wrapper that pulls the access token directly from the
+// auth session.
+// Amplify v6's ResourcesConfig types the Auth.Cognito field as an
+// intersection of UserPool + IdentityPool configs, which forces
+// identityPoolId even when you're only using a user pool. The
+// `Pick` cast tells TS we're committing to the user-pool-only shape
+// the runtime accepts.
+const amplifyConfig = {
+  Auth: {
+    Cognito: {
+      userPoolId: env.userPoolId,
+      userPoolClientId: env.userPoolClientId,
+      loginWith: { email: true },
+      allowGuestAccess: false,
+    },
+  },
+} as unknown as ResourcesConfig;
 
-export const oidcConfig: AuthProviderProps = {
-  authority: env.cognitoAuthority,
-  client_id: env.cognitoClientId,
-  redirect_uri: env.cognitoRedirectUri,
-  post_logout_redirect_uri: env.cognitoPostLogoutUri,
-  response_type: 'code',
-  scope: 'openid email',
-  // PKCE flow is automatic with response_type=code in oidc-client-ts.
-  // localStorage so the user stays signed in across tabs and refreshes.
-  userStore: new WebStorageStateStore({ store: window.localStorage }),
-  onSigninCallback: stripAuthCodeFromUrl,
-};
-
-// Cognito's logout endpoint isn't OIDC-discoverable, so the library can't
-// build it from authority metadata. We construct it here per AWS docs:
-// https://docs.aws.amazon.com/cognito/latest/developerguide/logout-endpoint.html
-export function buildCognitoLogoutUrl(): string {
-  const params = new URLSearchParams({
-    client_id: env.cognitoClientId,
-    logout_uri: env.cognitoPostLogoutUri,
-  });
-  return `https://${env.cognitoHostedUiDomain}/logout?${params.toString()}`;
-}
+Amplify.configure(amplifyConfig);
