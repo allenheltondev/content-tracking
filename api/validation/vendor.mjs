@@ -13,17 +13,34 @@ const NOTES_MAX = 2000;
 const TAG_MAX = 50;
 const TAGS_MAX_COUNT = 20;
 
+// Vendor IDs accept either a UI-generated slug ([a-z0-9_]) or a legacy
+// ULID (uppercase alphanumeric). The shared regex is permissive enough
+// to cover both without forcing one shape on the caller.
+export const VENDOR_ID_RE = /^[a-zA-Z0-9_-]{1,80}$/;
+
 // Loose "looks like an email" check. Not RFC-perfect; just guards against
 // obvious typos. Real verification belongs elsewhere.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function validateVendorPayload(body, { requireName }) {
+export function validateVendorPayload(body, { requireName, allowVendorId = false }) {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     throw new BadRequestError("request body must be a JSON object");
   }
 
   const out = {};
-  const { name, website, contact_name, contact_email, payment_terms, tags, notes } = body;
+  const { vendor_id, name, website, contact_name, contact_email, payment_terms, tags, notes } = body;
+
+  if (vendor_id !== undefined) {
+    if (!allowVendorId) {
+      throw new BadRequestError("vendor_id can only be set when creating a vendor");
+    }
+    if (typeof vendor_id !== "string" || !VENDOR_ID_RE.test(vendor_id)) {
+      throw new BadRequestError(
+        "vendor_id must be 1-80 characters of letters, digits, underscores, or hyphens",
+      );
+    }
+    out.vendorId = vendor_id;
+  }
 
   if (name !== undefined) {
     if (typeof name !== "string" || name.trim().length === 0) {

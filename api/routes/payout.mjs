@@ -24,8 +24,8 @@ export function registerPayoutRoutes(app) {
   // (paid_at, invoice_ref) move into REMOVE clauses; amount and
   // currency cannot be nulled. paid=true with no paid_at defaults
   // paid_at to today; paid=false clears paid_at.
-  app.patch("/campaigns/:campaignId/payout", async ({ event }) => {
-    const { campaignId } = event.pathParameters ?? {};
+  app.patch("/campaigns/:campaignId/payout", async ({ event, params }) => {
+    const { campaignId } = params;
     const body = parseBody(event);
     const fields = validatePayoutPayload(body, { partial: true });
 

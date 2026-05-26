@@ -135,8 +135,8 @@ describe("validateBriefConfirm", () => {
     expect(out.campaignFields.vendorId).toBeUndefined();
   });
 
-  test("rejects non-ULID vendor_id", () => {
-    expect(() => validateBriefConfirm({ name: "X", vendor_id: "abc" })).toThrow(/ULID/);
+  test("rejects malformed vendor_id", () => {
+    expect(() => validateBriefConfirm({ name: "X", vendor_id: "has spaces" })).toThrow(/vendor_id/);
   });
 
   test("rejects bad status", () => {

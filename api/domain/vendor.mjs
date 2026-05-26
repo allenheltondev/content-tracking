@@ -30,24 +30,34 @@ function vendorKey(vendorId) {
 }
 
 export async function createVendor(fields) {
-  const vendorId = ulid();
+  // Callers may supply their own vendorId (slug) via validation; fall
+  // back to a generated ULID when absent.
+  const { vendorId: providedId, ...rest } = fields;
+  const vendorId = providedId ?? ulid();
   const now = new Date().toISOString();
   const item = {
     ...vendorKey(vendorId),
     entity: "Vendor",
     vendorId,
-    ...fields,
+    ...rest,
     gsi1pk: VENDORS_PARTITION,
     gsi1sk: `${now}#${vendorId}`,
     createdAt: now,
     updatedAt: now,
   };
 
-  await ddb.send(new PutCommand({
-    TableName: TABLE_NAME,
-    Item: item,
-    ConditionExpression: "attribute_not_exists(pk)",
-  }));
+  try {
+    await ddb.send(new PutCommand({
+      TableName: TABLE_NAME,
+      Item: item,
+      ConditionExpression: "attribute_not_exists(pk)",
+    }));
+  } catch (err) {
+    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
+      throw new ConflictError(`Vendor ${vendorId} already exists`);
+    }
+    throw err;
+  }
 
   return item;
 }

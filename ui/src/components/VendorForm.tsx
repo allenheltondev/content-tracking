@@ -13,6 +13,7 @@ interface Props {
 }
 
 interface FormState {
+  vendor_id: string;
   name: string;
   website: string;
   contact_name: string;
@@ -22,6 +23,18 @@ interface FormState {
   notes: string;
 }
 
+// Vendor-ID slug rules: lowercase, spaces → underscores, drop anything
+// outside [a-z0-9_-]. Mirrors the backend's VENDOR_ID_RE so the value
+// the user sees in the field is always submittable as-is.
+function slugifyName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_-]/g, '');
+}
+
+const VENDOR_ID_RE = /^[a-zA-Z0-9_-]{1,80}$/;
+
 export default function VendorForm({
   initial,
   busy,
@@ -30,11 +43,29 @@ export default function VendorForm({
   onSubmit,
   onCancel,
 }: Props): ReactElement {
+  const isUpdate = !!initial;
   const [form, setForm] = useState<FormState>(() => stateFromVendor(initial));
+  // Tracks whether the user has explicitly edited the vendor_id input. If
+  // they have, stop auto-syncing it from the name. If they clear it back
+  // out, name-sync resumes.
+  const [idDirty, setIdDirty] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]): void => {
     setForm((f) => ({ ...f, [key]: value }));
+  };
+
+  const handleNameChange = (value: string): void => {
+    setForm((f) => ({
+      ...f,
+      name: value,
+      vendor_id: !isUpdate && !idDirty ? slugifyName(value) : f.vendor_id,
+    }));
+  };
+
+  const handleIdChange = (value: string): void => {
+    setIdDirty(value.length > 0);
+    setForm((f) => ({ ...f, vendor_id: value }));
   };
 
   const submit = (): void => {
@@ -43,6 +74,19 @@ export default function VendorForm({
     if (name.length === 0) {
       setValidationError('Name is required.');
       return;
+    }
+    const vendorId = form.vendor_id.trim();
+    if (!isUpdate) {
+      if (vendorId.length === 0) {
+        setValidationError('Vendor ID is required.');
+        return;
+      }
+      if (!VENDOR_ID_RE.test(vendorId)) {
+        setValidationError(
+          'Vendor ID can only contain letters, digits, underscores, and hyphens (max 80).',
+        );
+        return;
+      }
     }
     const website = form.website.trim();
     if (website.length > 0 && !/^https?:\/\//i.test(website)) {
@@ -56,10 +100,12 @@ export default function VendorForm({
     }
 
     const payload: VendorPayload = { name };
+    if (!isUpdate) {
+      payload.vendor_id = vendorId;
+    }
     // For each optional field: empty string means "clear on edit, omit on
     // create". We use null on edit so the API REMOVEs it, and undefined
     // on create to leave it absent. The route differentiates via initial.
-    const isUpdate = !!initial;
     setStringField(payload, 'website', website, isUpdate);
     setStringField(payload, 'contact_name', form.contact_name.trim(), isUpdate);
     setStringField(payload, 'contact_email', email, isUpdate);
@@ -80,11 +126,29 @@ export default function VendorForm({
           type="text"
           className="input"
           value={form.name}
-          onChange={(e) => update('name', e.target.value)}
+          onChange={(e) => handleNameChange(e.target.value)}
           disabled={busy}
           autoFocus={!initial}
         />
       </label>
+
+      {!isUpdate && (
+        <label className="block">
+          <span className="field-label">Vendor ID</span>
+          <input
+            type="text"
+            className="input font-mono"
+            value={form.vendor_id}
+            onChange={(e) => handleIdChange(e.target.value)}
+            disabled={busy}
+            placeholder="auto-generated from name"
+            spellCheck={false}
+          />
+          <span className="text-xs text-muted-foreground mt-1 block">
+            Permanent. Used in URLs. Lowercase letters, digits, underscores, or hyphens.
+          </span>
+        </label>
+      )}
 
       <label className="block">
         <span className="field-label">Website</span>
@@ -166,6 +230,7 @@ export default function VendorForm({
 
 function stateFromVendor(v: Vendor | null | undefined): FormState {
   return {
+    vendor_id: v?.vendor_id ?? '',
     name: v?.name ?? '',
     website: v?.website ?? '',
     contact_name: v?.contact_name ?? '',

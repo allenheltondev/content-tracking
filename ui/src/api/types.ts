@@ -68,6 +68,7 @@ export interface Vendor {
 }
 
 export interface VendorPayload {
+  vendor_id?: string;
   name?: string;
   website?: string | null;
   contact_name?: string | null;

@@ -1,5 +1,6 @@
 import { BadRequestError } from "../services/errors.mjs";
 import { validatePayoutPayload } from "./payout.mjs";
+import { VENDOR_ID_RE } from "./vendor.mjs";
 
 const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 const VALID_ROLES = new Set(["vendor", "influencer", "user", "assistant"]);
@@ -139,8 +140,10 @@ export function validateBriefConfirm(body) {
   }
 
   if (vendor_id !== undefined && vendor_id !== null && vendor_id !== "") {
-    if (typeof vendor_id !== "string" || !ULID_RE.test(vendor_id)) {
-      throw new BadRequestError("vendor_id must be a ULID");
+    if (typeof vendor_id !== "string" || !VENDOR_ID_RE.test(vendor_id)) {
+      throw new BadRequestError(
+        "vendor_id must be 1-80 characters of letters, digits, underscores, or hyphens",
+      );
     }
     campaignFields.vendorId = vendor_id;
     acceptedSuggestion.vendor_id = vendor_id;

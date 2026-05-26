@@ -2,8 +2,8 @@ import { BadRequestError } from "../services/errors.mjs";
 import { jsonResponse } from "../services/http-handler.mjs";
 import { queryCampaignsByDateRange } from "../domain/campaign.mjs";
 import { AGGREGATION_CURRENCY } from "../validation/payout.mjs";
+import { VENDOR_ID_RE } from "../validation/vendor.mjs";
 
-const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const VALID_GROUPINGS = new Set(["year", "month", "vendor"]);
 
@@ -93,8 +93,10 @@ function parseQueryParams(params) {
   }
 
   if (params.vendorId !== undefined) {
-    if (!ULID_RE.test(params.vendorId)) {
-      throw new BadRequestError("vendorId must be a ULID");
+    if (!VENDOR_ID_RE.test(params.vendorId)) {
+      throw new BadRequestError(
+        "vendorId must be 1-80 characters of letters, digits, underscores, or hyphens",
+      );
     }
     out.vendorId = params.vendorId;
   } else {
