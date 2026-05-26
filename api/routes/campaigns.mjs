@@ -77,8 +77,8 @@ export function registerCampaignRoutes(app) {
     });
   });
 
-  app.get("/campaigns/:campaignId", async ({ event }) => {
-    const { campaignId } = event.pathParameters ?? {};
+  app.get("/campaigns/:campaignId", async ({ params }) => {
+    const { campaignId } = params;
     const { metadata, links } = await getCampaignWithLinks(campaignId);
     return jsonResponse(200, {
       campaign: formatCampaign(metadata),

@@ -11,8 +11,8 @@ const FANOUT_CONCURRENCY = parseInt(
 
 export function registerAnalyticsRoutes(app) {
   // Per-link analytics. Single upstream call to newsletter-service.
-  app.get("/campaigns/:campaignId/links/:linkId/analytics", async ({ event }) => {
-    const { campaignId, linkId } = event.pathParameters ?? {};
+  app.get("/campaigns/:campaignId/links/:linkId/analytics", async ({ params }) => {
+    const { campaignId, linkId } = params;
     const link = await findLink(campaignId, linkId);
     if (!link) {
       return jsonResponse(404, { message: `Link ${linkId} not found in campaign ${campaignId}` });
@@ -43,8 +43,8 @@ export function registerAnalyticsRoutes(app) {
   // with limited concurrency. Partial failures get rolled up into the
   // response rather than aborting the whole call — matches the existing
   // get-campaign-analytics behavior.
-  app.get("/campaigns/:campaignId/analytics", async ({ event }) => {
-    const { campaignId } = event.pathParameters ?? {};
+  app.get("/campaigns/:campaignId/analytics", async ({ params }) => {
+    const { campaignId } = params;
     const { links } = await getCampaignWithLinks(campaignId);
 
     if (links.length === 0) {

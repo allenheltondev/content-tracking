@@ -1,6 +1,6 @@
 import { BadRequestError } from "../services/errors.mjs";
+import { VENDOR_ID_RE } from "./vendor.mjs";
 
-const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const VALID_STATUSES = new Set(["draft", "active", "completed"]);
 const NAME_MAX = 200;
@@ -30,8 +30,10 @@ export function validateCampaignCreate(body) {
   }
 
   if (vendor_id !== undefined && vendor_id !== null) {
-    if (typeof vendor_id !== "string" || !ULID_RE.test(vendor_id)) {
-      throw new BadRequestError("vendor_id must be a ULID");
+    if (typeof vendor_id !== "string" || !VENDOR_ID_RE.test(vendor_id)) {
+      throw new BadRequestError(
+        "vendor_id must be 1-80 characters of letters, digits, underscores, or hyphens",
+      );
     }
     out.vendorId = vendor_id;
   }

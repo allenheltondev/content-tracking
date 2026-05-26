@@ -30,16 +30,16 @@ const formatLink = (row) => ({
 });
 
 export function registerLinkRoutes(app) {
-  app.post("/campaigns/:campaignId/links", withIdempotency(async ({ event }) => {
-    const { campaignId } = event.pathParameters ?? {};
+  app.post("/campaigns/:campaignId/links", withIdempotency(async ({ event, params }) => {
+    const { campaignId } = params;
     const body = parseBody(event);
     const fields = validateCreate(body);
     const item = await createLink(campaignId, fields);
     return jsonResponse(201, formatLink(item));
   }));
 
-  app.put("/campaigns/:campaignId/links/:linkId", async ({ event }) => {
-    const { campaignId, linkId } = event.pathParameters ?? {};
+  app.put("/campaigns/:campaignId/links/:linkId", async ({ event, params }) => {
+    const { campaignId, linkId } = params;
     const body = parseBody(event);
 
     if (typeof body !== "object" || body === null || Array.isArray(body)) {
@@ -65,8 +65,8 @@ export function registerLinkRoutes(app) {
     return jsonResponse(200, formatLink(updated));
   });
 
-  app.delete("/campaigns/:campaignId/links/:linkId", async ({ event }) => {
-    const { campaignId, linkId } = event.pathParameters ?? {};
+  app.delete("/campaigns/:campaignId/links/:linkId", async ({ params }) => {
+    const { campaignId, linkId } = params;
     await deleteLink(campaignId, linkId);
     return emptyResponse(204);
   });

@@ -22,7 +22,7 @@ describe("validateCampaignCreate", () => {
   });
 
   test("rejects malformed vendor_id", () => {
-    expect(() => validateCampaignCreate({ name: "ok", vendor_id: "lowercase" })).toThrow(/ULID/);
+    expect(() => validateCampaignCreate({ name: "ok", vendor_id: "has spaces" })).toThrow(/vendor_id/);
   });
 
   test("rejects unknown status", () => {

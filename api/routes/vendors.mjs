@@ -24,7 +24,7 @@ const formatVendorCampaign = (row) => ({
 export function registerVendorRoutes(app) {
   app.post("/vendors", withIdempotency(async ({ event }) => {
     const body = parseBody(event);
-    const fields = validateVendorPayload(body, { requireName: true });
+    const fields = validateVendorPayload(body, { requireName: true, allowVendorId: true });
     const item = await createVendor(fields);
     return jsonResponse(201, formatVendor(item));
   }));
@@ -40,14 +40,14 @@ export function registerVendorRoutes(app) {
     });
   });
 
-  app.get("/vendors/:vendorId", async ({ event }) => {
-    const { vendorId } = event.pathParameters ?? {};
+  app.get("/vendors/:vendorId", async ({ params }) => {
+    const { vendorId } = params;
     const vendor = await getVendor(vendorId);
     return jsonResponse(200, formatVendor(vendor));
   });
 
-  app.put("/vendors/:vendorId", async ({ event }) => {
-    const { vendorId } = event.pathParameters ?? {};
+  app.put("/vendors/:vendorId", async ({ event, params }) => {
+    const { vendorId } = params;
     const body = parseBody(event);
     const fields = validateVendorPayload(body, { requireName: false });
     if (Object.keys(fields).length === 0) {
@@ -57,14 +57,14 @@ export function registerVendorRoutes(app) {
     return jsonResponse(200, formatVendor(updated));
   });
 
-  app.delete("/vendors/:vendorId", async ({ event }) => {
-    const { vendorId } = event.pathParameters ?? {};
+  app.delete("/vendors/:vendorId", async ({ params }) => {
+    const { vendorId } = params;
     await deleteVendor(vendorId);
     return emptyResponse(204);
   });
 
-  app.get("/vendors/:vendorId/campaigns", async ({ event }) => {
-    const { vendorId } = event.pathParameters ?? {};
+  app.get("/vendors/:vendorId/campaigns", async ({ params }) => {
+    const { vendorId } = params;
     const items = await listCampaignsForVendor(vendorId);
     const campaigns = items
       .map(formatVendorCampaign)

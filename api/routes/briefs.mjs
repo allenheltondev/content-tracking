@@ -181,8 +181,8 @@ export function registerBriefRoutes(app) {
   //
   // Idempotent: a brief that's already been confirmed returns its
   // existing campaign_id with 200, not 201.
-  app.post("/briefs/:briefId/confirm", async ({ event }) => {
-    const { briefId } = event.pathParameters ?? {};
+  app.post("/briefs/:briefId/confirm", async ({ event, params }) => {
+    const { briefId } = params;
     if (!briefId || !ULID_RE.test(briefId)) {
       throw new BadRequestError("briefId must be a ULID");
     }
@@ -210,8 +210,8 @@ export function registerBriefRoutes(app) {
   // Audit view. Returns the brief metadata + a presigned download URL
   // for the original PDF / transcript so the client can show "this is
   // what we summarized."
-  app.get("/briefs/:briefId", async ({ event }) => {
-    const { briefId } = event.pathParameters ?? {};
+  app.get("/briefs/:briefId", async ({ params }) => {
+    const { briefId } = params;
     if (!briefId || !ULID_RE.test(briefId)) {
       throw new BadRequestError("briefId must be a ULID");
     }
