@@ -118,11 +118,16 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
     setUser(null);
   }, []);
 
+  // API Gateway's Cognito authorizer validates `aud` against the app
+  // client, and only the ID token carries that claim — access tokens
+  // expose `client_id` instead and get rejected with 401. Same pattern
+  // the newsletter-service dashboard hit; sending the ID token keeps
+  // both APIs happy off the shared rsc-core pool.
   const getAccessToken = useCallback(async (): Promise<string> => {
     const session = await fetchAuthSession();
-    const token = session.tokens?.accessToken?.toString();
+    const token = session.tokens?.idToken?.toString();
     if (!token) {
-      throw new Error('No access token; sign in first.');
+      throw new Error('No ID token; sign in first.');
     }
     return token;
   }, []);

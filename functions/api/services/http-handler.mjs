@@ -9,8 +9,11 @@ import { ApiError } from "./errors.mjs";
 // http-handler.mjs, adapted to this stack (no tenant-routing, no auth
 // extraction — API Gateway's Cognito authorizer handled that already).
 
+// Origin is injected by the SAM template from the dashboard URL (custom
+// domain when set, else the CloudFront hostname). Falls back to "*" only
+// for local invocations where the env var isn't populated.
 const CORS_HEADERS = {
-  "access-control-allow-origin": "*",
+  "access-control-allow-origin": process.env.CORS_ALLOWED_ORIGIN || "*",
   "access-control-allow-headers": "authorization,content-type,idempotency-key",
   "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
 };
