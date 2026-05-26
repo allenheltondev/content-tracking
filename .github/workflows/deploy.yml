@@ -3,9 +3,15 @@ name: Deploy (staging)
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
+  # Single shared group across `push: main` and `pull_request` so PR
+  # deploys and main deploys serialize against each other instead of
+  # racing on the same Staging stack. cancel-in-progress is false so
+  # mid-deploy CFN updates never get torn out from under themselves.
   group: deploy-staging
   cancel-in-progress: false
 
@@ -24,7 +30,10 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: Staging
-      url: ${{ steps.outputs.outputs.api-url }}
+      # Dashboard URL is the user-facing surface. Surfaces on the PR
+      # as "Deployed to Staging" with this URL once the workflow
+      # finishes, so reviewers can click straight through.
+      url: ${{ steps.outputs.outputs.dashboard-url }}
 
     steps:
       - name: Checkout
@@ -38,6 +47,14 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --ignore-scripts
+
+      - name: Install esbuild on PATH
+        # SAM's NodejsNpmEsbuildBuilder shells out to `esbuild`. With
+        # --ignore-scripts in place above, esbuild's postinstall never
+        # fetches its native binary, so the project-local copy isn't
+        # runnable. A global install puts a working esbuild on PATH
+        # where the SAM builder looks first.
+        run: npm install -g esbuild
 
       - name: Set up Python (for SAM CLI)
         uses: actions/setup-python@v6
@@ -60,6 +77,11 @@ jobs:
         run: sam build
 
       - name: SAM deploy
+        # `NewsletterApiBaseUrl` and `CampaignShortLinkBase` were
+        # parameters before PR #35's monolambda refactor moved them
+        # to runtime SSM reads. They were never cleaned out of these
+        # workflows, which is why every deploy since #35 has failed
+        # the second the SAM build was fixed.
         run: |
           sam deploy \
             --config-env ci \
@@ -67,8 +89,6 @@ jobs:
             --no-fail-on-empty-changeset \
             --parameter-overrides \
               "Environment=${{ env.ENVIRONMENT }}" \
-              "NewsletterApiBaseUrl=/newsletter-service/${{ env.ENVIRONMENT }}/newsletter-api-base-url" \
-              "CampaignShortLinkBase=/newsletter-service/${{ env.ENVIRONMENT }}/campaign-short-link-base" \
               "NewsletterMintApiKey=${{ secrets.NEWSLETTER_MINT_API_KEY }}"
 
       - name: Diagnose failed deploy
@@ -119,18 +139,69 @@ jobs:
       - name: Read stack outputs
         id: outputs
         run: |
-          API_URL=$(aws cloudformation describe-stacks \
+          OUTPUTS=$(aws cloudformation describe-stacks \
             --stack-name "${{ env.STACK_NAME }}" \
             --region "${{ env.AWS_REGION }}" \
-            --query "Stacks[0].Outputs[?OutputKey=='ContentTrackingApiBaseUrl'].OutputValue" \
-            --output text)
-          TABLE_NAME=$(aws cloudformation describe-stacks \
-            --stack-name "${{ env.STACK_NAME }}" \
-            --region "${{ env.AWS_REGION }}" \
-            --query "Stacks[0].Outputs[?OutputKey=='ContentTrackingTableName'].OutputValue" \
-            --output text)
-          echo "api-url=$API_URL" >> "$GITHUB_OUTPUT"
-          echo "table-name=$TABLE_NAME" >> "$GITHUB_OUTPUT"
+            --query "Stacks[0].Outputs" \
+            --output json)
+          read_out() {
+            echo "$OUTPUTS" | jq -r --arg k "$1" '.[] | select(.OutputKey==$k) | .OutputValue'
+          }
+          {
+            echo "api-url=$(read_out ContentTrackingApiBaseUrl)"
+            echo "table-name=$(read_out ContentTrackingTableName)"
+            echo "dashboard-bucket=$(read_out DashboardBucketName)"
+            echo "dashboard-distribution-id=$(read_out DashboardDistributionId)"
+            echo "dashboard-url=$(read_out DashboardUrl)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install dashboard dependencies
+        # Dashboard build uses vite + rollup + esbuild, all of which
+        # depend on their postinstall scripts to fetch native
+        # platform binaries. We don't gate this with --ignore-scripts
+        # because there's no easy substitute for those binaries the
+        # way there is for SAM's esbuild lookup.
+        working-directory: dashboard-ui
+        run: npm ci
+
+      - name: Build dashboard
+        working-directory: dashboard-ui
+        env:
+          # API URL comes from the stack output so the dashboard always
+          # points at the API that was just deployed in the same run.
+          VITE_API_BASE_URL: ${{ steps.outputs.outputs.api-url }}
+          # Cognito config lives on the GitHub environment as variables
+          # (App Client ids and Hosted UI domains aren't secrets but
+          # they're env-specific). The redirect URIs are derived from
+          # the dashboard URL the stack just exposed.
+          VITE_COGNITO_AUTHORITY: ${{ vars.COGNITO_AUTHORITY }}
+          VITE_COGNITO_HOSTED_UI_DOMAIN: ${{ vars.COGNITO_HOSTED_UI_DOMAIN }}
+          VITE_COGNITO_CLIENT_ID: ${{ vars.COGNITO_CLIENT_ID }}
+          VITE_COGNITO_REDIRECT_URI: ${{ steps.outputs.outputs.dashboard-url }}/auth/callback
+          VITE_COGNITO_POST_LOGOUT_URI: ${{ steps.outputs.outputs.dashboard-url }}/
+        run: npm run build
+
+      - name: Sync dashboard to S3
+        run: |
+          BUCKET="${{ steps.outputs.outputs.dashboard-bucket }}"
+          # Two-pass sync. Hashed assets get immutable long-term caching;
+          # the HTML manifest stays no-cache so users always see the
+          # latest bundle.
+          aws s3 sync dashboard-ui/dist/ "s3://${BUCKET}/" \
+            --delete \
+            --cache-control "public, max-age=31536000, immutable" \
+            --exclude "*.html"
+          aws s3 sync dashboard-ui/dist/ "s3://${BUCKET}/" \
+            --cache-control "public, max-age=0, must-revalidate" \
+            --content-type "text/html; charset=utf-8" \
+            --exclude "*" \
+            --include "*.html"
+
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ steps.outputs.outputs.dashboard-distribution-id }}" \
+            --paths "/*"
 
       - name: Write deployment summary
         run: |
@@ -140,6 +211,7 @@ jobs:
             echo "- **Stack:** \`${{ env.STACK_NAME }}\`"
             echo "- **Region:** \`${{ env.AWS_REGION }}\`"
             echo "- **API URL:** ${{ steps.outputs.outputs.api-url }}"
+            echo "- **Dashboard URL:** ${{ steps.outputs.outputs.dashboard-url }}"
             echo "- **Table:** \`${{ steps.outputs.outputs.table-name }}\`"
             echo "- **Commit:** \`${{ github.sha }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

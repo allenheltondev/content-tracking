@@ -104,8 +104,10 @@ GitHub Actions workflows in `.github/workflows/`:
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
 | `ci.yml` | Pull requests and pushes to `main` | `npm ci` + `npm run lint` + `npm test` |
-| `deploy.yml` | Push to `main`, `workflow_dispatch` | `sam build` + `sam deploy` to the `Staging` GitHub Environment via OIDC |
+| `deploy.yml` | Push to `main`, pull requests targeting `main`, `workflow_dispatch` | `sam build` + `sam deploy` to the `Staging` GitHub Environment via OIDC. PRs deploy to the *same* Staging stack so the PR sidebar shows the deployed dashboard URL. |
 | `prod-deploy.yml` | Push of a tag matching `v*.*.*`, `workflow_dispatch` | Same, but targets the `Production` GitHub Environment |
+
+PR deploys and `main` deploys share the `deploy-staging` concurrency group, so they serialize — a PR push won't race with a main deploy already in flight. Staging is whatever was last pushed; in a solo workflow this is the trade for cheap preview deploys. If a second contributor joins, switch to per-PR stacks before the race condition bites.
 
 Required GitHub Environments:
 
@@ -117,17 +119,24 @@ Required environment-scoped secrets (set on each environment):
 - `AWS_DEPLOY_ROLE_ARN` - the IAM role assumed via OIDC.
 - `NEWSLETTER_MINT_API_KEY` - same value used in local dev.
 
-Both deploy workflows resolve `NewsletterApiBaseUrl` and
-`CampaignShortLinkBase` to the environment-specific SSM paths
-(`/newsletter-service/staging/*` or `/newsletter-service/production/*`)
-inline, so no parameter store writes are needed from this stack at
-deploy time. The Cognito user pool ARN is always read from
+Required environment-scoped variables (used to build the dashboard at
+deploy time; these are not secrets):
+
+- `COGNITO_AUTHORITY` - the User Pool OIDC issuer URL.
+- `COGNITO_HOSTED_UI_DOMAIN` - the Cognito Hosted UI domain.
+- `COGNITO_CLIENT_ID` - the App Client id for this environment's dashboard.
+
+The Cognito user pool ARN itself is always read from
 `/readysetcloud/auth/user-pool-arn`.
 
-After a deploy, both workflows write a job summary that includes the API
-URL and DynamoDB table name. Failed deploys dump CloudFormation
-diagnostics (recent stack events, latest change set) to the workflow log
-to speed up triage.
+After SAM deploys, both workflows also build `dashboard-ui/` with these
+variables (the redirect URIs are derived from the `DashboardUrl` stack
+output), sync the output to the `DashboardBucket`, and invalidate the
+CloudFront distribution. The deploy summary lists both the API URL and
+the dashboard URL.
+
+Failed deploys dump CloudFormation diagnostics (recent stack events,
+latest change set) to the workflow log to speed up triage.
 
 ## AWS OIDC role setup
 
@@ -156,9 +165,12 @@ Production trust policy condition (tag-only):
 ```
 
 Attach a deploy policy that grants CloudFormation, S3 (for the SAM
-artifact bucket), Lambda, API Gateway, DynamoDB, IAM (role creation),
-SSM (read), and CloudWatch Logs permissions sufficient to manage the
-stack.
+artifact bucket **and** the dashboard bucket), Lambda, API Gateway,
+DynamoDB, IAM (role creation), SSM (read), CloudFront (creating
+distributions, response-headers policies, and origin access controls;
+`cloudfront:CreateInvalidation` is required for post-deploy cache
+busting), Route53 (when a custom domain is used), and CloudWatch Logs
+permissions sufficient to manage the stack.
 
 Store the role ARN as the `AWS_DEPLOY_ROLE_ARN` secret on the matching
 GitHub Environment.
@@ -202,10 +214,13 @@ Create an App Client in the shared `RSCUserPool`:
 - **OAuth scopes:** `openid` and `email`.
 - **Allowed callback URLs:**
   - `http://localhost:5173/auth/callback` (local dev)
-  - The deployed dashboard origin + `/auth/callback` (once #8 lands)
+  - `<DashboardUrl>/auth/callback` for each deployed environment. After
+    the first deploy, read `DashboardUrl` from the stack outputs (see
+    [Hosting](#hosting) below). Add the value here before sign-in will
+    work in the deployed dashboard.
 - **Allowed sign-out URLs:**
   - `http://localhost:5173/`
-  - The deployed dashboard origin + `/`
+  - `<DashboardUrl>/` for each deployed environment.
 - **Hosted UI domain:** enable a hosted UI domain on the user pool if
   one isn't already configured. The dashboard's sign-out flow needs it
   to invalidate the session cookie.
@@ -239,3 +254,33 @@ config).
 
 The required-env check throws at module load time, so missing vars fail
 loudly during dev rather than at the first API call.
+
+### Hosting
+
+Static hosting is part of the SAM stack: a private S3 bucket and a
+CloudFront distribution with Origin Access Control. SPA routing is
+handled by rewriting 403/404 responses to `/index.html` so deep links
+survive a refresh. Cache-Control is split during the sync step — hashed
+assets get `max-age=31536000, immutable`; `index.html` gets `max-age=0,
+must-revalidate` so users always see the latest manifest.
+
+The CI deploy workflows build the dashboard, sync the output to the
+bucket, and invalidate the distribution. The dashboard URL is part of
+the deploy summary in the workflow run.
+
+### Custom domain (optional)
+
+Without these parameters the dashboard is served from the
+CloudFront-issued `*.cloudfront.net` domain. To attach a custom domain,
+set all three:
+
+| CFN parameter | Notes |
+| --- | --- |
+| `DashboardCustomDomain` | The fully-qualified hostname (e.g. `tracking.example.com`). |
+| `DashboardHostedZoneId` | The Route53 hosted zone id containing that hostname. |
+| `DashboardCertificateArn` | ACM certificate covering the hostname. **Must be issued in `us-east-1`** even if the rest of the stack is elsewhere — CloudFront only reads from us-east-1. |
+
+Put the values in `samconfig.local.toml` (local dev) or pass them via
+`--parameter-overrides` in the deploy workflow. The Route53 alias
+record and ACM-backed viewer certificate are created behind a CFN
+condition, so the stack still deploys cleanly with the defaults.
