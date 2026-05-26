@@ -38,12 +38,11 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: |
-          npm ci --ignore-scripts
-          # See deploy.yml for the rationale: --ignore-scripts blocks
-          # esbuild's postinstall (and rollup's etc.), npm rebuild
-          # runs only the install scripts of already-pinned packages.
-          npm rebuild
+        run: npm ci --ignore-scripts
+
+      - name: Install esbuild on PATH
+        # See deploy.yml for rationale.
+        run: npm install -g esbuild
 
       - name: Set up Python (for SAM CLI)
         uses: actions/setup-python@v6
@@ -142,10 +141,9 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Install dashboard dependencies
+        # See deploy.yml for rationale.
         working-directory: dashboard-ui
-        run: |
-          npm ci --ignore-scripts
-          npm rebuild
+        run: npm ci
 
       - name: Build dashboard
         working-directory: dashboard-ui

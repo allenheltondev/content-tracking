@@ -46,16 +46,15 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: |
-          npm ci --ignore-scripts
-          # `--ignore-scripts` blocks every postinstall (security
-          # posture), but esbuild's postinstall is what fetches its
-          # platform-specific binary. SAM's NodejsNpmEsbuildBuilder
-          # then can't find esbuild and the build fails. `npm rebuild`
-          # runs install lifecycle scripts on already-installed
-          # packages so the native binaries land without re-opening
-          # the floodgates on every dep.
-          npm rebuild
+        run: npm ci --ignore-scripts
+
+      - name: Install esbuild on PATH
+        # SAM's NodejsNpmEsbuildBuilder shells out to `esbuild`. With
+        # --ignore-scripts in place above, esbuild's postinstall never
+        # fetches its native binary, so the project-local copy isn't
+        # runnable. A global install puts a working esbuild on PATH
+        # where the SAM builder looks first.
+        run: npm install -g esbuild
 
       - name: Set up Python (for SAM CLI)
         uses: actions/setup-python@v6
@@ -157,10 +156,13 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Install dashboard dependencies
+        # Dashboard build uses vite + rollup + esbuild, all of which
+        # depend on their postinstall scripts to fetch native
+        # platform binaries. We don't gate this with --ignore-scripts
+        # because there's no easy substitute for those binaries the
+        # way there is for SAM's esbuild lookup.
         working-directory: dashboard-ui
-        run: |
-          npm ci --ignore-scripts
-          npm rebuild
+        run: npm ci
 
       - name: Build dashboard
         working-directory: dashboard-ui
