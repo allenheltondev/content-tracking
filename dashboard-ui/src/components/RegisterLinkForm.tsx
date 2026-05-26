@@ -50,32 +50,39 @@ export default function RegisterLinkForm({
   };
 
   return (
-    <fieldset className="form-section register-link">
-      <legend>Register a link</legend>
+    <fieldset className="border border-border rounded-lg px-4 py-3 space-y-3 mt-4">
+      <legend className="px-1 text-sm font-medium text-foreground">Register a link</legend>
 
-      <div className="field-row">
-        <label className="field">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <label className="block">
           <span className="field-label">Role</span>
-          <select value={role} onChange={(e) => setRole(e.target.value as Role)} disabled={busy}>
+          <select
+            className="input"
+            value={role}
+            onChange={(e) => setRole(e.target.value as Role)}
+            disabled={busy}
+          >
             <option value="main">main</option>
             <option value="cross_post">cross_post</option>
             <option value="social_promo">social_promo</option>
           </select>
         </label>
-        <label className="field">
+        <label className="block">
           <span className="field-label">Platform</span>
           <input
             type="text"
+            className="input"
             value={platform}
             onChange={(e) => setPlatform(e.target.value)}
             placeholder="instagram, medium, ..."
             disabled={busy}
           />
         </label>
-        <label className="field">
+        <label className="block">
           <span className="field-label">Source label</span>
           <input
             type="text"
+            className="input"
             value={src}
             onChange={(e) => setSrc(e.target.value)}
             placeholder="optional"
@@ -84,10 +91,11 @@ export default function RegisterLinkForm({
         </label>
       </div>
 
-      <label className="field">
+      <label className="block">
         <span className="field-label">Destination URL</span>
         <input
           type="url"
+          className="input"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://example.com/article"
@@ -98,15 +106,17 @@ export default function RegisterLinkForm({
       {validationError && <p className="form-error">{validationError}</p>}
       {serverError && <p className="form-error">{serverError}</p>}
 
-      <button type="button" className="primary" onClick={submit} disabled={busy}>
+      <button type="button" className="btn-primary" onClick={submit} disabled={busy}>
         {busy ? 'Registering...' : 'Register link'}
       </button>
 
       {lastCreated && (
-        <div className="short-url-display">
-          <strong>Short URL:</strong>
-          <code>{lastCreated.short_url}</code>
-          <button type="button" className="link-button" onClick={copyShortUrl}>
+        <div className="flex items-center gap-2 rounded-md border border-primary-200 bg-primary-50 px-3 py-2 text-sm">
+          <strong className="text-primary-900">Short URL:</strong>
+          <code className="bg-surface border border-primary-200 rounded px-1.5 py-0.5 font-mono text-xs">
+            {lastCreated.short_url}
+          </code>
+          <button type="button" className="btn-link" onClick={copyShortUrl}>
             {copied ? 'Copied' : 'Copy'}
           </button>
         </div>

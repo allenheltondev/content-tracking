@@ -1,8 +1,8 @@
 import { createBrowserRouter } from 'react-router-dom';
 import App from './App';
-import AuthCallback from './auth/AuthCallback';
 import ProtectedRoute from './auth/ProtectedRoute';
 import Home from './routes/Home';
+import SignIn from './routes/SignIn';
 import Campaigns from './routes/Campaigns';
 import CampaignDetail from './routes/CampaignDetail';
 import Vendors from './routes/Vendors';
@@ -15,8 +15,8 @@ import BriefDetail from './routes/BriefDetail';
 
 export const router = createBrowserRouter([
   {
-    path: '/auth/callback',
-    element: <AuthCallback />,
+    path: '/signin',
+    element: <SignIn />,
   },
   {
     path: '/',

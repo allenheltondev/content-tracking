@@ -100,19 +100,21 @@ export default function CampaignDetail(): ReactElement {
 
   if (loadError) {
     return (
-      <section className="campaign-detail">
-        <h1>Campaign not found</h1>
+      <section className="space-y-2">
+        <h1 className="text-2xl font-semibold">Campaign not found</h1>
         <p className="form-error">{loadError}</p>
-        <Link to="/campaigns">Back to campaigns</Link>
+        <Link to="/campaigns" className="btn-link">
+          Back to campaigns
+        </Link>
       </section>
     );
   }
 
   if (!bundle) {
     return (
-      <section className="campaign-detail">
-        <h1>Campaign</h1>
-        <p>Loading...</p>
+      <section>
+        <h1 className="text-2xl font-semibold">Campaign</h1>
+        <p className="text-muted-foreground">Loading...</p>
       </section>
     );
   }
@@ -120,36 +122,42 @@ export default function CampaignDetail(): ReactElement {
   const { campaign, links } = bundle;
 
   return (
-    <section className="campaign-detail">
-      <header className="page-header">
-        <div>
-          <h1>
-            {campaign.name}
-            {state.fromBriefId && <span className="from-brief-badge">From brief</span>}
-          </h1>
-          {campaign.sponsor && <p className="page-subtitle">{campaign.sponsor}</p>}
+    <section className="space-y-6">
+      <header className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-semibold text-foreground">{campaign.name}</h1>
+            {state.fromBriefId && (
+              <span className="tag-chip">From brief</span>
+            )}
+          </div>
+          {campaign.sponsor && <p className="text-muted-foreground">{campaign.sponsor}</p>}
           {state.fromBriefId && (
-            <p className="page-subtitle">
-              <Link to={`/briefs/${state.fromBriefId}`}>View source brief</Link>
+            <p className="text-sm">
+              <Link to={`/briefs/${state.fromBriefId}`} className="btn-link">
+                View source brief
+              </Link>
             </p>
           )}
         </div>
         <span className={`status-pill status-${campaign.status}`}>{campaign.status}</span>
       </header>
 
-      <dl className="metadata-grid">
+      <dl className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
         <div>
-          <dt>Dates</dt>
-          <dd>{formatDateRange(campaign.startDate, campaign.endDate)}</dd>
+          <dt className="text-xs uppercase tracking-wide text-muted-foreground">Dates</dt>
+          <dd className="text-sm text-foreground mt-0.5">
+            {formatDateRange(campaign.startDate, campaign.endDate)}
+          </dd>
         </div>
         <div>
-          <dt>Created</dt>
-          <dd>{campaign.created_at.slice(0, 10)}</dd>
+          <dt className="text-xs uppercase tracking-wide text-muted-foreground">Created</dt>
+          <dd className="text-sm text-foreground mt-0.5">{campaign.created_at.slice(0, 10)}</dd>
         </div>
         {campaign.payout && (
           <div>
-            <dt>Payout</dt>
-            <dd>
+            <dt className="text-xs uppercase tracking-wide text-muted-foreground">Payout</dt>
+            <dd className="text-sm text-foreground mt-0.5">
               {campaign.payout.amount} {campaign.payout.currency}
               {campaign.payout.paid ? ' (paid)' : ' (unpaid)'}
             </dd>
@@ -157,35 +165,29 @@ export default function CampaignDetail(): ReactElement {
         )}
       </dl>
 
-      <section className="analytics-section">
-        <h2>Analytics</h2>
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-foreground">Analytics</h2>
         {analyticsError && (
           <p className="form-error">Could not load analytics: {analyticsError}</p>
         )}
-        {!analytics && !analyticsError && <p>Loading analytics...</p>}
+        {!analytics && !analyticsError && <p className="text-muted-foreground">Loading analytics...</p>}
         {analytics && (
           <>
             {analytics.upstream_failures > 0 && (
-              <p className="form-warning">
+              <p className="rounded-md border border-warning-200 bg-warning-50 text-warning-900 text-sm px-3 py-2">
                 {analytics.upstream_failures} of {analytics.link_count} link analytics calls
                 failed. Totals below exclude those.
               </p>
             )}
-            <div className="analytics-tiles">
-              <div className="tile">
-                <span className="tile-label">Total clicks</span>
-                <span className="tile-value">{analytics.total_clicks.toLocaleString()}</span>
-              </div>
-              <div className="tile">
-                <span className="tile-label">Links</span>
-                <span className="tile-value">{analytics.link_count}</span>
-              </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <Tile label="Total clicks" value={analytics.total_clicks.toLocaleString()} />
+              <Tile label="Links" value={String(analytics.link_count)} />
             </div>
 
-            <h3>Clicks per day</h3>
+            <h3 className="text-sm font-medium text-foreground mt-2">Clicks per day</h3>
             <ClicksChart byDay={analytics.by_day} />
 
-            <div className="breakdown-row">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Breakdown title="By role" data={analytics.by_role} />
               <Breakdown title="By platform" data={analytics.by_platform} />
             </div>
@@ -193,10 +195,10 @@ export default function CampaignDetail(): ReactElement {
         )}
       </section>
 
-      <section className="links-section">
-        <h2>Links</h2>
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-foreground">Links</h2>
         {links.length === 0 ? (
-          <p>No links yet. Register one below.</p>
+          <p className="text-muted-foreground">No links yet. Register one below.</p>
         ) : (
           <table className="data-table">
             <thead>
@@ -220,12 +222,19 @@ export default function CampaignDetail(): ReactElement {
                       <CopyableShortUrl url={link.short_url} />
                     </td>
                     <td>
-                      <a href={link.url} target="_blank" rel="noreferrer">
+                      <a
+                        href={link.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary-600 hover:underline"
+                      >
                         {truncate(link.url, 60)}
                       </a>
                     </td>
-                    <td>{linkAnalytics?.total_clicks ?? '-'}</td>
-                    <td>{linkAnalytics?.last_click_at?.slice(0, 10) ?? '-'}</td>
+                    <td className="text-muted-foreground">{linkAnalytics?.total_clicks ?? '-'}</td>
+                    <td className="text-muted-foreground">
+                      {linkAnalytics?.last_click_at?.slice(0, 10) ?? '-'}
+                    </td>
                   </tr>
                 );
               })}
@@ -243,19 +252,28 @@ export default function CampaignDetail(): ReactElement {
   );
 }
 
+function Tile({ label, value }: { label: string; value: string }): ReactElement {
+  return (
+    <div className="card card-body !py-3">
+      <span className="text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className="text-2xl font-semibold text-foreground mt-1 block">{value}</span>
+    </div>
+  );
+}
+
 function Breakdown({ title, data }: { title: string; data: Record<string, number> }): ReactElement {
   const rows = Object.entries(data).sort((a, b) => b[1] - a[1]);
   return (
-    <div className="breakdown">
-      <h4>{title}</h4>
+    <div className="card card-body">
+      <h4 className="text-sm font-semibold text-foreground mb-2">{title}</h4>
       {rows.length === 0 ? (
-        <p className="kv-empty">No data.</p>
+        <p className="text-xs text-muted-foreground">No data.</p>
       ) : (
-        <ul>
+        <ul className="space-y-1">
           {rows.map(([key, value]) => (
-            <li key={key}>
-              <span>{key}</span>
-              <span>{value}</span>
+            <li key={key} className="flex justify-between text-sm">
+              <span className="text-muted-foreground">{key}</span>
+              <span className="text-foreground font-medium">{value}</span>
             </li>
           ))}
         </ul>
@@ -267,11 +285,11 @@ function Breakdown({ title, data }: { title: string; data: Record<string, number
 function CopyableShortUrl({ url }: { url: string }): ReactElement {
   const [copied, setCopied] = useState(false);
   return (
-    <span className="short-url-cell">
-      <code>{url}</code>
+    <span className="inline-flex items-center gap-2">
+      <code className="bg-muted text-foreground rounded px-1.5 py-0.5 text-xs font-mono">{url}</code>
       <button
         type="button"
-        className="link-button"
+        className="btn-link"
         onClick={() => {
           void navigator.clipboard.writeText(url).then(() => {
             setCopied(true);

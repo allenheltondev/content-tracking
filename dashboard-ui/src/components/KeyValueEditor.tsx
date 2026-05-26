@@ -32,28 +32,37 @@ export default function KeyValueEditor({
   };
 
   return (
-    <div className="kv-editor">
-      {pairs.length === 0 && <p className="kv-empty">No entries.</p>}
+    <div className="space-y-2">
+      {pairs.length === 0 && <p className="text-sm text-muted-foreground">No entries.</p>}
       {pairs.map((pair, i) => (
-        <div className="kv-row" key={i}>
+        <div className="grid grid-cols-[1fr_2fr_auto] gap-2" key={i}>
           <input
-            className="kv-key"
+            className="input"
             placeholder={keyPlaceholder}
             value={pair.key}
             onChange={(e) => update(i, { key: e.target.value })}
           />
           <input
-            className="kv-value"
+            className="input"
             placeholder={valuePlaceholder}
             value={pair.value}
             onChange={(e) => update(i, { value: e.target.value })}
           />
-          <button type="button" className="kv-remove" onClick={() => remove(i)} aria-label="Remove row">
+          <button
+            type="button"
+            className="btn-ghost px-2 text-error-600 hover:bg-error-50"
+            onClick={() => remove(i)}
+            aria-label="Remove row"
+          >
             ×
           </button>
         </div>
       ))}
-      <button type="button" className="kv-add" onClick={add}>
+      <button
+        type="button"
+        className="text-sm border border-dashed border-border text-muted-foreground hover:bg-muted hover:text-foreground rounded-md px-3 py-1.5"
+        onClick={add}
+      >
         + Add row
       </button>
     </div>

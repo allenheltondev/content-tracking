@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
-import { useAuth } from 'react-oidc-context';
 import { env } from './config';
+import { useAuth } from './useAuth';
 
 export class ApiError extends Error {
   status: number;
@@ -22,18 +22,20 @@ export interface RequestOptions {
 
 export type ApiFetch = <T = unknown>(path: string, options?: RequestOptions) => Promise<T>;
 
-// Hook that returns an authenticated fetch wrapper. Pulls the access
-// token from the current session and injects it as the Authorization
-// header per docs/deploy-guide.md (raw access token, not "Bearer X").
-// Returns the parsed JSON body on success, throws ApiError on failure.
+// Hook returning an authenticated fetch wrapper. Pulls the access token
+// from Amplify's auth session on every call so token refreshes happen
+// transparently. The token is sent as the raw `Authorization` header
+// (not `Bearer X`) per the API's Cognito authorizer config.
 export function useApiFetch(): ApiFetch {
-  const auth = useAuth();
+  const { getAccessToken } = useAuth();
 
   return useCallback(
     async <T,>(path: string, options: RequestOptions = {}): Promise<T> => {
-      const token = auth.user?.access_token;
-      if (!token) {
-        throw new ApiError(401, 'No access token available; sign in first.', null);
+      let token: string;
+      try {
+        token = await getAccessToken();
+      } catch (err) {
+        throw new ApiError(401, (err as Error).message, null);
       }
 
       const url = new URL(`${env.apiBaseUrl}${path}`);
@@ -74,7 +76,7 @@ export function useApiFetch(): ApiFetch {
 
       return parsed as T;
     },
-    [auth],
+    [getAccessToken],
   );
 }
 

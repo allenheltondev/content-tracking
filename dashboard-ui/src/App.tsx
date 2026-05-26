@@ -1,64 +1,57 @@
 import type { ReactElement } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
-import { useAuth } from 'react-oidc-context';
-import { buildCognitoLogoutUrl } from './auth/config';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useAuth } from './auth/useAuth';
 
+const baseLink = 'px-3 py-1.5 rounded-md text-sm font-medium transition-colors';
 const navLinkClass = ({ isActive }: { isActive: boolean }): string =>
-  isActive ? 'nav-link nav-link-active' : 'nav-link';
+  isActive
+    ? `${baseLink} bg-primary-100 text-primary-700`
+    : `${baseLink} text-muted-foreground hover:bg-muted hover:text-foreground`;
 
 export default function App(): ReactElement {
-  const auth = useAuth();
+  const { user, isAuthenticated, signOut } = useAuth();
+  const navigate = useNavigate();
 
   const handleSignOut = (): void => {
-    // Clear local OIDC state first, then bounce through Cognito's /logout
-    // so the Hosted UI session cookie also dies. Without the second step,
-    // the next signinRedirect would silently re-auth the same user.
-    void auth.removeUser().then(() => {
-      window.location.assign(buildCognitoLogoutUrl());
-    });
+    void signOut().then(() => navigate('/signin', { replace: true }));
   };
 
   return (
-    <div className="app-shell">
-      <header className="app-header">
-        <div className="app-brand">
-          <NavLink to="/" className="brand-link">
+    <div className="min-h-screen flex flex-col">
+      <header className="bg-surface border-b border-border">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center gap-6">
+          <NavLink to="/" className="text-base font-semibold text-foreground">
             content-tracking
           </NavLink>
-        </div>
-        <nav className="app-nav" aria-label="Primary">
-          <NavLink to="/campaigns" className={navLinkClass}>
-            Campaigns
-          </NavLink>
-          <NavLink to="/vendors" className={navLinkClass}>
-            Vendors
-          </NavLink>
-          <NavLink to="/revenue" className={navLinkClass}>
-            Revenue
-          </NavLink>
-          <NavLink to="/briefs/new" className={navLinkClass}>
-            New brief
-          </NavLink>
-        </nav>
-        <div className="app-user">
-          {auth.isAuthenticated && (
-            <>
-              <span className="app-user-label">{userLabel(auth.user?.profile)}</span>
-              <button type="button" className="app-user-action" onClick={handleSignOut}>
+          <nav className="flex items-center gap-1 flex-1" aria-label="Primary">
+            <NavLink to="/campaigns" className={navLinkClass}>
+              Campaigns
+            </NavLink>
+            <NavLink to="/vendors" className={navLinkClass}>
+              Vendors
+            </NavLink>
+            <NavLink to="/revenue" className={navLinkClass}>
+              Revenue
+            </NavLink>
+            <NavLink to="/briefs/new" className={navLinkClass}>
+              New brief
+            </NavLink>
+          </nav>
+          {isAuthenticated && (
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">
+                {user?.email || user?.username || 'Signed in'}
+              </span>
+              <button type="button" className="btn-secondary btn-sm" onClick={handleSignOut}>
                 Sign out
               </button>
-            </>
+            </div>
           )}
         </div>
       </header>
-      <main className="app-main">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <Outlet />
       </main>
     </div>
   );
-}
-
-function userLabel(profile: { email?: string; 'cognito:username'?: string } | undefined): string {
-  if (!profile) return '';
-  return profile.email ?? profile['cognito:username'] ?? 'Signed in';
 }

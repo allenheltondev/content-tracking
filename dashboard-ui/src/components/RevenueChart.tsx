@@ -47,21 +47,30 @@ export default function RevenueChart({ year, monthGroups, currency }: Props): Re
 
   const hasAnyData = data.some((d) => d.booked > 0 || d.received > 0);
   if (!hasAnyData) {
-    return <p className="chart-empty">No revenue recorded for {year}.</p>;
+    return (
+      <p className="rounded-md bg-muted text-muted-foreground text-sm text-center py-6">
+        No revenue recorded for {year}.
+      </p>
+    );
   }
 
-  // Recharts' default tooltip is fine; we just supply a value formatter
-  // that respects the locale-aware currency string. Custom-component
-  // tooltips fight with recharts' generic types; the formatter approach
-  // gets us locale formatting without that cost.
   return (
-    <div className="clicks-chart">
+    <div className="card card-body">
       <ResponsiveContainer width="100%" height={300}>
         <LineChart data={data} margin={{ top: 16, right: 16, bottom: 8, left: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e3e6eb" />
-          <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-          <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => abbreviate(v)} />
+          <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" />
+          <XAxis dataKey="month" tick={{ fontSize: 12, fill: 'rgb(var(--muted-foreground))' }} />
+          <YAxis
+            tick={{ fontSize: 12, fill: 'rgb(var(--muted-foreground))' }}
+            tickFormatter={(v: number) => abbreviate(v)}
+          />
           <Tooltip
+            contentStyle={{
+              backgroundColor: 'rgb(var(--surface))',
+              border: '1px solid rgb(var(--border))',
+              borderRadius: 8,
+              fontSize: 12,
+            }}
             formatter={(value, name) => [
               formatMoney(typeof value === 'number' ? value : Number(value) || 0, currency),
               String(name ?? ''),
@@ -73,9 +82,21 @@ export default function RevenueChart({ year, monthGroups, currency }: Props): Re
               return `${labelStr} — ${count} campaign${count === 1 ? '' : 's'}`;
             }}
           />
-          <Legend />
-          <Line type="monotone" dataKey="booked" stroke="#0b66c2" strokeWidth={2} dot={false} />
-          <Line type="monotone" dataKey="received" stroke="#1a5524" strokeWidth={2} dot={false} />
+          <Legend wrapperStyle={{ fontSize: 12 }} />
+          <Line
+            type="monotone"
+            dataKey="booked"
+            stroke="rgb(var(--primary-600))"
+            strokeWidth={2}
+            dot={false}
+          />
+          <Line
+            type="monotone"
+            dataKey="received"
+            stroke="rgb(var(--success-600))"
+            strokeWidth={2}
+            dot={false}
+          />
         </LineChart>
       </ResponsiveContainer>
     </div>

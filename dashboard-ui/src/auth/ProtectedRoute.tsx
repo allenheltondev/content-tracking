@@ -1,34 +1,25 @@
 import type { ReactElement, ReactNode } from 'react';
-import { useEffect } from 'react';
-import { useAuth } from 'react-oidc-context';
+import { Navigate, useLocation } from 'react-router-dom';
+import { useAuth } from './useAuth';
 
 interface Props {
   children: ReactNode;
 }
 
 export default function ProtectedRoute({ children }: Props): ReactElement {
-  const auth = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
+  const location = useLocation();
 
-  useEffect(() => {
-    if (!auth.isLoading && !auth.isAuthenticated && !auth.activeNavigator && !auth.error) {
-      auth.signinRedirect();
-    }
-  }, [auth]);
-
-  if (auth.error) {
+  if (isLoading) {
     return (
-      <section className="auth-error">
-        <h2>Sign-in failed</h2>
-        <p>{auth.error.message}</p>
-        <button type="button" onClick={() => auth.signinRedirect()}>
-          Try again
-        </button>
+      <section className="max-w-md mx-auto mt-16 card card-body text-center text-muted-foreground">
+        Checking session...
       </section>
     );
   }
 
-  if (auth.isLoading || !auth.isAuthenticated) {
-    return <section className="auth-loading">Signing you in...</section>;
+  if (!isAuthenticated) {
+    return <Navigate to="/signin" replace state={{ from: location.pathname + location.search }} />;
   }
 
   return <>{children}</>;

@@ -39,13 +39,13 @@ export default function TagsInput({
   };
 
   return (
-    <div className="tags-input">
+    <div className="flex flex-wrap gap-1 border border-border rounded-lg p-1.5 bg-surface min-h-[2.5rem]">
       {tags.map((tag, i) => (
         <span className="tag-chip" key={`${tag}-${i}`}>
           {tag}
           <button
             type="button"
-            className="tag-remove"
+            className="text-primary-700 hover:text-error-600 leading-none"
             onClick={() => onChange(tags.filter((_, j) => j !== i))}
             aria-label={`Remove tag ${tag}`}
             disabled={disabled}
@@ -56,6 +56,7 @@ export default function TagsInput({
       ))}
       <input
         type="text"
+        className="flex-1 min-w-[100px] bg-transparent outline-none text-sm px-1"
         value={buffer}
         onChange={(e) => setBuffer(e.target.value)}
         onKeyDown={handleKeyDown}

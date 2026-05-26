@@ -39,18 +39,38 @@ export default function ClicksChart({ byDay }: Props): ReactElement {
   const data = useMemo(() => densify(byDay), [byDay]);
 
   if (data.length === 0) {
-    return <p className="chart-empty">No click data yet.</p>;
+    return (
+      <p className="rounded-md bg-muted text-muted-foreground text-sm text-center py-6">
+        No click data yet.
+      </p>
+    );
   }
 
   return (
-    <div className="clicks-chart">
+    <div className="card card-body">
       <ResponsiveContainer width="100%" height={260}>
         <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e3e6eb" />
-          <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-          <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-          <Tooltip />
-          <Line type="monotone" dataKey="clicks" stroke="#0b66c2" strokeWidth={2} dot={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" />
+          <XAxis dataKey="date" tick={{ fontSize: 12, fill: 'rgb(var(--muted-foreground))' }} />
+          <YAxis
+            allowDecimals={false}
+            tick={{ fontSize: 12, fill: 'rgb(var(--muted-foreground))' }}
+          />
+          <Tooltip
+            contentStyle={{
+              backgroundColor: 'rgb(var(--surface))',
+              border: '1px solid rgb(var(--border))',
+              borderRadius: 8,
+              fontSize: 12,
+            }}
+          />
+          <Line
+            type="monotone"
+            dataKey="clicks"
+            stroke="rgb(var(--primary-600))"
+            strokeWidth={2}
+            dot={false}
+          />
         </LineChart>
       </ResponsiveContainer>
     </div>

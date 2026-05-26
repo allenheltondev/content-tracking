@@ -113,33 +113,34 @@ export default function ReviewForm({
   };
 
   return (
-    <div className="review-form">
-      <section className="summary-panel">
-        <div className="summary-header">
-          <h2>Summary</h2>
-          <button type="button" className="link-button" onClick={copySummary}>
+    <div className="space-y-4">
+      <section className="card card-body space-y-2">
+        <div className="flex items-baseline justify-between gap-2">
+          <h2 className="text-sm font-semibold text-foreground">Summary</h2>
+          <button type="button" className="btn-link" onClick={copySummary}>
             {copyConfirm ? 'Copied' : 'Copy'}
           </button>
         </div>
-        <p className="summary-body">{brief.summary}</p>
+        <p className="text-sm text-foreground whitespace-pre-wrap">{brief.summary}</p>
       </section>
 
       <WarningsBanner warnings={brief.warnings} />
 
-      <section className="campaign-form">
-        <h2>Campaign details</h2>
+      <section className="card card-body space-y-4">
+        <h2 className="text-base font-semibold text-foreground">Campaign details</h2>
 
-        <label className="field">
+        <label className="block">
           <span className="field-label">Name</span>
           <input
             type="text"
+            className="input"
             value={form.name}
             onChange={(e) => update('name', e.target.value)}
             disabled={busy}
           />
         </label>
 
-        <label className="field">
+        <label className="block">
           <span className="field-label">Vendor</span>
           <VendorAutocomplete
             vendorId={form.vendorId}
@@ -150,28 +151,31 @@ export default function ReviewForm({
           />
         </label>
 
-        <div className="field-row">
-          <label className="field">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <label className="block">
             <span className="field-label">Start date</span>
             <input
               type="date"
+              className="input"
               value={form.startDate}
               onChange={(e) => update('startDate', e.target.value)}
               disabled={busy}
             />
           </label>
-          <label className="field">
+          <label className="block">
             <span className="field-label">End date</span>
             <input
               type="date"
+              className="input"
               value={form.endDate}
               onChange={(e) => update('endDate', e.target.value)}
               disabled={busy}
             />
           </label>
-          <label className="field">
+          <label className="block">
             <span className="field-label">Status</span>
             <select
+              className="input"
               value={form.status}
               onChange={(e) => update('status', e.target.value as Status)}
               disabled={busy}
@@ -183,32 +187,34 @@ export default function ReviewForm({
           </label>
         </div>
 
-        <fieldset className="form-section">
-          <legend>Deliverables</legend>
+        <fieldset className="border border-border rounded-lg px-4 py-3 space-y-2">
+          <legend className="px-1 text-sm font-medium text-foreground">Deliverables</legend>
           <DeliverablesEditor
             deliverables={form.deliverables}
             onChange={(d) => update('deliverables', d)}
           />
         </fieldset>
 
-        <fieldset className="form-section">
-          <legend>Payout</legend>
-          <div className="field-row">
-            <label className="field">
+        <fieldset className="border border-border rounded-lg px-4 py-3 space-y-2">
+          <legend className="px-1 text-sm font-medium text-foreground">Payout</legend>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <label className="block">
               <span className="field-label">Amount</span>
               <input
                 type="number"
                 min={0}
                 step="0.01"
+                className="input"
                 value={form.payoutAmount}
                 onChange={(e) => update('payoutAmount', e.target.value)}
                 disabled={busy}
               />
             </label>
-            <label className="field">
+            <label className="block">
               <span className="field-label">Currency</span>
               <input
                 type="text"
+                className="input"
                 value={form.payoutCurrency}
                 maxLength={3}
                 placeholder="USD"
@@ -216,21 +222,22 @@ export default function ReviewForm({
                 disabled={busy}
               />
             </label>
-            <label className="field field-inline">
+            <label className="flex items-center gap-2 mt-6">
               <input
                 type="checkbox"
+                className="rounded border-border text-primary-600 focus:ring-primary-500"
                 checked={form.payoutPaid}
                 onChange={(e) => update('payoutPaid', e.target.checked)}
                 disabled={busy}
               />
-              <span className="field-label">Already paid</span>
+              <span className="text-sm text-foreground">Already paid</span>
             </label>
           </div>
           <p className="field-hint">Leave amount blank to skip recording a payout.</p>
         </fieldset>
 
-        <fieldset className="form-section">
-          <legend>Target metrics</legend>
+        <fieldset className="border border-border rounded-lg px-4 py-3 space-y-2">
+          <legend className="px-1 text-sm font-medium text-foreground">Target metrics</legend>
           <KeyValueEditor
             pairs={form.targetMetricsPairs}
             onChange={(pairs) => update('targetMetricsPairs', pairs)}
@@ -242,16 +249,11 @@ export default function ReviewForm({
         {validationError && <p className="form-error">{validationError}</p>}
         {serverError && <p className="form-error">{serverError}</p>}
 
-        <div className="form-actions">
-          <button
-            type="button"
-            className="secondary"
-            onClick={onDiscard}
-            disabled={busy}
-          >
+        <div className="flex justify-end gap-2">
+          <button type="button" className="btn-secondary" onClick={onDiscard} disabled={busy}>
             Discard
           </button>
-          <button type="button" className="primary" onClick={submit} disabled={busy}>
+          <button type="button" className="btn-primary" onClick={submit} disabled={busy}>
             {busy ? 'Creating campaign...' : 'Create campaign'}
           </button>
         </div>

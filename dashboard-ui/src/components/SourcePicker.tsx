@@ -48,14 +48,21 @@ export default function SourcePicker({ busy, onSubmitChat, onSubmitPdf }: Props)
     setFile(next);
   };
 
+  const tabClass = (active: boolean): string =>
+    `px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+      active
+        ? 'border-primary-600 text-primary-600'
+        : 'border-transparent text-muted-foreground hover:text-foreground'
+    }`;
+
   return (
-    <div className="source-picker">
-      <div className="tabs" role="tablist">
+    <div className="card card-body space-y-4">
+      <div className="flex gap-2 border-b border-border" role="tablist">
         <button
           type="button"
           role="tab"
           aria-selected={tab === 'chat'}
-          className={tab === 'chat' ? 'tab tab-active' : 'tab'}
+          className={tabClass(tab === 'chat')}
           onClick={() => setTab('chat')}
         >
           Paste chat
@@ -64,7 +71,7 @@ export default function SourcePicker({ busy, onSubmitChat, onSubmitPdf }: Props)
           type="button"
           role="tab"
           aria-selected={tab === 'pdf'}
-          className={tab === 'pdf' ? 'tab tab-active' : 'tab'}
+          className={tabClass(tab === 'pdf')}
           onClick={() => setTab('pdf')}
         >
           Upload PDF
@@ -72,30 +79,32 @@ export default function SourcePicker({ busy, onSubmitChat, onSubmitPdf }: Props)
       </div>
 
       {tab === 'chat' && (
-        <div className="tab-panel" role="tabpanel">
+        <div className="space-y-3" role="tabpanel">
           <label htmlFor="chat-input" className="field-label">
             Paste the conversation transcript or a JSON array.
           </label>
           <textarea
             id="chat-input"
-            className="chat-textarea"
+            className="input font-mono text-sm"
             value={chatText}
             onChange={(e) => setChatText(e.target.value)}
             placeholder={
-              'vendor: Hey, we\'d love a 60-second IG reel...\ninfluencer: Sounds good! What\'s the budget?'
+              "vendor: Hey, we'd love a 60-second IG reel...\ninfluencer: Sounds good! What's the budget?"
             }
             rows={14}
             disabled={busy}
           />
           <p className="field-hint">
-            Either: lines starting with <code>vendor:</code>, <code>influencer:</code>,{' '}
-            <code>user:</code>, or <code>assistant:</code>. Or a JSON array of{' '}
-            <code>{'{ role, content }'}</code>.
+            Either: lines starting with <code className="bg-muted px-1 rounded">vendor:</code>,{' '}
+            <code className="bg-muted px-1 rounded">influencer:</code>,{' '}
+            <code className="bg-muted px-1 rounded">user:</code>, or{' '}
+            <code className="bg-muted px-1 rounded">assistant:</code>. Or a JSON array of{' '}
+            <code className="bg-muted px-1 rounded">{'{ role, content }'}</code>.
           </p>
           {chatError && <p className="form-error">{chatError}</p>}
           <button
             type="button"
-            className="primary"
+            className="btn-primary"
             disabled={busy || chatText.trim().length === 0}
             onClick={handleChatSubmit}
           >
@@ -105,9 +114,11 @@ export default function SourcePicker({ busy, onSubmitChat, onSubmitPdf }: Props)
       )}
 
       {tab === 'pdf' && (
-        <div className="tab-panel" role="tabpanel">
+        <div className="space-y-3" role="tabpanel">
           <div
-            className={dragOver ? 'dropzone dropzone-active' : 'dropzone'}
+            className={`rounded-lg border-2 border-dashed p-6 text-center transition-colors ${
+              dragOver ? 'border-primary-500 bg-primary-50' : 'border-border bg-muted/50'
+            }`}
             onDragOver={(e) => {
               e.preventDefault();
               setDragOver(true);
@@ -120,10 +131,11 @@ export default function SourcePicker({ busy, onSubmitChat, onSubmitPdf }: Props)
               if (dropped) handleFile(dropped);
             }}
           >
-            <p>Drag a PDF here, or pick a file.</p>
+            <p className="text-muted-foreground mb-2">Drag a PDF here, or pick a file.</p>
             <input
               type="file"
               accept="application/pdf"
+              className="text-sm"
               onChange={(e) => {
                 const picked = e.target.files?.[0];
                 if (picked) handleFile(picked);
@@ -131,7 +143,7 @@ export default function SourcePicker({ busy, onSubmitChat, onSubmitPdf }: Props)
               disabled={busy}
             />
             {file && (
-              <p className="dropzone-file">
+              <p className="text-sm text-foreground mt-2">
                 Selected: {file.name} ({(file.size / 1024).toFixed(0)} KB)
               </p>
             )}
@@ -140,7 +152,7 @@ export default function SourcePicker({ busy, onSubmitChat, onSubmitPdf }: Props)
           {fileError && <p className="form-error">{fileError}</p>}
           <button
             type="button"
-            className="primary"
+            className="btn-primary"
             disabled={busy || !file}
             onClick={() => file && onSubmitPdf(file)}
           >

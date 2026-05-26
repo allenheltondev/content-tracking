@@ -122,9 +122,8 @@ Required environment-scoped secrets (set on each environment):
 Required environment-scoped variables (used to build the dashboard at
 deploy time; these are not secrets):
 
-- `COGNITO_AUTHORITY` - the User Pool OIDC issuer URL.
-- `COGNITO_HOSTED_UI_DOMAIN` - the Cognito Hosted UI domain.
-- `COGNITO_CLIENT_ID` - the App Client id for this environment's dashboard.
+- `USER_POOL_ID` - the `RSCUserPool` id (same one newsletter-service uses).
+- `USER_POOL_CLIENT_ID` - the App Client id for this environment's dashboard.
 
 The Cognito user pool ARN itself is always read from
 `/readysetcloud/auth/user-pool-arn`.
@@ -200,45 +199,42 @@ client in `RSCUserPool` and that the token is unexpired.
 
 ## Dashboard UI
 
-`dashboard-ui/` is a Vite + React app that signs in via Cognito Hosted
-UI and calls this stack's API.
+`dashboard-ui/` is a Vite + React app that signs users into the shared
+`RSCUserPool` via aws-amplify (USER_PASSWORD_AUTH) and calls this
+stack's API with the resulting access token. Same auth approach
+newsletter-service uses, so an existing newsletter-service account
+signs in here with the same credentials.
 
 ### Cognito App Client (one-time)
 
 Create an App Client in the shared `RSCUserPool`:
 
 - **App type:** Public client (no client secret).
-- **Authentication flows:** Authorization code grant.
-- **Identity providers:** Cognito user pool (or whichever SAML / IdP
-  providers `RSCUserPool` is wired to).
-- **OAuth scopes:** `openid` and `email`.
-- **Allowed callback URLs:**
-  - `http://localhost:5173/auth/callback` (local dev)
-  - `<DashboardUrl>/auth/callback` for each deployed environment. After
-    the first deploy, read `DashboardUrl` from the stack outputs (see
-    [Hosting](#hosting) below). Add the value here before sign-in will
-    work in the deployed dashboard.
-- **Allowed sign-out URLs:**
-  - `http://localhost:5173/`
-  - `<DashboardUrl>/` for each deployed environment.
-- **Hosted UI domain:** enable a hosted UI domain on the user pool if
-  one isn't already configured. The dashboard's sign-out flow needs it
-  to invalidate the session cookie.
+- **Authentication flows:** Enable `ALLOW_USER_SRP_AUTH` and
+  `ALLOW_USER_PASSWORD_AUTH`. Amplify uses SRP by default; the
+  password flow is the fallback.
+- **Allowed callback / sign-out URLs:** Not used. The dashboard signs
+  users in inline rather than redirecting to the Hosted UI.
+
+Sign-up + email verification are handled in newsletter-service; the
+dashboard doesn't expose those flows. A user signs up there once,
+then logs in here with the same email + password.
 
 ### Local dev
 
 ```bash
 cp dashboard-ui/.env.example dashboard-ui/.env.local
-# fill in the Cognito values plus VITE_API_BASE_URL
+# fill in VITE_USER_POOL_ID, VITE_USER_POOL_CLIENT_ID, and
+# VITE_API_BASE_URL
 cd dashboard-ui
 npm install
 npm run dev
 ```
 
-Open <http://localhost:5173>. The first load redirects to the Hosted UI
-sign-in, then bounces back to `/auth/callback` and on to `/`. The
-access token sits in `localStorage` and is sent on every API call as the
-raw `Authorization` header (not `Bearer X`, per the API's authorizer
+Open <http://localhost:5173>. You'll land on `/signin`. Enter the same
+email + password you use in newsletter-service. The access token lives
+in Amplify's internal storage and is sent on every API call as the raw
+`Authorization` header (not `Bearer X`, per the API's authorizer
 config).
 
 ### Required env vars
@@ -246,11 +242,9 @@ config).
 | Var | Example | Purpose |
 | --- | --- | --- |
 | `VITE_API_BASE_URL` | `https://api.tracking.readysetcloud.io` | Base of the deployed API. |
-| `VITE_COGNITO_AUTHORITY` | `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_XXXX` | OIDC issuer (User Pool, not Hosted UI). |
-| `VITE_COGNITO_HOSTED_UI_DOMAIN` | `rsc-core-auth.auth.us-east-1.amazoncognito.com` | Used to build the sign-out URL. |
-| `VITE_COGNITO_CLIENT_ID` | `abcd1234efgh5678` | The App Client created above. |
-| `VITE_COGNITO_REDIRECT_URI` | `http://localhost:5173/auth/callback` | Must match the App Client's callback URL. |
-| `VITE_COGNITO_POST_LOGOUT_URI` | `http://localhost:5173/` | Must match the App Client's sign-out URL. |
+| `VITE_AWS_REGION` | `us-east-1` | Region the user pool lives in. |
+| `VITE_USER_POOL_ID` | `us-east-1_XXXXXXXXX` | The shared `RSCUserPool` id. |
+| `VITE_USER_POOL_CLIENT_ID` | `abcd1234efgh5678` | The App Client created above. |
 
 The required-env check throws at module load time, so missing vars fail
 loudly during dev rather than at the first API call.
