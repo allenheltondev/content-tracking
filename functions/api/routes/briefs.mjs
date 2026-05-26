@@ -1,5 +1,5 @@
 import { ulid } from "ulid";
-import { BadRequestError, UpstreamError } from "../services/errors.mjs";
+import { BadRequestError } from "../services/errors.mjs";
 import { jsonResponse } from "../services/http-handler.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import { logger } from "../services/logger.mjs";
@@ -91,23 +91,18 @@ export function registerBriefRoutes(app) {
       bedrockInput = { sourceType: "pdf", pdfBytes };
     }
 
-    let toolInput;
-    try {
-      toolInput = await summarizeBrief(bedrockInput);
-    } catch (err) {
-      if (err instanceof UpstreamError) {
-        const responseBody = {
-          message: err.message,
-          source_type: submission.source_type,
-          brief_id: briefId,
-        };
-        if (err.rawModelOutput) responseBody.raw_model_output = err.rawModelOutput;
-        return jsonResponse(502, responseBody);
-      }
-      throw err;
-    }
+    // Let exceptions propagate. We're inside a withIdempotency wrapper,
+    // and Powertools caches *return values*, not thrown errors. Returning
+    // a 502 response from here would pin every retry with the same
+    // Idempotency-Key to the same stale failure for the full TTL.
+    // Throwing instead lets the http-handler map UpstreamError → 502
+    // and the idempotency record gets cleaned up so the next retry
+    // actually re-runs. The raw model output (when present on the
+    // UpstreamError) is logged in services/bedrock.mjs for debugging.
+    const toolInput = await summarizeBrief(bedrockInput);
 
-    const { summary, suggested_campaign, warnings } = toolInput;
+    const { summary, suggested_campaign } = toolInput;
+    const warnings = Array.isArray(toolInput.warnings) ? [...toolInput.warnings] : [];
 
     // Optional draft Campaign creation. Mapping mirrors the Campaign
     // shape used by POST /campaigns so the client can later promote
@@ -137,12 +132,9 @@ export function registerBriefRoutes(app) {
         targetMetrics: suggested_campaign?.targetMetrics ?? undefined,
         briefId,
       };
-      if (suggested_campaign?.payout && suggested_campaign.payout.amount !== undefined) {
-        campaignDraft.payout = {
-          amount: suggested_campaign.payout.amount,
-          currency: suggested_campaign.payout.currency ?? "USD",
-          paid: false,
-        };
+      const normalizedPayout = normalizeModelPayout(suggested_campaign?.payout, warnings);
+      if (normalizedPayout) {
+        campaignDraft.payout = normalizedPayout;
       }
     }
 
@@ -215,4 +207,43 @@ function parseBody(event, { optional = false } = {}) {
   } catch {
     throw new BadRequestError("Invalid JSON body");
   }
+}
+
+// Sanitizes a payout object produced by Bedrock before persisting it on a
+// draft Campaign. The downstream /revenue rollup exact-matches "USD" and
+// the existing payout validator only accepts ISO 4217 uppercase codes, so
+// model output that's lowercase, mistyped, or missing entirely would
+// silently dropped from rollups later. Anything we change gets surfaced
+// to the caller via the warnings array so they can fix it.
+//
+// Returns null if the payout is unusable (amount missing/invalid).
+const CURRENCY_RE = /^[A-Z]{3}$/;
+function normalizeModelPayout(rawPayout, warnings) {
+  if (!rawPayout || typeof rawPayout !== "object") {
+    return null;
+  }
+
+  const { amount } = rawPayout;
+  if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) {
+    if (amount !== undefined) {
+      warnings.push(`Model returned non-numeric payout.amount (${JSON.stringify(amount)}); dropped from draft.`);
+    }
+    return null;
+  }
+
+  let currency = "USD";
+  if (rawPayout.currency !== undefined && rawPayout.currency !== null) {
+    if (typeof rawPayout.currency === "string") {
+      const upper = rawPayout.currency.toUpperCase().trim();
+      if (CURRENCY_RE.test(upper)) {
+        currency = upper;
+      } else {
+        warnings.push(`Model returned invalid payout.currency "${rawPayout.currency}"; defaulted to USD.`);
+      }
+    } else {
+      warnings.push(`Model returned non-string payout.currency (${JSON.stringify(rawPayout.currency)}); defaulted to USD.`);
+    }
+  }
+
+  return { amount, currency, paid: false };
 }
