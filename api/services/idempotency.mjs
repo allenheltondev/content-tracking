@@ -1,9 +1,11 @@
 import {
   IdempotencyConfig,
+  IdempotencyKeyError,
   makeIdempotent,
 } from "@aws-lambda-powertools/idempotency";
 import { DynamoDBPersistenceLayer } from "@aws-lambda-powertools/idempotency/dynamodb";
 import { TABLE_NAME } from "./ddb.mjs";
+import { BadRequestError } from "./errors.mjs";
 
 // Idempotency records live in the main table under a constant partition
 // `IDEMPOTENCY` with the idempotency hash as the sort key. Records carry
@@ -31,10 +33,12 @@ const persistence = new DynamoDBPersistenceLayer({
 });
 
 const config = new IdempotencyConfig({
-  // JMESPath against the API Gateway event. Header lookups in
-  // API Gateway are case-sensitive; OGF handles both casings the same
-  // way.
-  eventKeyJmesPath: 'headers."Idempotency-Key" || headers."idempotency-key"',
+  // JMESPath against the wrapped Router reqCtx (the first argument of
+  // route handlers). The Router nests the API Gateway event one level
+  // deep at `.event`, so headers live at `event.headers.*` rather than
+  // at the root. Both casings handled because API Gateway header
+  // lookups are case-sensitive.
+  eventKeyJmesPath: 'event.headers."Idempotency-Key" || event.headers."idempotency-key"',
   // Header is required on POST routes that opt into idempotency. The
   // wrapper below catches the resulting error and surfaces it as 400.
   throwOnNoIdempotencyKey: true,
@@ -51,9 +55,19 @@ const config = new IdempotencyConfig({
 // argument of the wrapped function, which is the Router event object
 // (since route handlers receive ({ event, context })).
 export function withIdempotency(fn) {
-  return makeIdempotent(fn, {
+  const wrapped = makeIdempotent(fn, {
     persistenceStore: persistence,
     config,
     dataIndexArgument: 0,
   });
+  return async (reqCtx) => {
+    try {
+      return await wrapped(reqCtx);
+    } catch (err) {
+      if (err instanceof IdempotencyKeyError || err?.name === "IdempotencyKeyError") {
+        throw new BadRequestError("Idempotency-Key header is required");
+      }
+      throw err;
+    }
+  };
 }

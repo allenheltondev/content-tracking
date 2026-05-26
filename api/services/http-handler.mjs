@@ -26,12 +26,15 @@ const JSON_HEADERS = {
 export function createHttpRouterHandler({ app, handlerName }) {
   return async (event, context) => {
     const correlationId = getCorrelationId(event);
-    logger.appendKeys({ correlationId, handler: handlerName });
+    const method = event.httpMethod || event?.requestContext?.http?.method;
+    const path = event.path || event?.requestContext?.http?.path;
+    logger.appendKeys({ correlationId, handler: handlerName, method, path });
+    logger.info("request received");
 
     // CORS preflight short-circuit — API Gateway sometimes routes
     // OPTIONS through the integration when the SAM Auth.DefaultAuthorizer
     // is set. Return immediately with the allow headers.
-    if (event.httpMethod === "OPTIONS" || event.requestContext?.http?.method === "OPTIONS") {
+    if (method === "OPTIONS") {
       return {
         statusCode: 204,
         headers: CORS_HEADERS,
@@ -39,6 +42,11 @@ export function createHttpRouterHandler({ app, handlerName }) {
       };
     }
 
+    // The Router catches its own routing/handler errors and invokes the
+    // errorHandler registered on the app — that's where ApiError → status
+    // mapping happens. This outer try/catch only catches things that
+    // escape the Router itself (e.g., InvalidEventError on a malformed
+    // event).
     try {
       const response = await app.resolve(event, context);
       return finalize(response);
@@ -52,6 +60,7 @@ export function createHttpRouterHandler({ app, handlerName }) {
         return jsonResponse(err.statusCode, { message: err.message, code: err.code });
       }
       logger.error(`${handlerName} unhandled error`, {
+        errorName: err?.name,
         error: err?.message,
         stack: err?.stack,
       });
