@@ -14,6 +14,7 @@ import type {
   Campaign,
   CampaignAnalyticsResponse,
   CampaignBrief,
+  CampaignDraft,
   CampaignLink,
   CoreWebVitalsSection,
   CreateLinkRequest,
@@ -26,12 +27,16 @@ import ClicksChart from '../components/ClicksChart';
 import RegisterLinkForm from '../components/RegisterLinkForm';
 import RegisterSocialPostForm from '../components/RegisterSocialPostForm';
 import CampaignBriefSection from '../components/CampaignBriefSection';
+import CampaignDraftTab from '../components/CampaignDraftTab';
+
+type CampaignTab = 'overview' | 'draft';
 
 interface CampaignBundle {
   campaign: Campaign;
   links: CampaignLink[];
   social_posts: SocialPost[];
   brief: CampaignBrief | null;
+  draft: CampaignDraft | null;
 }
 
 export default function CampaignDetail(): ReactElement {
@@ -53,6 +58,8 @@ export default function CampaignDetail(): ReactElement {
 
   const [postBusy, setPostBusy] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
+
+  const [activeTab, setActiveTab] = useState<CampaignTab>('overview');
 
   // Two parallel fetches: campaign metadata + links is cheap, analytics
   // fans out to newsletter-service per link and is slower. Render each
@@ -259,6 +266,29 @@ export default function CampaignDetail(): ReactElement {
         )}
       </dl>
 
+      <nav className="border-b border-border flex gap-1" aria-label="Campaign sections">
+        <TabButton
+          label="Overview"
+          active={activeTab === 'overview'}
+          onClick={() => setActiveTab('overview')}
+        />
+        <TabButton
+          label="Draft"
+          active={activeTab === 'draft'}
+          onClick={() => setActiveTab('draft')}
+        />
+      </nav>
+
+      {activeTab === 'draft' ? (
+        <CampaignDraftTab
+          apiFetch={apiFetch}
+          campaign={campaign}
+          brief={bundle.brief}
+          draft={bundle.draft}
+          onDraftChange={(draft) => setBundle((prev) => (prev ? { ...prev, draft } : prev))}
+        />
+      ) : (
+        <>
       <CampaignBriefSection
         apiFetch={apiFetch}
         campaign={campaign}
@@ -423,7 +453,34 @@ export default function CampaignDetail(): ReactElement {
           onSubmit={(p) => void handleTrackPost(p)}
         />
       </section>
+        </>
+      )}
     </section>
+  );
+}
+
+function TabButton({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}): ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+      className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+        active
+          ? 'border-primary-600 text-primary-700'
+          : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 

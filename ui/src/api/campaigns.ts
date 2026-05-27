@@ -3,12 +3,14 @@ import type {
   Campaign,
   CampaignAnalyticsResponse,
   CampaignDetailResponse,
+  CampaignDraft,
   CampaignLink,
   CampaignListResponse,
   CampaignStatus,
   CreateCampaignRequest,
   CreateLinkRequest,
   CreateSocialPostRequest,
+  SaveDraftRequest,
   SocialPost,
   UpdateCampaignRequest,
   WebAnalyticsResponse,
@@ -82,6 +84,26 @@ export async function createSocialPost(
   return apiFetch<SocialPost>(`/campaigns/${campaignId}/social-posts`, {
     method: 'POST',
     body: payload,
+  });
+}
+
+export async function saveDraft(
+  apiFetch: ApiFetch,
+  campaignId: string,
+  payload: SaveDraftRequest,
+): Promise<CampaignDraft> {
+  return apiFetch<CampaignDraft>(`/campaigns/${campaignId}/draft`, {
+    method: 'POST',
+    body: payload,
+  });
+}
+
+export async function reviewDraft(
+  apiFetch: ApiFetch,
+  campaignId: string,
+): Promise<CampaignDraft> {
+  return apiFetch<CampaignDraft>(`/campaigns/${campaignId}/draft/review`, {
+    method: 'POST',
   });
 }
 

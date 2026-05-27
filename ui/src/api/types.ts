@@ -179,6 +179,39 @@ export interface CampaignDetailResponse {
   links: CampaignLink[];
   social_posts: SocialPost[];
   brief: CampaignBrief | null;
+  draft: CampaignDraft | null;
+}
+
+export type DraftVerdict = 'ready' | 'minor_revisions' | 'major_revisions';
+export type DraftIssueSeverity = 'high' | 'medium' | 'low';
+
+export interface DraftReviewIssue {
+  severity: DraftIssueSeverity;
+  area?: string;
+  detail: string;
+  suggestion?: string;
+}
+
+export interface DraftReview {
+  verdict: DraftVerdict;
+  summary: string;
+  brief_alignment?: string;
+  strengths?: string[];
+  issues?: DraftReviewIssue[];
+  missing_requirements?: string[];
+}
+
+export interface CampaignDraft {
+  url: string;
+  doc_id: string | null;
+  review: DraftReview | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SaveDraftRequest {
+  url: string;
 }
 
 export interface CampaignAnalyticsLink {
