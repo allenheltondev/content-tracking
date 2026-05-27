@@ -118,7 +118,7 @@ Get a campaign and its registered links.
 
 **Responses:**
 
-- `200 OK` - `{ "campaign": Campaign, "links": [Link, ...] }`.
+- `200 OK` - `{ "campaign": Campaign, "links": [Link, ...], "social_posts": [SocialPost, ...], "brief": Brief | null, "draft": Draft | null }`.
 - `404 Not Found` - campaign does not exist.
 - `500 Internal Server Error`.
 
@@ -574,6 +574,96 @@ campaign name attached. The feed the Chrome extension polls.
 
 ---
 
+## Drafts
+
+A draft is the work-in-progress document for a campaign — almost always a
+Google Doc. Each campaign has at most one draft (saving a new link replaces
+the prior one). `GET /campaigns/{campaignId}` includes a `draft` object.
+
+The AI review pulls the draft's text via the Google Docs public export
+endpoint, so the doc must be shared so **anyone with the link can view**,
+then assesses it against the campaign's [brief](#campaigns).
+
+### POST /campaigns/{campaignId}/draft
+
+Store (or replace) the link to the campaign's draft.
+
+**Authentication:** Cognito.
+
+**Request body:**
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `url` | string | yes | http(s) URL. Only Google Docs links can be auto-reviewed; others are stored with `doc_id: null` |
+
+**Responses:**
+
+- `201 Created` - [Draft](#draft-object).
+- `400 Bad Request` - missing or malformed URL.
+- `404 Not Found` - campaign does not exist.
+- `500 Internal Server Error`.
+
+---
+
+### GET /campaigns/{campaignId}/draft
+
+Get the campaign's draft link and its latest review.
+
+**Authentication:** Cognito.
+
+**Responses:**
+
+- `200 OK` - [Draft](#draft-object).
+- `404 Not Found` - no draft attached.
+- `500 Internal Server Error`.
+
+---
+
+### POST /campaigns/{campaignId}/draft/review
+
+Have the AI review the draft against the campaign brief. Fetches the draft
+text from Google Docs, runs the review through Bedrock, stores the feedback
+on the draft, and returns it.
+
+**Authentication:** Cognito.
+
+**Responses:**
+
+- `201 Created` - [Draft](#draft-object) with `review` populated.
+- `400 Bad Request` - no draft/brief attached, the draft isn't a Google Docs link, or the doc isn't publicly viewable.
+- `404 Not Found` - no draft attached.
+- `502 Bad Gateway` - the doc fetch or the model call failed.
+- `500 Internal Server Error`.
+
+Example success body:
+
+```json
+{
+  "url": "https://docs.google.com/document/d/1AbC.../edit",
+  "doc_id": "1AbC...",
+  "review": {
+    "verdict": "minor_revisions",
+    "summary": "Strong draft that covers the brief; tighten the intro and add the pricing mention.",
+    "brief_alignment": "Covers the required product walkthrough but omits the pricing callout the brief asks for.",
+    "strengths": ["Clear structure", "Concrete examples"],
+    "issues": [
+      {
+        "severity": "medium",
+        "area": "brief-coverage",
+        "detail": "The brief requires a mention of the launch pricing; the draft never states it.",
+        "suggestion": "Add a sentence in the closing section with the launch price."
+      }
+    ],
+    "missing_requirements": ["Launch pricing callout"]
+  },
+  "reviewed_at": "2026-05-27T14:30:00.000Z",
+  "created_at": "2026-05-27T14:03:11.512Z",
+  "updated_at": "2026-05-27T14:30:00.000Z"
+}
+```
+
+---
+
 ## Revenue
 
 ### GET /revenue
@@ -1007,6 +1097,32 @@ This document will be updated when those routes are merged into
 
 The `GET /social-posts/active` feed returns the same shape with an
 additional `campaign_name` field.
+
+### Draft object
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `url` | string | The draft's link (almost always a Google Doc) |
+| `doc_id` | string \| null | Google Docs document id when the link is a Google Doc; `null` otherwise |
+| `review` | [DraftReview](#draftreview-object) \| null | Latest AI review; `null` until reviewed (and reset when the link changes) |
+| `reviewed_at` | string (date-time) \| null | When the review was generated |
+| `created_at` | string (date-time) | |
+| `updated_at` | string (date-time) | |
+
+### DraftReview object
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `verdict` | enum | `ready` \| `minor_revisions` \| `major_revisions` |
+| `summary` | string | One-paragraph overall assessment |
+| `brief_alignment` | string | How well the draft fulfills the brief |
+| `strengths` | array<string> | What the draft does well |
+| `issues` | array | Actionable problems (see fields below) |
+| `issues[].severity` | enum | `high` \| `medium` \| `low` |
+| `issues[].area` | string | `brief-coverage`, `structure`, `tone`, `accuracy`, `clarity`, `cta`, `seo`, ... |
+| `issues[].detail` | string | What's wrong |
+| `issues[].suggestion` | string | How to fix it |
+| `missing_requirements` | array<string> | Brief requirements the draft doesn't address |
 
 ### LinkAnalytics object
 

@@ -63,14 +63,14 @@ paths:
           minLength: 1
           maxLength: 64
     get:
-      summary: Get a campaign, its links, and its brief
+      summary: Get a campaign, its links, its brief, and its draft
       tags:
         - Campaigns
       security:
         - CognitoUserPoolAuthorizer: []
       responses:
         200:
-          description: Campaign with its registered links and attached brief (if any)
+          description: Campaign with its registered links, attached brief, and draft (each if any)
           content:
             application/json:
               schema:
@@ -85,6 +85,10 @@ paths:
                   brief:
                     allOf:
                       - $ref: "#/components/schemas/CampaignBrief"
+                    nullable: true
+                  draft:
+                    allOf:
+                      - $ref: "#/components/schemas/Draft"
                     nullable: true
         404:
           description: Campaign not found
@@ -224,6 +228,150 @@ paths:
                 $ref: "#/components/schemas/UploadUrlResponse"
         400:
           $ref: "#/components/responses/BadRequest"
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
+  /campaigns/{campaignId}/draft:
+    parameters:
+      - name: campaignId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+    get:
+      summary: Get the campaign's draft link and its latest review
+      tags:
+        - Campaigns
+      security:
+        - CognitoUserPoolAuthorizer: []
+      responses:
+        200:
+          description: The campaign's draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Draft"
+        404:
+          description: No draft attached to the campaign
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+    post:
+      summary: Store (or replace) the link to the campaign's draft
+      description: |
+        Saves the link to the working draft for the campaign — almost
+        always a Google Doc. Any http(s) URL is accepted; only Google Docs
+        links can be auto-reviewed. Saving a new link replaces the prior
+        draft and clears any existing review.
+      tags:
+        - Campaigns
+      security:
+        - CognitoUserPoolAuthorizer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitDraftRequest"
+      responses:
+        201:
+          description: Draft link stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Draft"
+        400:
+          $ref: "#/components/responses/BadRequest"
+        404:
+          description: Campaign not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
+  /campaigns/{campaignId}/draft/review:
+    parameters:
+      - name: campaignId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+    post:
+      summary: Have the AI review the draft against the campaign brief
+      description: |
+        Pulls the draft's text from Google Docs (the doc must be shared so
+        anyone with the link can view) and has Bedrock review it against
+        the campaign's brief. The structured feedback is stored on the
+        draft and returned. Requires both a saved draft with a Google Docs
+        link and an attached brief.
+      tags:
+        - Campaigns
+      security:
+        - CognitoUserPoolAuthorizer: []
+      responses:
+        201:
+          description: Draft reviewed; feedback stored and returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Draft"
+        400:
+          description: |
+            No draft/brief attached, the draft isn't a Google Docs link, or
+            the doc isn't publicly viewable.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        404:
+          description: No draft attached to the campaign
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        502:
+          description: The doc fetch or the model call failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
         500:
           $ref: "#/components/responses/UnknownError"
       x-amazon-apigateway-integration:
@@ -1205,6 +1353,91 @@ components:
           type: string
           format: date-time
           nullable: true
+
+    SubmitDraftRequest:
+      type: object
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          format: uri
+          description: |
+            Link to the working draft. Any http(s) URL is accepted, but
+            only Google Docs links (docs.google.com/document/d/...) can be
+            auto-reviewed.
+
+    DraftReviewIssue:
+      type: object
+      required:
+        - severity
+        - detail
+      properties:
+        severity:
+          type: string
+          enum: [high, medium, low]
+        area:
+          type: string
+          description: brief-coverage, structure, tone, accuracy, clarity, cta, seo, ...
+        detail:
+          type: string
+        suggestion:
+          type: string
+
+    DraftReview:
+      type: object
+      description: Structured editorial feedback produced by the AI review.
+      required:
+        - verdict
+        - summary
+      properties:
+        verdict:
+          type: string
+          enum: [ready, minor_revisions, major_revisions]
+        summary:
+          type: string
+        brief_alignment:
+          type: string
+        strengths:
+          type: array
+          items:
+            type: string
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/DraftReviewIssue"
+        missing_requirements:
+          type: array
+          items:
+            type: string
+
+    Draft:
+      type: object
+      required:
+        - url
+        - created_at
+      properties:
+        url:
+          type: string
+          format: uri
+        doc_id:
+          type: string
+          nullable: true
+          description: Google Docs document id, when the link is a Google Doc.
+        review:
+          allOf:
+            - $ref: "#/components/schemas/DraftReview"
+          nullable: true
+        reviewed_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
 
     RevenueAggregate:
       type: object

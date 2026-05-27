@@ -1,9 +1,10 @@
-import { BadRequestError } from "../services/errors.mjs";
+import { BadRequestError, NotFoundError } from "../services/errors.mjs";
 import { jsonResponse } from "../services/http-handler.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import { logger } from "../services/logger.mjs";
 import { decodeCursor, encodeCursor, parseLimit } from "../services/pagination.mjs";
-import { summarizeBrief } from "../services/bedrock.mjs";
+import { reviewDraft, summarizeBrief } from "../services/bedrock.mjs";
+import { fetchGoogleDocText } from "../services/google-docs.mjs";
 import {
   getBriefObjectBytes,
   presignBriefDownload,
@@ -16,6 +17,7 @@ import {
   validateBriefSubmission,
   validateUploadUrlRequest,
 } from "../validation/brief.mjs";
+import { validateDraftSubmission } from "../validation/draft.mjs";
 import { formatPayout } from "../validation/payout.mjs";
 import {
   createCampaign,
@@ -23,7 +25,12 @@ import {
   listCampaigns,
   updateCampaignFields,
 } from "../domain/campaign.mjs";
-import { saveBriefForCampaign } from "../domain/brief.mjs";
+import { getBriefForCampaign, saveBriefForCampaign } from "../domain/brief.mjs";
+import {
+  getDraftForCampaign,
+  saveDraftForCampaign,
+  saveDraftReview,
+} from "../domain/draft.mjs";
 import { formatSocialPost } from "../validation/social-post.mjs";
 
 const VALID_STATUSES = new Set(["draft", "active", "completed"]);
@@ -63,6 +70,15 @@ const formatBrief = (row, downloadUrl) => ({
   warnings: row.warnings ?? [],
   raw: downloadUrl ? { download_url: downloadUrl } : null,
   created_at: row.createdAt,
+});
+
+const formatDraft = (row) => ({
+  url: row.url,
+  doc_id: row.docId ?? null,
+  review: row.review ?? null,
+  reviewed_at: row.reviewedAt ?? null,
+  created_at: row.createdAt,
+  updated_at: row.updatedAt ?? row.createdAt,
 });
 
 export function registerCampaignRoutes(app) {
@@ -106,7 +122,7 @@ export function registerCampaignRoutes(app) {
 
   app.get("/campaigns/:campaignId", async ({ params }) => {
     const { campaignId } = params;
-    const { metadata, links, socialPosts, brief } = await getCampaignWithLinks(campaignId);
+    const { metadata, links, socialPosts, brief, draft } = await getCampaignWithLinks(campaignId);
     const briefDownloadUrl = brief?.s3Key ? await presignBriefDownload(brief.s3Key) : null;
     return jsonResponse(200, {
       campaign: formatCampaign(metadata),
@@ -115,6 +131,7 @@ export function registerCampaignRoutes(app) {
         .map(formatSocialPost)
         .sort((a, b) => a.created_at.localeCompare(b.created_at)),
       brief: brief ? formatBrief(brief, briefDownloadUrl) : null,
+      draft: draft ? formatDraft(draft) : null,
     });
   });
 
@@ -212,6 +229,65 @@ export function registerCampaignRoutes(app) {
       suggested_campaign,
       warnings,
     });
+  }));
+
+  // POST /campaigns/:campaignId/draft
+  //
+  // Stores (or replaces) the link to the campaign's working draft —
+  // almost always a Google Doc. Saving a new link clears any prior review
+  // since the link now points at different content. Run the review
+  // separately via POST /campaigns/:campaignId/draft/review.
+  app.post("/campaigns/:campaignId/draft", withIdempotency(async ({ event, params }) => {
+    const { campaignId } = params;
+    requireUlid(campaignId, "campaignId");
+    const { url, docId } = validateDraftSubmission(parseBody(event));
+    const draft = await saveDraftForCampaign({ campaignId, url, docId });
+    return jsonResponse(201, formatDraft(draft));
+  }));
+
+  // GET /campaigns/:campaignId/draft
+  app.get("/campaigns/:campaignId/draft", async ({ params }) => {
+    const { campaignId } = params;
+    requireUlid(campaignId, "campaignId");
+    const draft = await getDraftForCampaign(campaignId);
+    if (!draft) {
+      throw new NotFoundError("Draft", campaignId);
+    }
+    return jsonResponse(200, formatDraft(draft));
+  });
+
+  // POST /campaigns/:campaignId/draft/review
+  //
+  // Pulls the draft's text from Google Docs and has Bedrock review it
+  // against the campaign's brief, then stores the feedback on the draft
+  // and returns it. Requires both a saved draft (with a Google Docs link)
+  // and an attached brief.
+  app.post("/campaigns/:campaignId/draft/review", withIdempotency(async ({ params }) => {
+    const { campaignId } = params;
+    requireUlid(campaignId, "campaignId");
+
+    const draft = await getDraftForCampaign(campaignId);
+    if (!draft) {
+      throw new NotFoundError("Draft", campaignId);
+    }
+    if (!draft.docId) {
+      throw new BadRequestError("Draft review currently supports Google Docs links only.");
+    }
+
+    const brief = await getBriefForCampaign(campaignId);
+    if (!brief) {
+      throw new BadRequestError("Attach a brief to this campaign before reviewing its draft.");
+    }
+
+    // Fetch + Bedrock errors propagate (BadRequestError / UpstreamError).
+    // As with the brief flow, throwing lets withIdempotency drop the
+    // record so a retry re-runs rather than pinning the failure.
+    const draftText = await fetchGoogleDocText(draft.docId);
+    const review = await reviewDraft({ brief, draftText });
+    const updated = await saveDraftReview(campaignId, review);
+
+    logger.info("Draft reviewed", { campaignId, verdict: review?.verdict });
+    return jsonResponse(201, formatDraft(updated));
   }));
 }
 
