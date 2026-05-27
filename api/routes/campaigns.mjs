@@ -24,6 +24,7 @@ import {
   updateCampaignFields,
 } from "../domain/campaign.mjs";
 import { saveBriefForCampaign } from "../domain/brief.mjs";
+import { formatSocialPost } from "../validation/social-post.mjs";
 
 const VALID_STATUSES = new Set(["draft", "active", "completed"]);
 const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -104,11 +105,14 @@ export function registerCampaignRoutes(app) {
 
   app.get("/campaigns/:campaignId", async ({ params }) => {
     const { campaignId } = params;
-    const { metadata, links, brief } = await getCampaignWithLinks(campaignId);
+    const { metadata, links, socialPosts, brief } = await getCampaignWithLinks(campaignId);
     const briefDownloadUrl = brief?.s3Key ? await presignBriefDownload(brief.s3Key) : null;
     return jsonResponse(200, {
       campaign: formatCampaign(metadata),
       links: links.map(formatLink).sort((a, b) => a.created_at.localeCompare(b.created_at)),
+      social_posts: socialPosts
+        .map(formatSocialPost)
+        .sort((a, b) => a.created_at.localeCompare(b.created_at)),
       brief: brief ? formatBrief(brief, briefDownloadUrl) : null,
     });
   });

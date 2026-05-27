@@ -8,6 +8,8 @@ import type {
   CampaignStatus,
   CreateCampaignRequest,
   CreateLinkRequest,
+  CreateSocialPostRequest,
+  SocialPost,
   UpdateCampaignRequest,
 } from './types';
 
@@ -61,5 +63,26 @@ export async function createLink(
   return apiFetch<CampaignLink>(`/campaigns/${campaignId}/links`, {
     method: 'POST',
     body: payload,
+  });
+}
+
+export async function createSocialPost(
+  apiFetch: ApiFetch,
+  campaignId: string,
+  payload: CreateSocialPostRequest,
+): Promise<SocialPost> {
+  return apiFetch<SocialPost>(`/campaigns/${campaignId}/social-posts`, {
+    method: 'POST',
+    body: payload,
+  });
+}
+
+export async function deleteSocialPost(
+  apiFetch: ApiFetch,
+  campaignId: string,
+  postId: string,
+): Promise<void> {
+  await apiFetch<void>(`/campaigns/${campaignId}/social-posts/${postId}`, {
+    method: 'DELETE',
   });
 }

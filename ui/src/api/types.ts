@@ -149,9 +149,34 @@ export interface CampaignLink {
   created_at: string;
 }
 
+export type SocialPlatform = 'twitter' | 'linkedin' | 'instagram';
+
+// A published post on a social platform. Engagement metrics are written
+// back by the Chrome extension; `last_fetched` is the server timestamp of
+// the most recent metrics write.
+export interface SocialPost {
+  campaign_id: string;
+  post_id: string;
+  platform: SocialPlatform;
+  url: string;
+  notes: string | null;
+  analytics: Record<string, number> | null;
+  last_fetched: string | null;
+  captured_at: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface CreateSocialPostRequest {
+  url: string;
+  platform?: SocialPlatform;
+  notes?: string;
+}
+
 export interface CampaignDetailResponse {
   campaign: Campaign;
   links: CampaignLink[];
+  social_posts: SocialPost[];
   brief: CampaignBrief | null;
 }
 

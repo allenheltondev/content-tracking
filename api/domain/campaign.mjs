@@ -103,8 +103,9 @@ export async function getCampaignWithLinks(campaignId) {
     throw new NotFoundError("Campaign", campaignId);
   }
   const links = items.filter((it) => typeof it.sk === "string" && it.sk.startsWith("LINK#"));
+  const socialPosts = items.filter((it) => typeof it.sk === "string" && it.sk.startsWith("SOCIALPOST#"));
   const brief = items.find((it) => it.sk === "BRIEF") ?? null;
-  return { metadata, links, brief };
+  return { metadata, links, socialPosts, brief };
 }
 
 export async function findCampaign(campaignId) {
@@ -141,6 +142,31 @@ export async function listCampaigns({ limit, exclusiveStartKey, status }) {
     items: result.Items ?? [],
     lastEvaluatedKey: result.LastEvaluatedKey,
   };
+}
+
+// All active campaigns. Backs the social-post feed the Chrome extension
+// polls. Pages the GSI1 "CAMPAIGNS" partition with a status filter; the
+// data set is personal-scale so we fully consume it.
+export async function listActiveCampaigns() {
+  const items = [];
+  let exclusiveStartKey;
+  do {
+    const result = await ddb.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      IndexName: "GSI1",
+      KeyConditionExpression: "gsi1pk = :pk",
+      FilterExpression: "#status = :status",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: {
+        ":pk": CAMPAIGNS_PARTITION,
+        ":status": "active",
+      },
+      ExclusiveStartKey: exclusiveStartKey,
+    }));
+    for (const it of result.Items ?? []) items.push(it);
+    exclusiveStartKey = result.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+  return items;
 }
 
 // Used by the /revenue rollup. Queries all campaigns whose createdAt

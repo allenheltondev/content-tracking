@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Booked Social Analytics — Settings</title>
+    <link rel="stylesheet" href="popup.css" />
+    <style>
+      body {
+        width: auto;
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+      label {
+        display: block;
+        margin-top: 14px;
+        font-weight: 600;
+      }
+      .hint {
+        font-weight: 400;
+        color: var(--muted);
+        font-size: 12px;
+        margin: 2px 0 6px;
+      }
+      input {
+        width: 100%;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        font-size: 13px;
+      }
+      .redirect {
+        background: #f1f5f9;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        word-break: break-all;
+        margin-top: 6px;
+      }
+      .saved {
+        color: var(--ok);
+        font-weight: 600;
+      }
+      .save-row {
+        margin-top: 20px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Booked Social Analytics</h1>
+    <p class="muted">
+      Connect the extension to your Booked deployment and its shared Cognito (RSCUserPool) login.
+      None of these are secrets — the app client uses PKCE with no client secret.
+    </p>
+
+    <label>
+      Booked API base URL
+      <span class="hint">The stack's <code>ContentTrackingApiBaseUrl</code> output (include <code>/v1</code> if it's the execute-api hostname).</span>
+      <input id="apiBaseUrl" type="url" placeholder="https://abc123.execute-api.us-east-1.amazonaws.com/v1" />
+    </label>
+
+    <label>
+      Cognito Hosted UI domain
+      <span class="hint">e.g. https://your-domain.auth.us-east-1.amazoncognito.com</span>
+      <input id="cognitoDomain" type="url" placeholder="https://your-domain.auth.us-east-1.amazoncognito.com" />
+    </label>
+
+    <label>
+      Cognito app client id
+      <span class="hint">A public app client with the Authorization code grant enabled.</span>
+      <input id="clientId" type="text" placeholder="1abc2def3ghi4jkl5mno6pqr7s" />
+    </label>
+
+    <label>
+      AWS region
+      <input id="region" type="text" placeholder="us-east-1" />
+    </label>
+
+    <label>
+      OAuth scopes
+      <span class="hint">Must include <code>openid</code> to receive an id token.</span>
+      <input id="scopes" type="text" placeholder="openid email profile" />
+    </label>
+
+    <label>
+      Feed refresh interval (minutes)
+      <input id="feedRefreshMinutes" type="number" min="1" max="1440" />
+    </label>
+
+    <label>
+      Redirect URI to allow in Cognito
+      <span class="hint">Add this exact value to your app client's "Allowed callback URLs" (and sign-out URLs).</span>
+    </label>
+    <div class="redirect" id="redirect"></div>
+
+    <div class="save-row">
+      <button id="save" class="primary">Save & grant access</button>
+      <span id="status" class="muted"></span>
+    </div>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>
