@@ -67,6 +67,12 @@ jobs:
       - name: SAM deploy
         # NewsletterApiBaseUrl and CampaignShortLinkBase were removed
         # from the template in PR #35; see deploy.yml for context.
+        #
+        # Custom-domain overrides come from Production environment
+        # variables. Each pair (domain + hosted zone id) is a no-op
+        # when unset -- the template's DeployDashboardCustomDomain /
+        # DeployApiCustomDomain conditions require both to be set
+        # before any cert/DNS resources get created.
         run: |
           sam deploy \
             --config-env prod \
@@ -74,7 +80,11 @@ jobs:
             --no-fail-on-empty-changeset \
             --parameter-overrides \
               "Environment=${{ env.ENVIRONMENT }}" \
-              "NewsletterMintApiKey=${{ secrets.NEWSLETTER_MINT_API_KEY }}"
+              "NewsletterMintApiKey=${{ secrets.NEWSLETTER_MINT_API_KEY }}" \
+              "DashboardCustomDomain=${{ vars.DASHBOARD_CUSTOM_DOMAIN }}" \
+              "DashboardHostedZoneId=${{ vars.DASHBOARD_HOSTED_ZONE_ID }}" \
+              "ApiCustomDomain=${{ vars.API_CUSTOM_DOMAIN }}" \
+              "ApiHostedZoneId=${{ vars.API_HOSTED_ZONE_ID }}"
 
       - name: Diagnose failed deploy
         if: ${{ failure() }}
