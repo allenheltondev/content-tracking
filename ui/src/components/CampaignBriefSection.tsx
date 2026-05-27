@@ -155,6 +155,7 @@ interface ApplyState {
   payoutAmount: string;
   payoutCurrency: string;
   payoutPaid: boolean;
+  linkTrackingId: string;
   targetMetricsPairs: { key: string; value: string }[];
 }
 
@@ -221,6 +222,11 @@ function BriefSummary({
 
     const targetMetrics = pairsToObject(form.targetMetricsPairs);
     if (Object.keys(targetMetrics).length > 0) payload.targetMetrics = targetMetrics;
+
+    const linkTrackingId = form.linkTrackingId.trim();
+    if (linkTrackingId.length > 0 && linkTrackingId !== (campaign.link_tracking_id ?? '')) {
+      payload.link_tracking_id = linkTrackingId;
+    }
 
     setBusy(true);
     try {
@@ -384,6 +390,22 @@ function BriefSummary({
           <p className="field-hint">Leave amount blank to leave the payout unchanged.</p>
         </fieldset>
 
+        <label className="block">
+          <span className="field-label">Link tracking ID</span>
+          <input
+            type="text"
+            className="input"
+            value={form.linkTrackingId}
+            onChange={(e) => update('linkTrackingId', e.target.value)}
+            disabled={busy}
+            placeholder="acme-q2-launch"
+          />
+          <span className="field-hint">
+            Tags every short link minted for this campaign so the newsletter service can group
+            analytics by campaign. Letters, digits, underscores, or hyphens.
+          </span>
+        </label>
+
         <fieldset className="border border-border rounded-lg px-4 py-3 space-y-2">
           <legend className="px-1 text-sm font-medium text-foreground">Target metrics</legend>
           <KeyValueEditor
@@ -419,6 +441,7 @@ function seedApplyState(campaign: Campaign, brief: CampaignBrief): ApplyState {
     payoutAmount: typeof payoutAmount === 'number' ? String(payoutAmount) : '',
     payoutCurrency: sc.payout?.currency ?? campaign.payout?.currency ?? 'USD',
     payoutPaid: campaign.payout?.paid ?? false,
+    linkTrackingId: campaign.link_tracking_id ?? '',
     targetMetricsPairs: objectToPairs(sc.targetMetrics ?? campaign.targetMetrics ?? undefined),
   };
 }

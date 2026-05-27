@@ -62,6 +62,35 @@ describe("domain/link", () => {
       expect(item.shortUrl).toBe("https://rdyset.click/c/AbCdEf");
       expect(item.pk).toBe("CAMPAIGN#C1");
       expect(item.sk).toBe(`LINK#${item.linkId}`);
+      // Campaign had no linkTrackingId, so none is forwarded upstream.
+      expect(newsletterService.mintShortLink).toHaveBeenCalledWith({
+        url: "https://example.com/post",
+        src: undefined,
+        expiresInDays: undefined,
+        campaignId: undefined,
+      });
+    });
+
+    test("forwards the campaign's linkTrackingId to mintShortLink", async () => {
+      mockSend.mockResolvedValueOnce({
+        Item: { pk: "CAMPAIGN#C1", linkTrackingId: "acme-q2" },
+      }); // findCampaign
+      newsletterService.mintShortLink.mockResolvedValueOnce({
+        code: "AbCdEf",
+        short_url: "https://rdyset.click/c/AbCdEf",
+        expires_at: "2026-12-31",
+      });
+      mockSend.mockResolvedValueOnce({}); // PutItem
+
+      await createLink("C1", {
+        role: "main",
+        platform: "x",
+        url: "https://example.com/post",
+      });
+
+      expect(newsletterService.mintShortLink).toHaveBeenCalledWith(
+        expect.objectContaining({ campaignId: "acme-q2" }),
+      );
     });
   });
 

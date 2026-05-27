@@ -23,6 +23,7 @@ export default function CreateCampaignForm({
   const [endDate, setEndDate] = useState('');
   const [status, setStatus] = useState<CampaignStatus>('draft');
   const [blogUrl, setBlogUrl] = useState('');
+  const [linkTrackingId, setLinkTrackingId] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
 
   const submit = (): void => {
@@ -41,6 +42,7 @@ export default function CreateCampaignForm({
     if (startDate) payload.startDate = startDate;
     if (endDate) payload.endDate = endDate;
     if (blogUrl.trim()) payload.blog_url = blogUrl.trim();
+    if (linkTrackingId.trim()) payload.link_tracking_id = linkTrackingId.trim();
     onSubmit(payload);
   };
 
@@ -118,6 +120,22 @@ export default function CreateCampaignForm({
         />
         <span className="text-xs text-muted-foreground mt-1 block">
           Optional. Links this campaign to a published post for GA4 + Core Web Vitals analytics.
+        </span>
+      </label>
+
+      <label className="block">
+        <span className="field-label">Link tracking ID</span>
+        <input
+          type="text"
+          className="input"
+          placeholder="acme-q2-launch"
+          value={linkTrackingId}
+          onChange={(e) => setLinkTrackingId(e.target.value)}
+          disabled={busy}
+        />
+        <span className="text-xs text-muted-foreground mt-1 block">
+          Optional. Tags every short link minted for this campaign so the newsletter service can
+          group analytics by campaign. Letters, digits, underscores, or hyphens.
         </span>
       </label>
 

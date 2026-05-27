@@ -25,10 +25,11 @@ function authHeaders(extra = {}) {
   };
 }
 
-export async function mintShortLink({ url, src, expiresInDays }) {
+export async function mintShortLink({ url, src, expiresInDays, campaignId }) {
   const body = { url };
   if (src) body.src = src;
   if (expiresInDays !== undefined) body.expiresInDays = expiresInDays;
+  if (campaignId) body.campaignId = campaignId;
 
   const fetchUrl = await buildUrl("/links");
   const response = await fetch(fetchUrl, {
@@ -75,6 +76,28 @@ export async function fetchLinkAnalytics(code) {
   if (!response.ok) {
     logger.error("Analytics upstream call failed", { code, status: response.status, body: text });
     throw new UpstreamError(`Analytics fetch failed: ${text}`, response.status);
+  }
+  return JSON.parse(text);
+}
+
+// One-shot analytics for every link tagged with a given campaignId.
+// Returned shape (from newsletter-service):
+//   { campaign_id, total_clicks, by_day, links: [{ code, url, src?, total_clicks, by_day, by_src, first_click_at, last_click_at }] }
+// Caller joins on `code` to recover content-tracking's role/platform.
+export async function fetchCampaignLinksAnalytics(campaignId) {
+  const fetchUrl = await buildUrl(`/campaigns/${encodeURIComponent(campaignId)}/links/analytics`);
+  const response = await fetch(fetchUrl, {
+    method: "GET",
+    headers: authHeaders(),
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    logger.error("Campaign analytics upstream call failed", {
+      campaignId,
+      status: response.status,
+      body: text,
+    });
+    throw new UpstreamError(`Campaign analytics fetch failed: ${text}`, response.status);
   }
   return JSON.parse(text);
 }

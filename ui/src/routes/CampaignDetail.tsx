@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { useApiFetch, ApiError } from '../auth/useApiFetch';
+import { useApiFetch, ApiError, type ApiFetch } from '../auth/useApiFetch';
 import {
   createLink,
   createSocialPost,
@@ -9,6 +9,7 @@ import {
   getCampaign,
   getCampaignAnalytics,
   getCampaignWebAnalytics,
+  updateCampaign,
 } from '../api/campaigns';
 import type {
   Campaign,
@@ -61,15 +62,11 @@ export default function CampaignDetail(): ReactElement {
 
   const [activeTab, setActiveTab] = useState<CampaignTab>('overview');
 
-  // Two parallel fetches: campaign metadata + links is cheap, analytics
-  // fans out to newsletter-service per link and is slower. Render each
-  // section as soon as its data lands.
-  const loadAll = useCallback((): { cancel: () => void } => {
-    if (!campaignId) return { cancel: () => undefined };
+  // Campaign metadata + links. Cheap; fires on mount.
+  useEffect(() => {
+    if (!campaignId) return;
     let cancelled = false;
     setLoadError(null);
-    setAnalyticsError(null);
-
     getCampaign(apiFetch, campaignId)
       .then((res) => {
         if (!cancelled) setBundle(res);
@@ -77,7 +74,21 @@ export default function CampaignDetail(): ReactElement {
       .catch((err: Error) => {
         if (!cancelled) setLoadError(err.message);
       });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiFetch, campaignId]);
 
+  // Analytics. Whether the server takes the per-link fan-out path or the
+  // one-shot newsletter-service campaignId rollup depends on the campaign's
+  // link_tracking_id, so this re-runs whenever that value changes (e.g.,
+  // the user just added one via the inline editor).
+  const linkTrackingId = bundle?.campaign.link_tracking_id ?? null;
+  const campaignLoaded = bundle !== null;
+  useEffect(() => {
+    if (!campaignId || !campaignLoaded) return;
+    let cancelled = false;
+    setAnalyticsError(null);
     getCampaignAnalytics(apiFetch, campaignId)
       .then((res) => {
         if (!cancelled) setAnalytics(res);
@@ -85,18 +96,10 @@ export default function CampaignDetail(): ReactElement {
       .catch((err: Error) => {
         if (!cancelled) setAnalyticsError(err.message);
       });
-
-    return {
-      cancel: () => {
-        cancelled = true;
-      },
+    return () => {
+      cancelled = true;
     };
-  }, [apiFetch, campaignId]);
-
-  useEffect(() => {
-    const { cancel } = loadAll();
-    return cancel;
-  }, [loadAll]);
+  }, [apiFetch, campaignId, campaignLoaded, linkTrackingId]);
 
   // Web analytics (GA4 + Core Web Vitals) only make sense once we know the
   // campaign's blog URL, and the call is slow (it hits Google), so it runs
@@ -264,6 +267,18 @@ export default function CampaignDetail(): ReactElement {
             </dd>
           </div>
         )}
+        <div className="col-span-2">
+          <dt className="text-xs uppercase tracking-wide text-muted-foreground">Link tracking ID</dt>
+          <dd className="text-sm mt-0.5">
+            <LinkTrackingIdEditor
+              apiFetch={apiFetch}
+              campaign={campaign}
+              onCampaignChange={(updated) =>
+                setBundle((prev) => (prev ? { ...prev, campaign: updated } : prev))
+              }
+            />
+          </dd>
+        </div>
       </dl>
 
       <nav className="border-b border-border flex gap-1" aria-label="Campaign sections">
@@ -679,6 +694,105 @@ function CopyableShortUrl({ url }: { url: string }): ReactElement {
         {copied ? 'Copied' : 'Copy'}
       </button>
     </span>
+  );
+}
+
+function LinkTrackingIdEditor({
+  apiFetch,
+  campaign,
+  onCampaignChange,
+}: {
+  apiFetch: ApiFetch;
+  campaign: Campaign;
+  onCampaignChange: (campaign: Campaign) => void;
+}): ReactElement {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(campaign.link_tracking_id ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const startEdit = (): void => {
+    setValue(campaign.link_tracking_id ?? '');
+    setError(null);
+    setEditing(true);
+  };
+
+  const cancel = (): void => {
+    setEditing(false);
+    setError(null);
+  };
+
+  const save = async (): Promise<void> => {
+    const trimmed = value.trim();
+    if (trimmed === (campaign.link_tracking_id ?? '')) {
+      setEditing(false);
+      return;
+    }
+    if (trimmed.length === 0) {
+      setError('Enter a value, or cancel to keep the field empty.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await updateCampaign(apiFetch, campaign.campaign_id, {
+        link_tracking_id: trimmed,
+      });
+      onCampaignChange(updated);
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!editing) {
+    return (
+      <span className="inline-flex items-center gap-2">
+        {campaign.link_tracking_id ? (
+          <code className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">
+            {campaign.link_tracking_id}
+          </code>
+        ) : (
+          <span className="text-muted-foreground italic">Not set</span>
+        )}
+        <button type="button" className="btn-link" onClick={startEdit}>
+          {campaign.link_tracking_id ? 'Edit' : 'Add'}
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          className="input w-64 py-1 text-sm font-mono"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="acme-q2-launch"
+          disabled={busy}
+          autoFocus
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void save();
+            if (e.key === 'Escape') cancel();
+          }}
+        />
+        <button type="button" className="btn-primary py-1 text-sm" onClick={() => void save()} disabled={busy}>
+          {busy ? 'Saving...' : 'Save'}
+        </button>
+        <button type="button" className="btn-secondary py-1 text-sm" onClick={cancel} disabled={busy}>
+          Cancel
+        </button>
+      </div>
+      {error && <p className="form-error">{error}</p>}
+      <p className="text-xs text-muted-foreground">
+        Tags every short link minted for this campaign so the newsletter service can group analytics
+        by campaign. Existing links minted before this is set won't be retroactively tagged.
+      </p>
+    </div>
   );
 }
 
