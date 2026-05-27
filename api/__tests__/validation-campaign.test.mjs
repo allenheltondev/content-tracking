@@ -148,4 +148,16 @@ describe("validateCampaignUpdate", () => {
       .toEqual({ linkTrackingId: "acme-q2" });
     expect(() => validateCampaignUpdate({ link_tracking_id: "has spaces" })).toThrow();
   });
+
+  test("accepts vendor_id and maps it to vendorId", () => {
+    expect(validateCampaignUpdate({ vendor_id: "acme_co" })).toEqual({ vendorId: "acme_co" });
+  });
+
+  test("rejects malformed vendor_id", () => {
+    expect(() => validateCampaignUpdate({ vendor_id: "has spaces" })).toThrow(/vendor_id/);
+  });
+
+  test("ignores null vendor_id", () => {
+    expect(validateCampaignUpdate({ vendor_id: null })).toEqual({});
+  });
 });

@@ -282,6 +282,7 @@ export interface PayoutFields {
 export interface UpdateCampaignRequest {
   name?: string;
   sponsor?: string;
+  vendor_id?: string;
   startDate?: string;
   endDate?: string;
   status?: CampaignStatus;

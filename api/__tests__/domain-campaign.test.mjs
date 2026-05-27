@@ -156,6 +156,69 @@ describe("domain/campaign", () => {
       expect(updated.name).toBe("Old");
       expect(mockSend).toHaveBeenCalledTimes(1);
     });
+
+    test("links a vendor when the campaign had none: writes companion row + snapshots name", async () => {
+      mockSend.mockResolvedValueOnce({ Item: { campaignId: "C1", name: "Launch", status: "active", createdAt: "2026-01-01" } }); // findCampaign
+      mockSend.mockResolvedValueOnce({ Item: { vendorId: VALID_VENDOR_ID, name: "Acme" } }); // findVendor
+      mockSend.mockResolvedValueOnce({}); // transaction
+
+      const updated = await updateCampaignFields("C1", { vendorId: VALID_VENDOR_ID });
+      expect(updated.vendorId).toBe(VALID_VENDOR_ID);
+      expect(updated.sponsor).toBe("Acme"); // snapshotted from the vendor
+
+      const transactCall = mockSend.mock.calls.find((c) => c[0].input?.TransactItems);
+      const items = transactCall[0].input.TransactItems;
+      // No old vendor → just metadata Update + new companion Put.
+      expect(items.length).toBe(2);
+      expect(items[0].Update.Key).toEqual({ pk: "CAMPAIGN#C1", sk: "METADATA" });
+      const put = items[1].Put.Item;
+      expect(put.pk).toBe(`VENDOR#${VALID_VENDOR_ID}`);
+      expect(put.sk).toBe("CAMPAIGN#C1");
+      expect(put.entity).toBe("CampaignByVendor");
+      expect(put.createdAt).toBe("2026-01-01");
+    });
+
+    test("re-links to a different vendor: deletes the old companion row, writes the new one", async () => {
+      mockSend.mockResolvedValueOnce({ Item: { campaignId: "C1", name: "Launch", status: "active", vendorId: "old_vendor", createdAt: "2026-01-01" } }); // findCampaign
+      mockSend.mockResolvedValueOnce({ Item: { vendorId: VALID_VENDOR_ID, name: "Acme" } }); // findVendor
+      mockSend.mockResolvedValueOnce({}); // transaction
+
+      await updateCampaignFields("C1", { vendorId: VALID_VENDOR_ID });
+
+      const transactCall = mockSend.mock.calls.find((c) => c[0].input?.TransactItems);
+      const items = transactCall[0].input.TransactItems;
+      // metadata Update + Delete(old companion) + Put(new companion)
+      expect(items.length).toBe(3);
+      expect(items[1].Delete.Key).toEqual({ pk: "VENDOR#old_vendor", sk: "CAMPAIGN#C1" });
+      expect(items[2].Put.Item.pk).toBe(`VENDOR#${VALID_VENDOR_ID}`);
+    });
+
+    test("keeps a caller-supplied sponsor when re-linking instead of snapshotting", async () => {
+      mockSend.mockResolvedValueOnce({ Item: { campaignId: "C1", name: "Launch", status: "active", createdAt: "2026-01-01" } }); // findCampaign
+      mockSend.mockResolvedValueOnce({ Item: { vendorId: VALID_VENDOR_ID, name: "Acme" } }); // findVendor
+      mockSend.mockResolvedValueOnce({}); // transaction
+
+      const updated = await updateCampaignFields("C1", { vendorId: VALID_VENDOR_ID, sponsor: "Custom" });
+      expect(updated.sponsor).toBe("Custom");
+    });
+
+    test("404 when the new vendor_id refers to a missing vendor", async () => {
+      mockSend.mockResolvedValueOnce({ Item: { campaignId: "C1", name: "Launch" } }); // findCampaign
+      mockSend.mockResolvedValueOnce({}); // findVendor: no Item
+      await expect(
+        updateCampaignFields("C1", { vendorId: VALID_VENDOR_ID }),
+      ).rejects.toThrow(/Vendor .* not found/);
+    });
+
+    test("vendor_id equal to the current one takes the normal (non-reassign) path", async () => {
+      mockSend.mockResolvedValueOnce({ Item: { campaignId: "C1", name: "Launch", vendorId: VALID_VENDOR_ID } }); // findCampaign
+      mockSend.mockResolvedValueOnce({}); // transaction (mirror path, since campaign has a vendor)
+
+      await updateCampaignFields("C1", { vendorId: VALID_VENDOR_ID, name: "New" });
+
+      // findVendor is never called: only findCampaign + the write.
+      expect(mockSend).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe("listCampaigns", () => {

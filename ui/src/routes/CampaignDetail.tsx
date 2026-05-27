@@ -23,13 +23,18 @@ import type {
   CreateSocialPostRequest,
   Ga4Section,
   SocialPost,
+  VendorPayload,
   WebAnalyticsResponse,
 } from '../api/types';
+import { createVendor } from '../api/vendors';
 import ClicksChart from '../components/ClicksChart';
 import RegisterLinkForm from '../components/RegisterLinkForm';
 import RegisterSocialPostForm from '../components/RegisterSocialPostForm';
 import CampaignBriefSection from '../components/CampaignBriefSection';
 import CampaignDraftTab from '../components/CampaignDraftTab';
+import Modal from '../components/Modal';
+import VendorForm from '../components/VendorForm';
+import VendorSelect from '../components/VendorSelect';
 
 type CampaignTab = 'overview' | 'brief' | 'draft' | 'promotion' | 'analytics';
 
@@ -257,7 +262,7 @@ export default function CampaignDetail(): ReactElement {
       <header className="flex items-start justify-between gap-4">
         <div className="space-y-1 flex-1 min-w-0">
           <NameEditor apiFetch={apiFetch} campaign={campaign} onCampaignChange={onCampaignChange} />
-          <SponsorEditor
+          <VendorEditor
             apiFetch={apiFetch}
             campaign={campaign}
             onCampaignChange={onCampaignChange}
@@ -1014,31 +1019,30 @@ function NameEditor({ apiFetch, campaign, onCampaignChange }: FieldEditorProps):
   );
 }
 
-function SponsorEditor({ apiFetch, campaign, onCampaignChange }: FieldEditorProps): ReactElement {
+// Links the campaign to a vendor record. Picking from the dropdown saves
+// immediately; "+ Create new vendor…" opens an inline modal and links the
+// freshly created vendor on save. Campaigns predating a vendor record may
+// still carry a free-text `sponsor` — we show it until a vendor is linked.
+function VendorEditor({ apiFetch, campaign, onCampaignChange }: FieldEditorProps): ReactElement {
   const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(campaign.sponsor ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [refreshSignal, setRefreshSignal] = useState(0);
 
-  const start = (): void => {
-    setValue(campaign.sponsor ?? '');
-    setError(null);
-    setEditing(true);
-  };
-  const cancel = (): void => {
-    setEditing(false);
-    setError(null);
-  };
-  const save = async (): Promise<void> => {
-    const trimmed = value.trim();
-    if (trimmed === (campaign.sponsor ?? '')) {
+  const save = async (vendorId: string): Promise<void> => {
+    if (!vendorId || vendorId === campaign.vendor_id) {
       setEditing(false);
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      const updated = await updateCampaign(apiFetch, campaign.campaign_id, { sponsor: trimmed });
+      const updated = await updateCampaign(apiFetch, campaign.campaign_id, {
+        vendor_id: vendorId,
+      });
       onCampaignChange(updated);
       setEditing(false);
     } catch (err) {
@@ -1048,34 +1052,101 @@ function SponsorEditor({ apiFetch, campaign, onCampaignChange }: FieldEditorProp
     }
   };
 
-  const hasSponsor = Boolean(campaign.sponsor);
+  const handleCreate = async (payload: VendorPayload): Promise<void> => {
+    setCreateBusy(true);
+    setCreateError(null);
+    try {
+      const vendor = await createVendor(apiFetch, payload);
+      setRefreshSignal((n) => n + 1);
+      setModalOpen(false);
+      await save(vendor.vendor_id);
+    } catch (err) {
+      setCreateError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setCreateBusy(false);
+    }
+  };
+
+  const hasVendor = Boolean(campaign.vendor_id);
+
   return (
-    <EditScaffold
-      editing={editing}
-      busy={busy}
-      error={error}
-      hasValue={hasSponsor}
-      emptyLabel="No sponsor"
-      onStart={start}
-      onCancel={cancel}
-      onSave={() => void save()}
-      display={<span className="text-muted-foreground">{campaign.sponsor}</span>}
-      form={
-        <input
-          type="text"
-          className="input"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="Vendor / brand name"
-          disabled={busy}
-          autoFocus
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void save();
-            if (e.key === 'Escape') cancel();
+    <>
+      {!editing ? (
+        <span className="inline-flex items-center gap-2 flex-wrap">
+          {hasVendor ? (
+            <Link
+              to={`/vendors/${campaign.vendor_id}`}
+              className="text-primary-600 hover:underline"
+            >
+              {campaign.sponsor ?? campaign.vendor_id}
+            </Link>
+          ) : campaign.sponsor ? (
+            <span className="text-muted-foreground">{campaign.sponsor}</span>
+          ) : (
+            <span className="text-muted-foreground italic">No vendor</span>
+          )}
+          <button
+            type="button"
+            className="btn-link"
+            onClick={() => {
+              setError(null);
+              setEditing(true);
+            }}
+          >
+            {hasVendor ? 'Change' : campaign.sponsor ? 'Link vendor' : 'Add'}
+          </button>
+        </span>
+      ) : (
+        <div className="space-y-2 max-w-sm">
+          <VendorSelect
+            value={campaign.vendor_id ?? ''}
+            onChange={(id) => void save(id)}
+            onCreateNew={() => setModalOpen(true)}
+            disabled={busy}
+            refreshSignal={refreshSignal}
+            autoFocus
+            ariaLabel="Select vendor"
+          />
+          <div className="flex items-center gap-2">
+            {busy && <span className="text-xs text-muted-foreground">Saving…</span>}
+            <button
+              type="button"
+              className="btn-link"
+              onClick={() => {
+                setEditing(false);
+                setError(null);
+              }}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+          </div>
+          {error && <p className="form-error">{error}</p>}
+        </div>
+      )}
+
+      <Modal
+        open={modalOpen}
+        title="Create vendor"
+        onClose={() => {
+          if (!createBusy) {
+            setModalOpen(false);
+            setCreateError(null);
+          }
+        }}
+      >
+        <VendorForm
+          busy={createBusy}
+          serverError={createError}
+          submitLabel="Create vendor"
+          onSubmit={(p) => void handleCreate(p)}
+          onCancel={() => {
+            setModalOpen(false);
+            setCreateError(null);
           }}
         />
-      }
-    />
+      </Modal>
+    </>
   );
 }
 

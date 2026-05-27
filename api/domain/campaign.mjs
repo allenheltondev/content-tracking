@@ -227,6 +227,14 @@ export async function updateCampaignFields(campaignId, fields) {
     return existing;
   }
 
+  const oldVendorId = existing.vendorId ?? null;
+  const vendorChanging =
+    Object.prototype.hasOwnProperty.call(fields, "vendorId") &&
+    (fields.vendorId ?? null) !== oldVendorId;
+  if (vendorChanging) {
+    return reassignVendorAndUpdate(campaignId, existing, fields);
+  }
+
   const { expression, names, values } = buildSetExpression(entries);
 
   // No vendor companion row to keep in sync: a single conditional Update
@@ -272,6 +280,69 @@ export async function updateCampaignFields(campaignId, fields) {
 
   await ddb.send(new TransactWriteCommand({ TransactItems: transactItems }));
   return { ...existing, ...fields };
+}
+
+// Re-links a campaign to a different vendor (or links one for the first
+// time) while applying any other edited fields in the same transaction.
+// Keeps the VENDOR#{v}/CAMPAIGN#{c} companion rows accurate: the old
+// vendor's row is removed and the new vendor's row is (over)written so
+// each vendor's campaign list stays in sync. The chosen vendor's name is
+// snapshotted into `sponsor` unless the caller supplied one, mirroring
+// createCampaign so the display name survives without an extra read.
+async function reassignVendorAndUpdate(campaignId, existing, fields) {
+  const newVendorId = fields.vendorId;
+  const oldVendorId = existing.vendorId ?? null;
+
+  const vendor = await findVendor(newVendorId);
+  if (!vendor) {
+    throw new NotFoundError("Vendor", newVendorId);
+  }
+
+  const effectiveFields =
+    fields.sponsor === undefined ? { ...fields, sponsor: vendor.name } : fields;
+  const merged = { ...existing, ...effectiveFields };
+  const { expression, names, values } = buildSetExpression(Object.entries(effectiveFields));
+
+  const transactItems = [{
+    Update: {
+      TableName: TABLE_NAME,
+      Key: campaignKey(campaignId),
+      UpdateExpression: expression,
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: values,
+      ConditionExpression: "attribute_exists(pk)",
+    },
+  }];
+
+  if (oldVendorId) {
+    transactItems.push({
+      Delete: {
+        TableName: TABLE_NAME,
+        Key: { pk: `VENDOR#${oldVendorId}`, sk: `CAMPAIGN#${campaignId}` },
+      },
+    });
+  }
+
+  transactItems.push({
+    Put: {
+      TableName: TABLE_NAME,
+      Item: {
+        pk: `VENDOR#${newVendorId}`,
+        sk: `CAMPAIGN#${campaignId}`,
+        entity: "CampaignByVendor",
+        campaignId,
+        vendorId: newVendorId,
+        name: merged.name,
+        status: merged.status,
+        startDate: merged.startDate,
+        endDate: merged.endDate,
+        createdAt: existing.createdAt,
+      },
+    },
+  });
+
+  await ddb.send(new TransactWriteCommand({ TransactItems: transactItems }));
+  return merged;
 }
 
 function buildSetExpression(entries) {
