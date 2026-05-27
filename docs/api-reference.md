@@ -369,6 +369,131 @@ Example success body:
 
 ---
 
+## Social posts
+
+Social posts are the actual published posts on a platform (the tweet, the
+LinkedIn update, the Instagram post) — distinct from the short [Links](#links)
+the stack mints for click tracking. They're registered against a campaign
+and live under the campaign partition. The Booked Chrome extension reads the
+post URLs for active campaigns and writes captured engagement metrics back
+via `PUT .../analytics`.
+
+`GET /campaigns/{campaignId}` includes a `social_posts` array alongside
+`links` and `brief`.
+
+### POST /campaigns/{campaignId}/social-posts
+
+Register a social post on a campaign.
+
+**Authentication:** Cognito.
+
+**Request body:**
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `url` | string | yes | The post's public URL, http or https, <=2048 chars |
+| `platform` | enum | no | `twitter` \| `linkedin` \| `instagram`. Inferred from the URL host when omitted |
+| `notes` | string | no | <=1000 chars |
+
+**Responses:**
+
+- `201 Created` - [SocialPost](#socialpost-object).
+- `400 Bad Request` - validation failure (bad URL, unknown/uninferable platform).
+- `404 Not Found` - campaign does not exist.
+- `500 Internal Server Error`.
+
+Example success body:
+
+```json
+{
+  "campaign_id": "01HZX7P1F0Q3WJX5T2J9C8R6KT",
+  "post_id": "01J0A2B3C4D5E6F7G8H9JKMNPQ",
+  "platform": "twitter",
+  "url": "https://x.com/you/status/1790000000000000001",
+  "notes": null,
+  "analytics": null,
+  "last_fetched": null,
+  "captured_at": null,
+  "created_at": "2026-05-27T14:03:11.512Z",
+  "updated_at": null
+}
+```
+
+---
+
+### GET /campaigns/{campaignId}/social-posts
+
+List the social posts registered on a campaign, oldest first.
+
+**Authentication:** Cognito.
+
+**Responses:**
+
+- `200 OK` - `{ "campaign_id": "...", "social_posts": [SocialPost, ...] }`.
+- `500 Internal Server Error`.
+
+---
+
+### PUT /campaigns/{campaignId}/social-posts/{postId}/analytics
+
+Replace a post's engagement metrics. This is the extension's write path.
+The server stamps `last_fetched` with its own clock on every write;
+`captured_at` records when the client observed the numbers.
+
+**Authentication:** Cognito.
+
+**Request body:**
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `metrics` | object | yes | Map of metric name (1-40 chars) to a non-negative finite number. 1-30 keys. Open set, e.g. `likes`, `reposts`, `replies`, `comments`, `views`, `impressions` |
+| `capturedAt` | string | no | ISO date-time the client captured the metrics |
+
+Example:
+
+```json
+{
+  "metrics": { "likes": 50, "reposts": 7, "replies": 3, "views": 12345 },
+  "capturedAt": "2026-05-27T14:02:59.000Z"
+}
+```
+
+**Responses:**
+
+- `200 OK` - the updated [SocialPost](#socialpost-object).
+- `400 Bad Request` - validation failure.
+- `404 Not Found` - post does not exist under this campaign.
+- `500 Internal Server Error`.
+
+---
+
+### DELETE /campaigns/{campaignId}/social-posts/{postId}
+
+Remove a tracked social post.
+
+**Authentication:** Cognito.
+
+**Responses:**
+
+- `204 No Content`.
+- `404 Not Found` - post does not exist under this campaign.
+
+---
+
+### GET /social-posts/active
+
+Every social post belonging to a currently-active campaign, with the
+campaign name attached. The feed the Chrome extension polls.
+
+**Authentication:** Cognito.
+
+**Responses:**
+
+- `200 OK` - `{ "social_posts": [ { campaign_name, ...SocialPost }, ... ] }`.
+- `500 Internal Server Error`.
+
+---
+
 ## Revenue
 
 ### GET /revenue
@@ -714,6 +839,24 @@ This document will be updated when those routes are merged into
 | `notes` | string \| null | |
 | `expires_at` | string (date-time) | |
 | `created_at` | string (date-time) | |
+
+### SocialPost object
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `campaign_id` | string | |
+| `post_id` | string | ULID |
+| `platform` | enum | `twitter` \| `linkedin` \| `instagram` |
+| `url` | string | The post's public URL |
+| `notes` | string \| null | |
+| `analytics` | object<string,number> \| null | Captured engagement, e.g. `{ "likes": 50, "reposts": 7 }`. `null` until first capture |
+| `last_fetched` | string (date-time) \| null | Server timestamp of the most recent analytics write |
+| `captured_at` | string (date-time) \| null | Client-observed timestamp of the most recent metrics |
+| `created_at` | string (date-time) | |
+| `updated_at` | string (date-time) \| null | |
+
+The `GET /social-posts/active` feed returns the same shape with an
+additional `campaign_name` field.
 
 ### LinkAnalytics object
 

@@ -4,6 +4,8 @@ import { Link, useParams } from 'react-router-dom';
 import { useApiFetch, ApiError } from '../auth/useApiFetch';
 import {
   createLink,
+  createSocialPost,
+  deleteSocialPost,
   getCampaign,
   getCampaignAnalytics,
 } from '../api/campaigns';
@@ -13,14 +15,18 @@ import type {
   CampaignBrief,
   CampaignLink,
   CreateLinkRequest,
+  CreateSocialPostRequest,
+  SocialPost,
 } from '../api/types';
 import ClicksChart from '../components/ClicksChart';
 import RegisterLinkForm from '../components/RegisterLinkForm';
+import RegisterSocialPostForm from '../components/RegisterSocialPostForm';
 import CampaignBriefSection from '../components/CampaignBriefSection';
 
 interface CampaignBundle {
   campaign: Campaign;
   links: CampaignLink[];
+  social_posts: SocialPost[];
   brief: CampaignBrief | null;
 }
 
@@ -36,6 +42,9 @@ export default function CampaignDetail(): ReactElement {
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [lastCreated, setLastCreated] = useState<CampaignLink | null>(null);
+
+  const [postBusy, setPostBusy] = useState(false);
+  const [postError, setPostError] = useState<string | null>(null);
 
   // Two parallel fetches: campaign metadata + links is cheap, analytics
   // fans out to newsletter-service per link and is slower. Render each
@@ -95,6 +104,37 @@ export default function CampaignDetail(): ReactElement {
     }
   };
 
+  const handleTrackPost = async (payload: CreateSocialPostRequest): Promise<void> => {
+    if (!campaignId) return;
+    setPostBusy(true);
+    setPostError(null);
+    try {
+      const post = await createSocialPost(apiFetch, campaignId, payload);
+      setBundle((prev) =>
+        prev ? { ...prev, social_posts: [...prev.social_posts, post] } : prev,
+      );
+    } catch (err) {
+      setPostError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setPostBusy(false);
+    }
+  };
+
+  const handleDeletePost = async (postId: string): Promise<void> => {
+    if (!campaignId) return;
+    setPostError(null);
+    try {
+      await deleteSocialPost(apiFetch, campaignId, postId);
+      setBundle((prev) =>
+        prev
+          ? { ...prev, social_posts: prev.social_posts.filter((p) => p.post_id !== postId) }
+          : prev,
+      );
+    } catch (err) {
+      setPostError(err instanceof ApiError ? err.message : (err as Error).message);
+    }
+  };
+
   if (loadError) {
     return (
       <section className="space-y-2">
@@ -116,7 +156,7 @@ export default function CampaignDetail(): ReactElement {
     );
   }
 
-  const { campaign, links } = bundle;
+  const { campaign, links, social_posts: socialPosts } = bundle;
 
   return (
     <section className="space-y-6">
@@ -253,8 +293,84 @@ export default function CampaignDetail(): ReactElement {
           onSubmit={(p) => void handleRegisterLink(p)}
         />
       </section>
+
+      <section className="space-y-3">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold text-foreground">Social posts</h2>
+          <p className="text-sm text-muted-foreground">
+            Engagement is captured automatically by the Booked browser extension when you visit
+            each post. <span className="font-medium text-foreground">Last fetched</span> shows the
+            most recent capture.
+          </p>
+        </div>
+        {postError && <p className="form-error">{postError}</p>}
+        {socialPosts.length === 0 ? (
+          <p className="text-muted-foreground">No social posts tracked yet. Add one below.</p>
+        ) : (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Platform</th>
+                <th>Post</th>
+                <th>Engagement</th>
+                <th>Last fetched</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {socialPosts.map((post) => (
+                <tr key={post.post_id}>
+                  <td>{post.platform}</td>
+                  <td>
+                    <a
+                      href={post.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-primary-600 hover:underline"
+                    >
+                      {truncate(post.url, 50)}
+                    </a>
+                    {post.notes && (
+                      <span className="block text-xs text-muted-foreground">{post.notes}</span>
+                    )}
+                  </td>
+                  <td className="text-muted-foreground">{formatMetrics(post.analytics)}</td>
+                  <td className="text-muted-foreground">{formatTimestamp(post.last_fetched)}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn-link text-error-600"
+                      onClick={() => void handleDeletePost(post.post_id)}
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <RegisterSocialPostForm
+          busy={postBusy}
+          serverError={postError}
+          onSubmit={(p) => void handleTrackPost(p)}
+        />
+      </section>
     </section>
   );
+}
+
+function formatMetrics(analytics: Record<string, number> | null): string {
+  if (!analytics) return '—';
+  const entries = Object.entries(analytics);
+  if (entries.length === 0) return '—';
+  return entries.map(([key, value]) => `${key}: ${value.toLocaleString()}`).join(' · ');
+}
+
+function formatTimestamp(iso: string | null): string {
+  if (!iso) return 'never';
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? 'never' : d.toLocaleString();
 }
 
 function Tile({ label, value }: { label: string; value: string }): ReactElement {

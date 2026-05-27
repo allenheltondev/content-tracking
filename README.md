@@ -15,13 +15,20 @@ consumes for campaign-level rollups.
   stack. The pool ARN is resolved from SSM at deploy time
   (`/readysetcloud/auth/user-pool-arn`).
 - DynamoDB single-table store (`pk` + `sk`) holds Campaigns, Links,
-  Vendors, and the campaign-by-vendor index.
+  Social posts, Vendors, and the campaign-by-vendor index.
 - API Gateway REST API defined by `publicapi.yaml`. Lambda integrations
   use the `aws_proxy` type and run Node.js 24 on arm64.
 - Newsletter-service integration is pull-only: this stack reads
   newsletter-service's published SSM parameters to discover its API base
   URL and the short-link host, and calls newsletter-service's mint and
   analytics endpoints from inside its Lambdas.
+
+A companion Chrome extension (`extension/`) signs in through the same
+Cognito pool, reads the social post URLs on active campaigns, and as you
+browse those posts on X/Twitter, LinkedIn, and Instagram it captures
+engagement off each platform's own traffic and writes it back via
+`PUT /campaigns/{id}/social-posts/{postId}/analytics`. See
+[`extension/README.md`](extension/README.md).
 
 Dashboard work is tracked separately.
 

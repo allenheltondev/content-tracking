@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Booked Social Analytics</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="header">
+      <h1>Booked</h1>
+      <span class="subtitle">Social Analytics</span>
+    </header>
+
+    <main id="content">
+      <p class="muted" id="loading">Loading…</p>
+    </main>
+
+    <footer class="footer">
+      <button id="settings" class="link">Settings</button>
+      <span id="synced" class="muted"></span>
+    </footer>
+
+    <template id="signin-tpl">
+      <p class="muted">Sign in with your Booked account to start syncing engagement.</p>
+      <button id="signin" class="primary">Sign in</button>
+      <p class="error" id="signin-error" hidden></p>
+    </template>
+
+    <template id="setup-tpl">
+      <p class="muted">
+        This extension isn't configured yet. Add your Booked API URL and Cognito details on the
+        settings page.
+      </p>
+      <button id="open-settings" class="primary">Open settings</button>
+    </template>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
