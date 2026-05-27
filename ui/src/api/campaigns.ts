@@ -11,6 +11,7 @@ import type {
   CreateSocialPostRequest,
   SocialPost,
   UpdateCampaignRequest,
+  WebAnalyticsResponse,
 } from './types';
 
 export async function listCampaigns(
@@ -38,6 +39,13 @@ export async function getCampaignAnalytics(
   campaignId: string,
 ): Promise<CampaignAnalyticsResponse> {
   return apiFetch<CampaignAnalyticsResponse>(`/campaigns/${campaignId}/analytics`);
+}
+
+export async function getCampaignWebAnalytics(
+  apiFetch: ApiFetch,
+  campaignId: string,
+): Promise<WebAnalyticsResponse> {
+  return apiFetch<WebAnalyticsResponse>(`/campaigns/${campaignId}/web-analytics`);
 }
 
 export async function createCampaign(

@@ -128,6 +128,7 @@ export interface Campaign {
     paid_at: string | null;
     invoice_ref: string | null;
   } | null;
+  blog_url: string | null;
   created_at: string;
 }
 
@@ -211,6 +212,7 @@ export interface CreateCampaignRequest {
   endDate?: string;
   status?: CampaignStatus;
   targetMetrics?: Record<string, unknown>;
+  blog_url?: string;
 }
 
 export interface CreateLinkRequest {
@@ -250,4 +252,74 @@ export interface UpdateCampaignRequest {
   status?: CampaignStatus;
   payout?: PayoutFields;
   targetMetrics?: Record<string, unknown>;
+  blog_url?: string;
+}
+
+// GET /profile — integration settings. Secrets are never returned; only
+// whether each integration is configured.
+export interface ProfileResponse {
+  ga4: {
+    property_id: string | null;
+    service_account_email: string | null;
+    configured: boolean;
+  };
+  core_web_vitals: {
+    configured: boolean;
+  };
+  updated_at: string | null;
+}
+
+// PUT /profile — all fields optional; only the ones present are applied.
+export interface ProfileUpdateRequest {
+  ga4_property_id?: string;
+  // The full service-account JSON, pasted from the downloaded key file.
+  ga4_service_account?: string;
+  crux_api_key?: string;
+}
+
+export interface Ga4Totals {
+  pageviews: number;
+  users: number;
+  sessions: number;
+  avg_session_duration: number;
+  engagement_rate: number;
+  bounce_rate: number;
+}
+
+export interface Ga4Section {
+  configured: boolean;
+  error: string | null;
+  property_id?: string;
+  page_path?: string;
+  range?: { startDate: string; endDate: string };
+  totals?: Ga4Totals;
+  by_day?: Record<string, number>;
+}
+
+export interface WebVitalsMetrics {
+  lcp_ms: number | null;
+  cls: number | null;
+  inp_ms: number | null;
+  fcp_ms: number | null;
+  ttfb_ms?: number | null;
+  tbt_ms?: number | null;
+}
+
+export interface CoreWebVitalsSection {
+  configured: boolean;
+  error: string | null;
+  source?: 'crux' | 'psi';
+  url?: string;
+  strategy?: string;
+  performance_score?: number | null;
+  metrics?: WebVitalsMetrics;
+}
+
+export interface WebAnalyticsResponse {
+  campaign_id: string;
+  blog_url: string;
+  page_path: string;
+  range: { startDate: string; endDate: string };
+  ga4: Ga4Section;
+  core_web_vitals: CoreWebVitalsSection;
 }

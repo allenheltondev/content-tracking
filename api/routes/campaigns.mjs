@@ -39,6 +39,7 @@ const formatCampaign = (row) => ({
   status: row.status,
   targetMetrics: row.targetMetrics ?? null,
   payout: formatPayout(row.payout),
+  blog_url: row.blogUrl ?? null,
   created_at: row.createdAt,
 });
 

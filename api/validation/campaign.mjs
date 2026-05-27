@@ -6,13 +6,32 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const VALID_STATUSES = new Set(["draft", "active", "completed"]);
 const NAME_MAX = 200;
 const SPONSOR_MAX = 200;
+const BLOG_URL_MAX = 2048;
+
+// The campaign's published blog post. Used as the GA4 page-path filter and
+// the Core Web Vitals lookup URL. Must be an absolute http(s) URL.
+function validateBlogUrl(value) {
+  if (typeof value !== "string" || value.length > BLOG_URL_MAX) {
+    throw new BadRequestError(`blog_url must be a string up to ${BLOG_URL_MAX} chars`);
+  }
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new BadRequestError("blog_url must be a valid absolute URL");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new BadRequestError("blog_url must be an http(s) URL");
+  }
+  return value;
+}
 
 export function validateCampaignCreate(body) {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     throw new BadRequestError("request body must be a JSON object");
   }
 
-  const { name, sponsor, vendor_id, startDate, endDate, status, targetMetrics } = body;
+  const { name, sponsor, vendor_id, startDate, endDate, status, targetMetrics, blog_url } = body;
 
   if (typeof name !== "string" || name.trim().length === 0) {
     throw new BadRequestError("name is required");
@@ -69,6 +88,10 @@ export function validateCampaignCreate(body) {
     out.targetMetrics = targetMetrics;
   }
 
+  if (blog_url !== undefined && blog_url !== null && blog_url !== "") {
+    out.blogUrl = validateBlogUrl(blog_url);
+  }
+
   return out;
 }
 
@@ -83,7 +106,7 @@ export function validateCampaignUpdate(body) {
     throw new BadRequestError("request body must be a JSON object");
   }
 
-  const { name, sponsor, startDate, endDate, status, targetMetrics, payout } = body;
+  const { name, sponsor, startDate, endDate, status, targetMetrics, payout, blog_url } = body;
   const out = {};
 
   if (name !== undefined) {
@@ -133,6 +156,10 @@ export function validateCampaignUpdate(body) {
 
   if (payout !== undefined && payout !== null) {
     out.payout = validatePayoutPayload(payout, { partial: false });
+  }
+
+  if (blog_url !== undefined && blog_url !== null && blog_url !== "") {
+    out.blogUrl = validateBlogUrl(blog_url);
   }
 
   return out;
