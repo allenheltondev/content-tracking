@@ -106,7 +106,25 @@ function shallowEqual(a, b) {
   return ak.every((k) => a[k] === b[k]);
 }
 
-async function maybeSync(post, metrics) {
+// Serializes syncs per post. Two captured responses for the same post can
+// arrive back-to-back (e.g. one carries likes, the next carries comments);
+// running them concurrently would let both build `merged` from the same
+// stale snapshot, and since the API replaces the analytics map wholesale
+// the later PUT would drop the other's keys. Chaining per post id forces
+// the second sync to read the first's result before merging.
+const syncChains = new Map();
+
+function maybeSync(post, metrics) {
+  const prior = syncChains.get(post.post_id) || Promise.resolve();
+  const run = prior.catch(() => {}).then(() => syncPost(post, metrics));
+  syncChains.set(post.post_id, run);
+  run.finally(() => {
+    if (syncChains.get(post.post_id) === run) syncChains.delete(post.post_id);
+  });
+  return run;
+}
+
+async function syncPost(post, metrics) {
   // A single response may only carry part of the picture (e.g. just
   // likes). Merge over what we already know so the server-side wholesale
   // replace never drops a previously-captured metric.
