@@ -2,8 +2,7 @@ name: Deploy (production)
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -192,6 +191,5 @@ jobs:
             echo "- **API URL:** ${{ steps.outputs.outputs.api-url }}"
             echo "- **Dashboard URL:** ${{ steps.outputs.outputs.dashboard-url }}"
             echo "- **Table:** \`${{ steps.outputs.outputs.table-name }}\`"
-            echo "- **Tag:** \`${{ github.ref_name }}\`"
             echo "- **Commit:** \`${{ github.sha }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
