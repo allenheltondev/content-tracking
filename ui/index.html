@@ -19,8 +19,21 @@
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Booked</title>
-  </head>
-  <body>
+    <script>
+      // Apply theme before React mounts so users with dark mode don't
+      // see a white flash. Mirrors the lookup in ThemeContext.tsx.
+      (function () {
+        try {
+          var stored = localStorage.getItem('booked-theme');
+          var theme = stored === 'light' || stored === 'dark'
+            ? stored
+            : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          if (theme === 'dark') document.documentElement.classList.add('dark');
+          document.documentElement.style.colorScheme = theme;
+        } catch (_) {}
+      })();
+    </script>
+  </body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

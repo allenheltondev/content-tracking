@@ -27,6 +27,11 @@ env:
 jobs:
   deploy:
     name: sam deploy staging
+    # Dependabot PRs run with `Secret source: Dependabot`, which can't see
+    # AWS_DEPLOY_ROLE_ARN, so OIDC fails before sam deploy ever runs. Skip
+    # the deploy for bot PRs -- CI (lint+test) still gates the merge, and
+    # the post-merge `push: main` deploy will exercise the bump for real.
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     environment:
       name: Staging

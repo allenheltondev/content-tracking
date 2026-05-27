@@ -3,6 +3,8 @@ import { createContext } from 'react';
 export interface User {
   username: string;
   email: string;
+  firstName: string;
+  lastName: string;
 }
 
 export type SignInResult =
