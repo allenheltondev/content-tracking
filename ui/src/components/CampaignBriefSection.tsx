@@ -7,18 +7,21 @@ import {
   submitPdfBrief,
   uploadPdf,
 } from '../api/briefs';
-import { updateCampaign } from '../api/campaigns';
+import { createLink, updateCampaign } from '../api/campaigns';
 import type {
   BriefResponse,
   Campaign,
   CampaignBrief,
+  CampaignLink,
   CampaignStatus,
   ChatEntry,
+  CreateLinkRequest,
   UpdateCampaignRequest,
 } from '../api/types';
 import SourcePicker from './SourcePicker';
 import WarningsBanner from './WarningsBanner';
 import KeyValueEditor from './KeyValueEditor';
+import DeliverableShortLinks from './DeliverableShortLinks';
 import { objectToPairs, pairsToObject } from './kvUtils';
 
 interface Props {
@@ -27,6 +30,7 @@ interface Props {
   brief: CampaignBrief | null;
   onBriefChange: (brief: CampaignBrief) => void;
   onCampaignChange: (campaign: Campaign) => void;
+  onLinkCreated: (link: CampaignLink) => void;
 }
 
 export default function CampaignBriefSection({
@@ -35,6 +39,7 @@ export default function CampaignBriefSection({
   brief,
   onBriefChange,
   onCampaignChange,
+  onLinkCreated,
 }: Props): ReactElement {
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -126,6 +131,7 @@ export default function CampaignBriefSection({
           campaign={campaign}
           brief={brief}
           onCampaignChange={onCampaignChange}
+          onLinkCreated={onLinkCreated}
         />
       )}
     </section>
@@ -137,6 +143,7 @@ interface SummaryProps {
   campaign: Campaign;
   brief: CampaignBrief;
   onCampaignChange: (campaign: Campaign) => void;
+  onLinkCreated: (link: CampaignLink) => void;
 }
 
 interface ApplyState {
@@ -151,7 +158,13 @@ interface ApplyState {
   targetMetricsPairs: { key: string; value: string }[];
 }
 
-function BriefSummary({ apiFetch, campaign, brief, onCampaignChange }: SummaryProps): ReactElement {
+function BriefSummary({
+  apiFetch,
+  campaign,
+  brief,
+  onCampaignChange,
+  onLinkCreated,
+}: SummaryProps): ReactElement {
   const initial = useMemo<ApplyState>(() => seedApplyState(campaign, brief), [campaign, brief]);
   const [form, setForm] = useState<ApplyState>(initial);
   const [busy, setBusy] = useState(false);
@@ -165,6 +178,14 @@ function BriefSummary({ apiFetch, campaign, brief, onCampaignChange }: SummaryPr
   };
 
   const deliverables = brief.suggested_campaign?.deliverables ?? [];
+
+  // Mints a short link for a deliverable's created content and bubbles it
+  // up so the campaign's Links table and analytics pick it up too.
+  const createShortLink = async (payload: CreateLinkRequest): Promise<CampaignLink> => {
+    const link = await createLink(apiFetch, campaign.campaign_id, payload);
+    onLinkCreated(link);
+    return link;
+  };
 
   const copySummary = (): void => {
     void navigator.clipboard.writeText(brief.summary).then(() => {
@@ -240,16 +261,17 @@ function BriefSummary({ apiFetch, campaign, brief, onCampaignChange }: SummaryPr
       <WarningsBanner warnings={brief.warnings} />
 
       {deliverables.length > 0 && (
-        <section className="card card-body space-y-2">
-          <h3 className="text-sm font-semibold text-foreground">Deliverables</h3>
-          <ul className="space-y-1 text-sm text-foreground">
+        <section className="card card-body space-y-3">
+          <div className="space-y-0.5">
+            <h3 className="text-sm font-semibold text-foreground">Deliverables</h3>
+            <p className="field-hint">
+              Made the content? Create a short link to drop into the posts you publish.
+            </p>
+          </div>
+          <ul className="space-y-2">
             {deliverables.map((d, i) => (
-              <li key={i} className="flex flex-wrap gap-x-2">
-                <span className="font-medium">
-                  {d.count && d.count > 1 ? `${d.count}× ` : ''}
-                  {d.platform} {d.type}
-                </span>
-                {d.notes && <span className="text-muted-foreground">— {d.notes}</span>}
+              <li key={i}>
+                <DeliverableShortLinks deliverable={d} createShortLink={createShortLink} />
               </li>
             ))}
           </ul>

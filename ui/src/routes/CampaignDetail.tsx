@@ -83,6 +83,21 @@ export default function CampaignDetail(): ReactElement {
     return cancel;
   }, [loadAll]);
 
+  // Optimistically append a freshly minted link and rerun analytics. The
+  // new link has zero clicks so the chart won't change, but link count and
+  // tables should reflect it immediately. Shared by the Links form and the
+  // brief's per-deliverable short-link creator.
+  const appendLinkAndRefresh = useCallback(
+    (link: CampaignLink): void => {
+      setBundle((prev) => (prev ? { ...prev, links: [...prev.links, link] } : prev));
+      if (!campaignId) return;
+      getCampaignAnalytics(apiFetch, campaignId)
+        .then((res) => setAnalytics(res))
+        .catch((err: Error) => setAnalyticsError(err.message));
+    },
+    [apiFetch, campaignId],
+  );
+
   const handleRegisterLink = async (payload: CreateLinkRequest): Promise<void> => {
     if (!campaignId) return;
     setLinkBusy(true);
@@ -90,13 +105,7 @@ export default function CampaignDetail(): ReactElement {
     try {
       const link = await createLink(apiFetch, campaignId, payload);
       setLastCreated(link);
-      // Optimistically append to the links list and rerun analytics. The
-      // new link has zero clicks so the chart won't change, but link
-      // count and tables should reflect it immediately.
-      setBundle((prev) => (prev ? { ...prev, links: [...prev.links, link] } : prev));
-      getCampaignAnalytics(apiFetch, campaignId)
-        .then((res) => setAnalytics(res))
-        .catch((err: Error) => setAnalyticsError(err.message));
+      appendLinkAndRefresh(link);
     } catch (err) {
       setLinkError(err instanceof ApiError ? err.message : (err as Error).message);
     } finally {
@@ -208,6 +217,7 @@ export default function CampaignDetail(): ReactElement {
         onCampaignChange={(updated) =>
           setBundle((prev) => (prev ? { ...prev, campaign: updated } : prev))
         }
+        onLinkCreated={appendLinkAndRefresh}
       />
 
       <section className="space-y-3">
