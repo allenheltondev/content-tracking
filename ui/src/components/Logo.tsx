@@ -1,18 +1,17 @@
 import type { ReactElement } from 'react';
+import { useTheme } from '../theme/useTheme';
 
 interface Props {
   className?: string;
   alt?: string;
 }
 
-// The dashboard renders light-mode-only right now, so we always serve
-// the dark-inked SVG (legible on the light background). When in-app
-// dark mode lands, swap this to a <picture> with prefers-color-scheme
-// (or, better, gate on the app's theme class rather than the OS
-// preference -- the OS-level swap is what made the white logo
-// disappear on the light backdrop initially). The favicon in
+// The logo swaps with the in-app theme: dark-inked SVG on light
+// backgrounds, white-inked SVG on dark backgrounds. The favicon in
 // index.html keeps its OS-level swap because that one's painted by
-// browser chrome, which does follow OS theme.
+// browser chrome, which follows the OS preference, not our toggle.
 export default function Logo({ className, alt = 'Booked' }: Props): ReactElement {
-  return <img src="/booked-logo-light.svg" alt={alt} className={className} />;
+  const { theme } = useTheme();
+  const src = theme === 'dark' ? '/booked-logo-dark.svg' : '/booked-logo-light.svg';
+  return <img src={src} alt={alt} className={className} />;
 }
