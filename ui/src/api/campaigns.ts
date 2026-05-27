@@ -8,6 +8,7 @@ import type {
   CampaignStatus,
   CreateCampaignRequest,
   CreateLinkRequest,
+  UpdateCampaignRequest,
 } from './types';
 
 export async function listCampaigns(
@@ -42,6 +43,14 @@ export async function createCampaign(
   payload: CreateCampaignRequest,
 ): Promise<Campaign> {
   return apiFetch<Campaign>('/campaigns', { method: 'POST', body: payload });
+}
+
+export async function updateCampaign(
+  apiFetch: ApiFetch,
+  campaignId: string,
+  payload: UpdateCampaignRequest,
+): Promise<Campaign> {
+  return apiFetch<Campaign>(`/campaigns/${campaignId}`, { method: 'PATCH', body: payload });
 }
 
 export async function createLink(

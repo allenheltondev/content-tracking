@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useApiFetch, ApiError } from '../auth/useApiFetch';
 import {
   createLink,
@@ -10,26 +10,23 @@ import {
 import type {
   Campaign,
   CampaignAnalyticsResponse,
+  CampaignBrief,
   CampaignLink,
   CreateLinkRequest,
 } from '../api/types';
 import ClicksChart from '../components/ClicksChart';
 import RegisterLinkForm from '../components/RegisterLinkForm';
-
-interface LocationState {
-  fromBriefId?: string;
-}
+import CampaignBriefSection from '../components/CampaignBriefSection';
 
 interface CampaignBundle {
   campaign: Campaign;
   links: CampaignLink[];
+  brief: CampaignBrief | null;
 }
 
 export default function CampaignDetail(): ReactElement {
   const { campaignId } = useParams<{ campaignId: string }>();
-  const location = useLocation();
   const apiFetch = useApiFetch();
-  const state = (location.state ?? {}) as LocationState;
 
   const [bundle, setBundle] = useState<CampaignBundle | null>(null);
   const [analytics, setAnalytics] = useState<CampaignAnalyticsResponse | null>(null);
@@ -125,20 +122,8 @@ export default function CampaignDetail(): ReactElement {
     <section className="space-y-6">
       <header className="flex items-start justify-between gap-4">
         <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-semibold text-foreground">{campaign.name}</h1>
-            {state.fromBriefId && (
-              <span className="tag-chip">From brief</span>
-            )}
-          </div>
+          <h1 className="text-2xl font-semibold text-foreground">{campaign.name}</h1>
           {campaign.sponsor && <p className="text-muted-foreground">{campaign.sponsor}</p>}
-          {state.fromBriefId && (
-            <p className="text-sm">
-              <Link to={`/briefs/${state.fromBriefId}`} className="btn-link">
-                View source brief
-              </Link>
-            </p>
-          )}
         </div>
         <div className="flex items-center gap-2">
           <Link
@@ -174,6 +159,16 @@ export default function CampaignDetail(): ReactElement {
           </div>
         )}
       </dl>
+
+      <CampaignBriefSection
+        apiFetch={apiFetch}
+        campaign={campaign}
+        brief={bundle.brief}
+        onBriefChange={(brief) => setBundle((prev) => (prev ? { ...prev, brief } : prev))}
+        onCampaignChange={(updated) =>
+          setBundle((prev) => (prev ? { ...prev, campaign: updated } : prev))
+        }
+      />
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold text-foreground">Analytics</h2>

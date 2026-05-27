@@ -35,9 +35,6 @@ export default function App(): ReactElement {
             <NavLink to="/revenue" className={navLinkClass}>
               Revenue
             </NavLink>
-            <NavLink to="/briefs/new" className={navLinkClass}>
-              New brief
-            </NavLink>
           </nav>
           {isAuthenticated && (
             <div className="flex items-center gap-3">

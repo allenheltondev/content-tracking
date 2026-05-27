@@ -10,6 +10,7 @@ const {
   getCampaignWithLinks,
   listCampaigns,
   queryCampaignsByDateRange,
+  updateCampaignFields,
   updateCampaignPayout,
 } = await import("../domain/campaign.mjs");
 
@@ -79,14 +80,81 @@ describe("domain/campaign", () => {
           { pk: "CAMPAIGN#C1", sk: "LINK#L2", linkId: "L2" },
         ],
       });
-      const { metadata, links } = await getCampaignWithLinks("C1");
+      const { metadata, links, brief } = await getCampaignWithLinks("C1");
       expect(metadata.name).toBe("x");
       expect(links.length).toBe(2);
+      expect(brief).toBeNull();
+    });
+
+    test("surfaces the attached brief item", async () => {
+      mockSend.mockResolvedValue({
+        Items: [
+          { pk: "CAMPAIGN#C1", sk: "METADATA", campaignId: "C1", name: "x", status: "active", createdAt: "2026-01-01" },
+          { pk: "CAMPAIGN#C1", sk: "BRIEF", summary: "the brief", sourceType: "pdf" },
+        ],
+      });
+      const { brief, links } = await getCampaignWithLinks("C1");
+      expect(links.length).toBe(0);
+      expect(brief.summary).toBe("the brief");
     });
 
     test("404 when no metadata row", async () => {
       mockSend.mockResolvedValue({ Items: [] });
       await expect(getCampaignWithLinks("C1")).rejects.toThrow(/Campaign C1 not found/);
+    });
+  });
+
+  describe("updateCampaignFields", () => {
+    test("single conditional Update when campaign has no vendor", async () => {
+      mockSend.mockResolvedValueOnce({ Item: { campaignId: "C1", name: "Old" } }); // findCampaign
+      mockSend.mockResolvedValueOnce({ Attributes: { campaignId: "C1", name: "New", status: "active" } }); // Update
+
+      const updated = await updateCampaignFields("C1", { name: "New", status: "active" });
+      expect(updated.name).toBe("New");
+
+      const input = mockSend.mock.calls[1][0].input;
+      expect(input.UpdateExpression).toBe("SET #name = :name, #status = :status");
+      expect(input.ExpressionAttributeValues[":name"]).toBe("New");
+      expect(input.ConditionExpression).toBe("attribute_exists(pk)");
+      expect(input.ReturnValues).toBe("ALL_NEW");
+    });
+
+    test("transaction updates the vendor companion row for mirrored fields", async () => {
+      mockSend.mockResolvedValueOnce({ Item: { campaignId: "C1", vendorId: VALID_VENDOR_ID } }); // findCampaign
+      mockSend.mockResolvedValueOnce({}); // transaction
+
+      await updateCampaignFields("C1", { name: "New", startDate: "2026-06-01", payout: { amount: 5, currency: "USD", paid: false } });
+
+      const transactCall = mockSend.mock.calls.find((c) => c[0].input?.TransactItems);
+      const items = transactCall[0].input.TransactItems;
+      expect(items.length).toBe(2);
+
+      // Metadata row gets every field; companion row gets only mirrored ones.
+      expect(items[0].Update.Key).toEqual({ pk: "CAMPAIGN#C1", sk: "METADATA" });
+      expect(items[1].Update.Key).toEqual({ pk: `VENDOR#${VALID_VENDOR_ID}`, sk: "CAMPAIGN#C1" });
+      expect(items[1].Update.UpdateExpression).toBe("SET #name = :name, #startDate = :startDate");
+    });
+
+    test("no companion-row Update when only non-mirrored fields change", async () => {
+      mockSend.mockResolvedValueOnce({ Item: { campaignId: "C1", vendorId: VALID_VENDOR_ID } }); // findCampaign
+      mockSend.mockResolvedValueOnce({}); // transaction
+
+      await updateCampaignFields("C1", { payout: { amount: 5, currency: "USD", paid: false } });
+
+      const transactCall = mockSend.mock.calls.find((c) => c[0].input?.TransactItems);
+      expect(transactCall[0].input.TransactItems.length).toBe(1);
+    });
+
+    test("404 when campaign is missing", async () => {
+      mockSend.mockResolvedValueOnce({}); // findCampaign: no Item
+      await expect(updateCampaignFields("C1", { name: "New" })).rejects.toThrow(/Campaign C1 not found/);
+    });
+
+    test("no-op returns existing campaign without writing", async () => {
+      mockSend.mockResolvedValueOnce({ Item: { campaignId: "C1", name: "Old" } }); // findCampaign
+      const updated = await updateCampaignFields("C1", {});
+      expect(updated.name).toBe("Old");
+      expect(mockSend).toHaveBeenCalledTimes(1);
     });
   });
 

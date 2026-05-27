@@ -1,12 +1,9 @@
 import {
   conversationToTranscript,
-  validateBriefConfirm,
   validateBriefSubmission,
   validateUploadUrlRequest,
 } from "../validation/brief.mjs";
 import { BadRequestError } from "../services/errors.mjs";
-
-const VALID_VENDOR_ID = "01HV0AABBCCDDEEFFGGHHJJKKM";
 
 describe("validateUploadUrlRequest", () => {
   test("accepts empty body", () => {
@@ -70,114 +67,9 @@ describe("validateBriefSubmission", () => {
   });
 
   describe("pdf", () => {
-    test("requires ULID brief_id", () => {
-      expect(() =>
-        validateBriefSubmission({ source_type: "pdf", brief_id: "abc" }),
-      ).toThrow(/ULID/);
+    test("happy path needs no id (PDF is keyed by campaign)", () => {
+      expect(validateBriefSubmission({ source_type: "pdf" })).toEqual({ source_type: "pdf" });
     });
-
-    test("happy path", () => {
-      expect(
-        validateBriefSubmission({
-          source_type: "pdf",
-          brief_id: "01HV0AABBCCDDEEFFGGHHJJKKM",
-        }),
-      ).toEqual({ source_type: "pdf", brief_id: "01HV0AABBCCDDEEFFGGHHJJKKM" });
-    });
-  });
-});
-
-describe("validateBriefConfirm", () => {
-  test("rejects non-object body", () => {
-    expect(() => validateBriefConfirm(null)).toThrow(BadRequestError);
-    expect(() => validateBriefConfirm([])).toThrow(BadRequestError);
-  });
-
-  test("requires name", () => {
-    expect(() => validateBriefConfirm({})).toThrow(/name is required/);
-    expect(() => validateBriefConfirm({ name: "   " })).toThrow(/name is required/);
-  });
-
-  test("happy path with all fields", () => {
-    const out = validateBriefConfirm({
-      name: " My Campaign ",
-      vendor_id: VALID_VENDOR_ID,
-      startDate: "2026-06-01",
-      endDate: "2026-06-30",
-      status: "active",
-      targetMetrics: { impressions: 10000 },
-      deliverables: [
-        { platform: "instagram", type: "reel", count: 2, notes: "60s max" },
-      ],
-      payout: { amount: 1500, currency: "USD", paid: false },
-    });
-    expect(out.campaignFields.name).toBe("My Campaign");
-    expect(out.campaignFields.vendorId).toBe(VALID_VENDOR_ID);
-    expect(out.campaignFields.status).toBe("active");
-    expect(out.campaignFields.startDate).toBe("2026-06-01");
-    expect(out.campaignFields.targetMetrics).toEqual({ impressions: 10000 });
-    expect(out.acceptedSuggestion.deliverables).toEqual([
-      { platform: "instagram", type: "reel", count: 2, notes: "60s max" },
-    ]);
-    expect(out.acceptedSuggestion.payout).toEqual({ amount: 1500, currency: "USD" });
-    expect(out.payout).toEqual({ amount: 1500, currency: "USD", paid: false });
-  });
-
-  test("defaults status to draft when omitted", () => {
-    const out = validateBriefConfirm({ name: "Bare" });
-    expect(out.campaignFields.status).toBe("draft");
-  });
-
-  test("accepts free-text sponsor without vendor_id", () => {
-    const out = validateBriefConfirm({ name: "X", sponsor: "Acme Corp" });
-    expect(out.campaignFields.sponsor).toBe("Acme Corp");
-    expect(out.acceptedSuggestion.vendor.name_hint).toBe("Acme Corp");
-    expect(out.campaignFields.vendorId).toBeUndefined();
-  });
-
-  test("rejects malformed vendor_id", () => {
-    expect(() => validateBriefConfirm({ name: "X", vendor_id: "has spaces" })).toThrow(/vendor_id/);
-  });
-
-  test("rejects bad status", () => {
-    expect(() => validateBriefConfirm({ name: "X", status: "live" })).toThrow(/status/);
-  });
-
-  test("rejects bad date format", () => {
-    expect(() => validateBriefConfirm({ name: "X", startDate: "2026/06/01" })).toThrow(/startDate/);
-  });
-
-  test("rejects malformed deliverable", () => {
-    expect(() =>
-      validateBriefConfirm({ name: "X", deliverables: [{ platform: "instagram" }] }),
-    ).toThrow(/type/);
-    expect(() =>
-      validateBriefConfirm({ name: "X", deliverables: [{ platform: "", type: "reel" }] }),
-    ).toThrow(/platform/);
-    expect(() =>
-      validateBriefConfirm({ name: "X", deliverables: [{ platform: "x", type: "post", count: 0 }] }),
-    ).toThrow(/count/);
-  });
-
-  test("rejects malformed payout", () => {
-    expect(() =>
-      validateBriefConfirm({ name: "X", payout: { amount: -1, currency: "USD" } }),
-    ).toThrow(/amount/);
-    expect(() =>
-      validateBriefConfirm({ name: "X", payout: { amount: 100, currency: "usd" } }),
-    ).toThrow(/ISO 4217/);
-  });
-
-  test("omits deliverables when not provided", () => {
-    const out = validateBriefConfirm({ name: "X" });
-    expect(out.acceptedSuggestion.deliverables).toBeUndefined();
-  });
-
-  test("treats empty string fields as omitted", () => {
-    const out = validateBriefConfirm({ name: "X", startDate: "", endDate: "", vendor_id: "", sponsor: "" });
-    expect(out.campaignFields.startDate).toBeUndefined();
-    expect(out.campaignFields.vendorId).toBeUndefined();
-    expect(out.campaignFields.sponsor).toBeUndefined();
   });
 });
 

@@ -63,14 +63,14 @@ paths:
           minLength: 1
           maxLength: 64
     get:
-      summary: Get a campaign and its links
+      summary: Get a campaign, its links, and its brief
       tags:
         - Campaigns
       security:
         - CognitoUserPoolAuthorizer: []
       responses:
         200:
-          description: Campaign with its registered links
+          description: Campaign with its registered links and attached brief (if any)
           content:
             application/json:
               schema:
@@ -82,6 +82,10 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/Link"
+                  brief:
+                    allOf:
+                      - $ref: "#/components/schemas/CampaignBrief"
+                    nullable: true
         404:
           description: Campaign not found
           content:
@@ -95,7 +99,136 @@ paths:
           $ref: "#/components/responses/UnknownError"
       x-amazon-apigateway-integration:
         uri:
-          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetCampaignFunction.Arn}/invocations
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+    patch:
+      summary: Apply edited fields to a campaign (used when accepting a brief's suggestions)
+      tags:
+        - Campaigns
+      security:
+        - CognitoUserPoolAuthorizer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCampaignRequest"
+      responses:
+        200:
+          description: Updated campaign
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+        400:
+          $ref: "#/components/responses/BadRequest"
+        404:
+          description: Campaign not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-request-validator: Validate All
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
+  /campaigns/{campaignId}/brief:
+    parameters:
+      - name: campaignId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+    post:
+      summary: Attach a brief to the campaign (paste a chat or submit an uploaded PDF)
+      description: |
+        Summarizes the brief via Bedrock and stores the summary + suggested
+        campaign fields under the campaign, replacing any prior brief. For
+        PDFs, call POST /campaigns/{campaignId}/brief/upload-url first and PUT
+        the file to the returned URL, then call this with source_type=pdf.
+      tags:
+        - Campaigns
+      security:
+        - CognitoUserPoolAuthorizer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitBriefRequest"
+      responses:
+        201:
+          description: Brief summarized and attached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BriefResponse"
+        400:
+          $ref: "#/components/responses/BadRequest"
+        404:
+          description: Campaign not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        502:
+          description: The model failed to parse the brief
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
+  /campaigns/{campaignId}/brief/upload-url:
+    parameters:
+      - name: campaignId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+    post:
+      summary: Mint a presigned URL to upload a PDF brief for the campaign
+      tags:
+        - Campaigns
+      security:
+        - CognitoUserPoolAuthorizer: []
+      responses:
+        201:
+          description: Presigned PUT URL (valid 15 minutes)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadUrlResponse"
+        400:
+          $ref: "#/components/responses/BadRequest"
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiFunction.Arn}/invocations
         httpMethod: POST
         type: aws_proxy
 
@@ -741,6 +874,186 @@ components:
         invoice_ref:
           type: string
           maxLength: 200
+
+    UpdateCampaignRequest:
+      type: object
+      description: |
+        Partial update of a campaign, used when applying a brief's suggested
+        fields. Every property is optional; only those present are changed.
+        Vendor linkage is not editable here (set at creation); the brief's
+        vendor hint flows through `sponsor`. `payout` replaces the campaign's
+        payout wholesale.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        sponsor:
+          type: string
+          maxLength: 200
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [draft, active, completed]
+        targetMetrics:
+          type: object
+          additionalProperties: true
+        payout:
+          $ref: "#/components/schemas/Payout"
+
+    Deliverable:
+      type: object
+      required:
+        - platform
+        - type
+      properties:
+        platform:
+          type: string
+          description: Lowercase platform handle (instagram, youtube, tiktok, ...)
+        type:
+          type: string
+          description: Lowercase content type (reel, post, video, article, ...)
+        count:
+          type: integer
+          minimum: 1
+        notes:
+          type: string
+
+    SuggestedCampaign:
+      type: object
+      description: Structured fields the model extracted from the brief.
+      properties:
+        name:
+          type: string
+        vendor:
+          type: object
+          properties:
+            name_hint:
+              type: string
+        vendor_id:
+          type: string
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        deliverables:
+          type: array
+          items:
+            $ref: "#/components/schemas/Deliverable"
+        payout:
+          type: object
+          properties:
+            amount:
+              type: number
+            currency:
+              type: string
+        targetMetrics:
+          type: object
+          additionalProperties: true
+
+    SubmitBriefRequest:
+      type: object
+      required:
+        - source_type
+      description: |
+        For source_type=chat, supply `conversation`. For source_type=pdf,
+        the PDF must already be uploaded via the upload-url flow (keyed by
+        campaignId), so no body fields beyond source_type are needed.
+      properties:
+        source_type:
+          type: string
+          enum: [chat, pdf]
+        conversation:
+          type: array
+          maxItems: 200
+          items:
+            type: object
+            required:
+              - role
+              - content
+            properties:
+              role:
+                type: string
+                enum: [vendor, influencer, user, assistant]
+              content:
+                type: string
+                minLength: 1
+                maxLength: 10000
+
+    BriefResponse:
+      type: object
+      required:
+        - campaign_id
+        - source_type
+        - summary
+        - suggested_campaign
+        - warnings
+      properties:
+        campaign_id:
+          type: string
+        source_type:
+          type: string
+          enum: [chat, pdf]
+        summary:
+          type: string
+        suggested_campaign:
+          $ref: "#/components/schemas/SuggestedCampaign"
+        warnings:
+          type: array
+          items:
+            type: string
+
+    CampaignBrief:
+      type: object
+      required:
+        - source_type
+        - summary
+        - suggested_campaign
+        - warnings
+        - created_at
+      properties:
+        source_type:
+          type: string
+          enum: [chat, pdf]
+        summary:
+          type: string
+        suggested_campaign:
+          $ref: "#/components/schemas/SuggestedCampaign"
+        warnings:
+          type: array
+          items:
+            type: string
+        raw:
+          type: object
+          nullable: true
+          properties:
+            download_url:
+              type: string
+        created_at:
+          type: string
+          format: date-time
+
+    UploadUrlResponse:
+      type: object
+      required:
+        - upload_url
+        - s3_key
+        - expires_at
+      properties:
+        upload_url:
+          type: string
+        s3_key:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
           nullable: true
 
     RevenueAggregate:

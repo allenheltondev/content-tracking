@@ -87,9 +87,10 @@ export async function createCampaign(fields) {
   return metadata;
 }
 
-// Returns the metadata + every link for the campaign. The existing
-// /campaigns/{id} endpoint exposes both as a single read; preserving
-// the shape via one Query keeps things efficient.
+// Returns the metadata + every link + the attached brief (if any) for the
+// campaign. The existing /campaigns/{id} endpoint exposes them as a single
+// read; the brief lives under the same pk (sk = BRIEF) so it rides along on
+// the one Query.
 export async function getCampaignWithLinks(campaignId) {
   const result = await ddb.send(new QueryCommand({
     TableName: TABLE_NAME,
@@ -102,7 +103,8 @@ export async function getCampaignWithLinks(campaignId) {
     throw new NotFoundError("Campaign", campaignId);
   }
   const links = items.filter((it) => typeof it.sk === "string" && it.sk.startsWith("LINK#"));
-  return { metadata, links };
+  const brief = items.find((it) => it.sk === "BRIEF") ?? null;
+  return { metadata, links, brief };
 }
 
 export async function findCampaign(campaignId) {
@@ -166,6 +168,87 @@ export async function queryCampaignsByDateRange({ startDate, endDate }) {
     exclusiveStartKey = result.LastEvaluatedKey;
   } while (exclusiveStartKey);
   return items;
+}
+
+// Applies a set of edited fields to a campaign — used when the user
+// accepts brief-suggested updates. Accepts any of: name, sponsor,
+// startDate, endDate, status, targetMetrics, payout. `payout` is replaced
+// wholesale (not merged) since the brief-apply form submits the full
+// object; partial payout edits still go through PATCH /payout.
+//
+// name/status/startDate/endDate are also mirrored on the VENDOR#{v} /
+// CAMPAIGN#{c} companion row, so when the campaign has a vendor we update
+// both rows in one transaction to keep the vendor's campaign list in sync.
+const MIRRORED_FIELDS = ["name", "status", "startDate", "endDate"];
+
+export async function updateCampaignFields(campaignId, fields) {
+  const existing = await findCampaign(campaignId);
+  if (!existing) {
+    throw new NotFoundError("Campaign", campaignId);
+  }
+
+  const entries = Object.entries(fields);
+  if (entries.length === 0) {
+    return existing;
+  }
+
+  const { expression, names, values } = buildSetExpression(entries);
+
+  // No vendor companion row to keep in sync: a single conditional Update
+  // is enough and lets us return the post-update item directly.
+  if (!existing.vendorId) {
+    const result = await ddb.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: campaignKey(campaignId),
+      UpdateExpression: expression,
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: values,
+      ConditionExpression: "attribute_exists(pk)",
+      ReturnValues: "ALL_NEW",
+    }));
+    return result.Attributes;
+  }
+
+  const transactItems = [{
+    Update: {
+      TableName: TABLE_NAME,
+      Key: campaignKey(campaignId),
+      UpdateExpression: expression,
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: values,
+      ConditionExpression: "attribute_exists(pk)",
+    },
+  }];
+
+  const mirrored = entries.filter(([key]) => MIRRORED_FIELDS.includes(key));
+  if (mirrored.length > 0) {
+    const mirror = buildSetExpression(mirrored);
+    transactItems.push({
+      Update: {
+        TableName: TABLE_NAME,
+        Key: { pk: `VENDOR#${existing.vendorId}`, sk: `CAMPAIGN#${campaignId}` },
+        UpdateExpression: mirror.expression,
+        ExpressionAttributeNames: mirror.names,
+        ExpressionAttributeValues: mirror.values,
+        ConditionExpression: "attribute_exists(pk)",
+      },
+    });
+  }
+
+  await ddb.send(new TransactWriteCommand({ TransactItems: transactItems }));
+  return { ...existing, ...fields };
+}
+
+function buildSetExpression(entries) {
+  const names = {};
+  const values = {};
+  const clauses = [];
+  for (const [key, value] of entries) {
+    names[`#${key}`] = key;
+    values[`:${key}`] = value;
+    clauses.push(`#${key} = :${key}`);
+  }
+  return { expression: `SET ${clauses.join(", ")}`, names, values };
 }
 
 export async function updateCampaignPayout(campaignId, fields) {
