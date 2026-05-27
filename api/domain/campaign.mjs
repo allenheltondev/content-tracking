@@ -35,12 +35,20 @@ export async function createCampaign(fields) {
   // transaction. A TransactionCanceledException out of the transaction
   // wouldn't tell us which item's condition failed; the explicit pre-check
   // lets us return a clean 404 referencing the vendor.
+  let vendor = null;
   if (fields.vendorId) {
-    const vendor = await findVendor(fields.vendorId);
+    vendor = await findVendor(fields.vendorId);
     if (!vendor) {
       throw new NotFoundError("Vendor", fields.vendorId);
     }
   }
+
+  // Snapshot the vendor name into `sponsor` when the caller picked a
+  // vendor but didn't type a separate sponsor string. Keeps the display
+  // working without a second read on the detail page, and gives the user
+  // a starting value to edit if the vendor is later renamed.
+  const sponsoredFields =
+    vendor && !fields.sponsor ? { ...fields, sponsor: vendor.name } : fields;
 
   const campaignId = ulid();
   const now = new Date().toISOString();
@@ -48,7 +56,7 @@ export async function createCampaign(fields) {
     ...campaignKey(campaignId),
     entity: "Campaign",
     campaignId,
-    ...fields,
+    ...sponsoredFields,
     gsi1pk: CAMPAIGNS_PARTITION,
     gsi1sk: `${now}#${campaignId}`,
     createdAt: now,

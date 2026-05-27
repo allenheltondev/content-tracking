@@ -47,6 +47,8 @@ export default function CampaignDetail(): ReactElement {
 
   const [bundle, setBundle] = useState<CampaignBundle | null>(null);
   const [analytics, setAnalytics] = useState<CampaignAnalyticsResponse | null>(null);
+  const [analyticsFetchedAt, setAnalyticsFetchedAt] = useState<Date | null>(null);
+  const [analyticsRefreshing, setAnalyticsRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
 
@@ -60,6 +62,9 @@ export default function CampaignDetail(): ReactElement {
 
   const [postBusy, setPostBusy] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
+
+  const [showLinkForm, setShowLinkForm] = useState(false);
+  const [showPostForm, setShowPostForm] = useState(false);
 
   const [activeTab, setActiveTab] = useState<CampaignTab>('overview');
 
@@ -92,7 +97,10 @@ export default function CampaignDetail(): ReactElement {
     setAnalyticsError(null);
     getCampaignAnalytics(apiFetch, campaignId)
       .then((res) => {
-        if (!cancelled) setAnalytics(res);
+        if (!cancelled) {
+          setAnalytics(res);
+          setAnalyticsFetchedAt(new Date());
+        }
       })
       .catch((err: Error) => {
         if (!cancelled) setAnalyticsError(err.message);
@@ -101,6 +109,21 @@ export default function CampaignDetail(): ReactElement {
       cancelled = true;
     };
   }, [apiFetch, campaignId, campaignLoaded, linkTrackingId]);
+
+  const refreshAnalytics = useCallback(async (): Promise<void> => {
+    if (!campaignId) return;
+    setAnalyticsRefreshing(true);
+    setAnalyticsError(null);
+    try {
+      const res = await getCampaignAnalytics(apiFetch, campaignId);
+      setAnalytics(res);
+      setAnalyticsFetchedAt(new Date());
+    } catch (err) {
+      setAnalyticsError((err as Error).message);
+    } finally {
+      setAnalyticsRefreshing(false);
+    }
+  }, [apiFetch, campaignId]);
 
   // Web analytics (GA4 + Core Web Vitals) only make sense once we know the
   // campaign's blog URL, and the call is slow (it hits Google), so it runs
@@ -133,9 +156,20 @@ export default function CampaignDetail(): ReactElement {
   // new link has zero clicks so the chart won't change, but link count and
   // tables should reflect it immediately. Shared by the Links form and the
   // brief's per-deliverable short-link creator.
+  //
+  // The server adopts a "main" role link's destination URL as the
+  // campaign's blog_url when blog_url is unset, so mirror that here so
+  // the Overview tab updates without a refetch.
   const appendLinkAndRefresh = useCallback(
     (link: CampaignLink): void => {
-      setBundle((prev) => (prev ? { ...prev, links: [...prev.links, link] } : prev));
+      setBundle((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, links: [...prev.links, link] };
+        if (link.role === 'main' && !prev.campaign.blog_url) {
+          next.campaign = { ...prev.campaign, blog_url: link.url };
+        }
+        return next;
+      });
       if (!campaignId) return;
       getCampaignAnalytics(apiFetch, campaignId)
         .then((res) => setAnalytics(res))
@@ -152,6 +186,7 @@ export default function CampaignDetail(): ReactElement {
       const link = await createLink(apiFetch, campaignId, payload);
       setLastCreated(link);
       appendLinkAndRefresh(link);
+      setShowLinkForm(false);
     } catch (err) {
       setLinkError(err instanceof ApiError ? err.message : (err as Error).message);
     } finally {
@@ -168,6 +203,7 @@ export default function CampaignDetail(): ReactElement {
       setBundle((prev) =>
         prev ? { ...prev, social_posts: [...prev.social_posts, post] } : prev,
       );
+      setShowPostForm(false);
     } catch (err) {
       setPostError(err instanceof ApiError ? err.message : (err as Error).message);
     } finally {
@@ -332,9 +368,21 @@ export default function CampaignDetail(): ReactElement {
       {activeTab === 'promotion' && (
         <>
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold text-foreground">Links</h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold text-foreground">Links</h2>
+              {!showLinkForm && (
+                <button
+                  type="button"
+                  className="btn-secondary py-1 px-2 text-sm"
+                  onClick={() => setShowLinkForm(true)}
+                  aria-label="Register a new link"
+                >
+                  + Add link
+                </button>
+              )}
+            </div>
             {links.length === 0 ? (
-              <p className="text-muted-foreground">No links yet. Register one below.</p>
+              <p className="text-muted-foreground">No links yet. Click + Add link to register one.</p>
             ) : (
               <table className="data-table">
                 <thead>
@@ -379,26 +427,47 @@ export default function CampaignDetail(): ReactElement {
                 </tbody>
               </table>
             )}
-            <RegisterLinkForm
-              busy={linkBusy}
-              serverError={linkError}
-              lastCreated={lastCreated}
-              onSubmit={(p) => void handleRegisterLink(p)}
-            />
+            {showLinkForm && (
+              <RegisterLinkForm
+                busy={linkBusy}
+                serverError={linkError}
+                lastCreated={lastCreated}
+                onCancel={() => {
+                  setShowLinkForm(false);
+                  setLinkError(null);
+                }}
+                onSubmit={(p) => void handleRegisterLink(p)}
+              />
+            )}
           </section>
 
           <section className="space-y-3">
-            <div className="space-y-1">
-              <h2 className="text-lg font-semibold text-foreground">Social posts</h2>
-              <p className="text-sm text-muted-foreground">
-                Engagement is captured automatically by the Booked browser extension when you visit
-                each post. <span className="font-medium text-foreground">Last fetched</span> shows the
-                most recent capture.
-              </p>
+            <div className="flex items-start justify-between gap-2">
+              <div className="space-y-1">
+                <h2 className="text-lg font-semibold text-foreground">Social posts</h2>
+                <p className="text-sm text-muted-foreground">
+                  Engagement is captured automatically by the Booked browser extension when you
+                  visit each post.{' '}
+                  <span className="font-medium text-foreground">Last fetched</span> shows the most
+                  recent capture.
+                </p>
+              </div>
+              {!showPostForm && (
+                <button
+                  type="button"
+                  className="btn-secondary py-1 px-2 text-sm shrink-0"
+                  onClick={() => setShowPostForm(true)}
+                  aria-label="Track a new social post"
+                >
+                  + Add post
+                </button>
+              )}
             </div>
             {postError && <p className="form-error">{postError}</p>}
             {socialPosts.length === 0 ? (
-              <p className="text-muted-foreground">No social posts tracked yet. Add one below.</p>
+              <p className="text-muted-foreground">
+                No social posts tracked yet. Click + Add post to start tracking one.
+              </p>
             ) : (
               <table className="data-table">
                 <thead>
@@ -445,11 +514,17 @@ export default function CampaignDetail(): ReactElement {
                 </tbody>
               </table>
             )}
-            <RegisterSocialPostForm
-              busy={postBusy}
-              serverError={postError}
-              onSubmit={(p) => void handleTrackPost(p)}
-            />
+            {showPostForm && (
+              <RegisterSocialPostForm
+                busy={postBusy}
+                serverError={postError}
+                onCancel={() => {
+                  setShowPostForm(false);
+                  setPostError(null);
+                }}
+                onSubmit={(p) => void handleTrackPost(p)}
+              />
+            )}
           </section>
         </>
       )}
@@ -468,7 +543,24 @@ export default function CampaignDetail(): ReactElement {
       {activeTab === 'analytics' && (
         <>
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold text-foreground">Analytics</h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold text-foreground">Analytics</h2>
+              <div className="flex items-center gap-3">
+                {analyticsFetchedAt && (
+                  <span className="text-xs text-muted-foreground">
+                    Updated {analyticsFetchedAt.toLocaleTimeString()}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="btn-secondary py-1 px-2 text-sm"
+                  onClick={() => void refreshAnalytics()}
+                  disabled={analyticsRefreshing}
+                >
+                  {analyticsRefreshing ? 'Refreshing…' : 'Refresh'}
+                </button>
+              </div>
+            </div>
             {analyticsError && (
               <p className="form-error">Could not load analytics: {analyticsError}</p>
             )}
@@ -477,6 +569,11 @@ export default function CampaignDetail(): ReactElement {
             )}
             {analytics && (
               <>
+                <AnalyticsDiagnostic
+                  campaign={campaign}
+                  localLinkCount={links.length}
+                  analytics={analytics}
+                />
                 {analytics.upstream_failures > 0 && (
                   <p className="rounded-md border border-warning-200 bg-warning-50 text-warning-900 text-sm px-3 py-2">
                     {analytics.upstream_failures} of {analytics.link_count} link analytics calls
@@ -557,6 +654,46 @@ function formatTimestamp(iso: string | null): string {
   if (!iso) return 'never';
   const d = new Date(iso);
   return isNaN(d.getTime()) ? 'never' : d.toLocaleString();
+}
+
+// Surfaces which analytics path the server took and flags the common
+// "minted before the campaign got tagged" trap: setting link_tracking_id
+// on a campaign whose links were already minted means newsletter-service
+// returns nothing for that tag, even if the per-code clicks are real.
+function AnalyticsDiagnostic({
+  campaign,
+  localLinkCount,
+  analytics,
+}: {
+  campaign: Campaign;
+  localLinkCount: number;
+  analytics: CampaignAnalyticsResponse;
+}): ReactElement | null {
+  const hasTrackingId = Boolean(campaign.link_tracking_id);
+  const mode = hasTrackingId ? 'rollup' : 'fan-out';
+  const mintedBeforeTag =
+    hasTrackingId && localLinkCount > 0 && analytics.link_count < localLinkCount;
+
+  if (mintedBeforeTag) {
+    return (
+      <div className="rounded-md border border-warning-200 bg-warning-50 text-warning-900 text-sm px-3 py-2 space-y-1">
+        <p>
+          <strong>Heads up:</strong> {localLinkCount} link
+          {localLinkCount === 1 ? '' : 's'} registered locally, but only{' '}
+          {analytics.link_count} tagged with <code>{campaign.link_tracking_id}</code> upstream.
+        </p>
+        <p>
+          Links minted before the campaign got a tracking ID aren't retagged. Re-register them, or
+          clear the tracking ID to fall back to per-link click lookups.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <p className="text-xs text-muted-foreground">
+      Source: {mode} ({analytics.link_count} link{analytics.link_count === 1 ? '' : 's'})
+    </p>
+  );
 }
 
 function Tile({ label, value }: { label: string; value: string }): ReactElement {
