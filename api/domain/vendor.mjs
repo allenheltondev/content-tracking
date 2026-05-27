@@ -79,7 +79,6 @@ export async function findVendor(vendorId) {
   const result = await ddb.send(new GetCommand({
     TableName: TABLE_NAME,
     Key: vendorKey(vendorId),
-    ProjectionExpression: "pk",
   }));
   return result.Item ?? null;
 }

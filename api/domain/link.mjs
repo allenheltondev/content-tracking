@@ -3,6 +3,7 @@ import {
   DeleteCommand,
   GetCommand,
   PutCommand,
+  TransactWriteCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ulid } from "ulid";
@@ -54,6 +55,36 @@ export async function createLink(campaignId, fields) {
   };
   if (fields.src) item.src = fields.src;
   if (fields.notes) item.notes = fields.notes;
+
+  // Registering a "main" role link is how users mark their primary
+  // published URL. Adopt it as the campaign's blog_url when the campaign
+  // doesn't have one yet, so the Overview, GA4 lookup, and Core Web
+  // Vitals fetch all start working off that link without a second edit.
+  const shouldAdoptBlogUrl = fields.role === "main" && !campaign.blogUrl;
+  if (shouldAdoptBlogUrl) {
+    await ddb.send(new TransactWriteCommand({
+      TransactItems: [
+        {
+          Put: {
+            TableName: TABLE_NAME,
+            Item: item,
+            ConditionExpression: "attribute_not_exists(sk)",
+          },
+        },
+        {
+          Update: {
+            TableName: TABLE_NAME,
+            Key: { pk: `CAMPAIGN#${campaignId}`, sk: "METADATA" },
+            UpdateExpression: "SET #blogUrl = :blogUrl",
+            ExpressionAttributeNames: { "#blogUrl": "blogUrl" },
+            ExpressionAttributeValues: { ":blogUrl": fields.url },
+            ConditionExpression: "attribute_exists(pk) AND attribute_not_exists(#blogUrl)",
+          },
+        },
+      ],
+    }));
+    return item;
+  }
 
   await ddb.send(new PutCommand({
     TableName: TABLE_NAME,
