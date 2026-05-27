@@ -2,6 +2,7 @@ import type { ReactElement } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from './auth/useAuth';
 import Logo from './components/Logo';
+import UserMenu from './components/UserMenu';
 
 const baseLink = 'px-3 py-1.5 rounded-md text-sm font-medium transition-colors';
 const navLinkClass = ({ isActive }: { isActive: boolean }): string =>
@@ -36,15 +37,8 @@ export default function App(): ReactElement {
               Revenue
             </NavLink>
           </nav>
-          {isAuthenticated && (
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-muted-foreground">
-                {user?.email || user?.username || 'Signed in'}
-              </span>
-              <button type="button" className="btn-secondary btn-sm" onClick={handleSignOut}>
-                Sign out
-              </button>
-            </div>
+          {isAuthenticated && user && (
+            <UserMenu user={user} onSignOut={handleSignOut} />
           )}
         </div>
       </header>

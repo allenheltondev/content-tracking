@@ -1,9 +1,10 @@
 /** @type {import('tailwindcss').Config} */
 // Color palette and shape tokens lifted from newsletter-service's
-// dashboard-ui so both UIs sit on the same theming substrate. Only the
-// light-mode token set is wired up here; dark mode lands later.
+// dashboard-ui so both UIs sit on the same theming substrate. Dark
+// mode is class-based: ThemeProvider toggles `.dark` on <html>.
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {

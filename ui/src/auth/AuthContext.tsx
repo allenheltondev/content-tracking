@@ -4,6 +4,7 @@ import {
   confirmResetPassword as amplifyConfirmResetPassword,
   confirmSignUp as amplifyConfirmSignUp,
   fetchAuthSession,
+  fetchUserAttributes,
   getCurrentUser,
   resendSignUpCode as amplifyResendSignUpCode,
   resetPassword as amplifyResetPassword,
@@ -21,10 +22,13 @@ import {
 } from './authContextValue';
 import './config'; // side-effect: Amplify.configure runs on import
 
-function toUser(current: AuthUser): User {
+async function loadUser(current: AuthUser): Promise<User> {
+  const attrs = await fetchUserAttributes().catch(() => ({}) as Record<string, string | undefined>);
   return {
     username: current.username,
-    email: current.signInDetails?.loginId ?? '',
+    email: attrs.email ?? current.signInDetails?.loginId ?? '',
+    firstName: attrs.given_name ?? '',
+    lastName: attrs.family_name ?? '',
   };
 }
 
@@ -37,8 +41,9 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
   useEffect(() => {
     let cancelled = false;
     getCurrentUser()
-      .then((current) => {
-        if (!cancelled) setUser(toUser(current));
+      .then(async (current) => {
+        const next = await loadUser(current);
+        if (!cancelled) setUser(next);
       })
       .catch(() => {
         if (!cancelled) setUser(null);
@@ -59,7 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
       });
       if (isSignedIn) {
         const current = await getCurrentUser();
-        setUser(toUser(current));
+        setUser(await loadUser(current));
         return { kind: 'success' };
       }
       return { kind: 'pending', nextStep: nextStep.signInStep };
