@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { User } from '../auth/authContextValue';
 import { useTheme } from '../theme/useTheme';
 
@@ -70,10 +71,18 @@ export default function UserMenu({ user, onSignOut }: Props): ReactElement {
             )}
             <div className="text-xs text-muted-foreground truncate">{user.email || user.username}</div>
           </div>
+          <Link
+            to="/settings"
+            role="menuitem"
+            className="block px-4 py-2 text-sm text-foreground hover:bg-muted"
+            onClick={() => setOpen(false)}
+          >
+            Settings
+          </Link>
           <button
             type="button"
             role="menuitem"
-            className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center justify-between"
+            className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center justify-between border-t border-border"
             onClick={() => {
               toggleTheme();
               setOpen(false);

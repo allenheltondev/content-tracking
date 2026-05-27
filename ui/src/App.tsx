@@ -36,9 +36,6 @@ export default function App(): ReactElement {
             <NavLink to="/revenue" className={navLinkClass}>
               Revenue
             </NavLink>
-            <NavLink to="/settings" className={navLinkClass}>
-              Settings
-            </NavLink>
           </nav>
           {isAuthenticated && user && (
             <UserMenu user={user} onSignOut={handleSignOut} />
