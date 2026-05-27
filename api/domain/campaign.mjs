@@ -87,10 +87,10 @@ export async function createCampaign(fields) {
   return metadata;
 }
 
-// Returns the metadata + every link + the attached brief (if any) for the
-// campaign. The existing /campaigns/{id} endpoint exposes them as a single
-// read; the brief lives under the same pk (sk = BRIEF) so it rides along on
-// the one Query.
+// Returns the metadata + every link + the attached brief + the draft (each
+// if present) for the campaign. The existing /campaigns/{id} endpoint
+// exposes them as a single read; the brief (sk = BRIEF) and draft
+// (sk = DRAFT) live under the same pk so they ride along on the one Query.
 export async function getCampaignWithLinks(campaignId) {
   const result = await ddb.send(new QueryCommand({
     TableName: TABLE_NAME,
@@ -105,7 +105,8 @@ export async function getCampaignWithLinks(campaignId) {
   const links = items.filter((it) => typeof it.sk === "string" && it.sk.startsWith("LINK#"));
   const socialPosts = items.filter((it) => typeof it.sk === "string" && it.sk.startsWith("SOCIALPOST#"));
   const brief = items.find((it) => it.sk === "BRIEF") ?? null;
-  return { metadata, links, socialPosts, brief };
+  const draft = items.find((it) => it.sk === "DRAFT") ?? null;
+  return { metadata, links, socialPosts, brief, draft };
 }
 
 export async function findCampaign(campaignId) {
