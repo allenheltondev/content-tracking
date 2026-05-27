@@ -1,17 +1,15 @@
 name: Deploy (staging)
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
 
 concurrency:
-  # Single shared group across `push: main` and `pull_request` so PR
-  # deploys and main deploys serialize against each other instead of
-  # racing on the same Staging stack. cancel-in-progress is false so
-  # mid-deploy CFN updates never get torn out from under themselves.
+  # Single global group: every PR deploys to the same shared Staging
+  # stack, so concurrent PR runs must serialize, not race. False on
+  # cancel-in-progress so mid-deploy CFN updates aren't torn out from
+  # under themselves.
   group: deploy-staging
   cancel-in-progress: false
 
