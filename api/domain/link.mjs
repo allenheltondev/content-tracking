@@ -34,6 +34,7 @@ export async function createLink(campaignId, fields) {
     url: fields.url,
     src: fields.src,
     expiresInDays: fields.expiresInDays,
+    campaignId: campaign.linkTrackingId,
   });
 
   const linkId = ulid();

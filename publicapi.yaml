@@ -1072,6 +1072,15 @@ components:
             page-path filter and the Core Web Vitals lookup URL on
             GET /campaigns/{campaignId}/web-analytics. Must be an absolute
             http(s) URL.
+        link_tracking_id:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{1,128}$'
+          description: |
+            Tag passed to the newsletter service as `campaignId` when minting
+            short links for this campaign. When set, GET
+            /campaigns/{campaignId}/analytics pulls every link tagged with
+            this id from the newsletter service in one call instead of
+            fanning out per local link.
 
     Campaign:
       type: object
@@ -1114,6 +1123,12 @@ components:
           format: uri
           nullable: true
           description: Published blog post URL, or null if not set.
+        link_tracking_id:
+          type: string
+          nullable: true
+          description: |
+            Newsletter-service `campaignId` for grouping this campaign's short
+            links. Null if not set.
         created_at:
           type: string
           format: date-time
@@ -1203,6 +1218,12 @@ components:
           format: uri
           maxLength: 2048
           description: Published blog post URL. Absolute http(s) URL.
+        link_tracking_id:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{1,128}$'
+          description: |
+            Newsletter-service `campaignId` for grouping this campaign's short
+            links.
 
     Deliverable:
       type: object

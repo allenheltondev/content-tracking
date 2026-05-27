@@ -129,6 +129,7 @@ export interface Campaign {
     invoice_ref: string | null;
   } | null;
   blog_url: string | null;
+  link_tracking_id: string | null;
   created_at: string;
 }
 
@@ -246,6 +247,7 @@ export interface CreateCampaignRequest {
   status?: CampaignStatus;
   targetMetrics?: Record<string, unknown>;
   blog_url?: string;
+  link_tracking_id?: string;
 }
 
 export interface CreateLinkRequest {
@@ -286,6 +288,7 @@ export interface UpdateCampaignRequest {
   payout?: PayoutFields;
   targetMetrics?: Record<string, unknown>;
   blog_url?: string;
+  link_tracking_id?: string;
 }
 
 // GET /profile — integration settings. Secrets are never returned; only

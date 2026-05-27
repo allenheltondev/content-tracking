@@ -55,6 +55,21 @@ describe("validateCampaignCreate", () => {
     expect(validateCampaignCreate({ name: "ok", blog_url: "" }).blogUrl).toBeUndefined();
   });
 
+  test("accepts a valid link_tracking_id and maps it to linkTrackingId", () => {
+    expect(validateCampaignCreate({ name: "ok", link_tracking_id: "acme-q2_launch" }).linkTrackingId)
+      .toBe("acme-q2_launch");
+  });
+
+  test("rejects link_tracking_id with disallowed characters", () => {
+    expect(() => validateCampaignCreate({ name: "ok", link_tracking_id: "has spaces" }))
+      .toThrow(/link_tracking_id/);
+  });
+
+  test("treats empty-string link_tracking_id as omitted", () => {
+    expect(validateCampaignCreate({ name: "ok", link_tracking_id: "" }).linkTrackingId)
+      .toBeUndefined();
+  });
+
   test("happy path with all fields", () => {
     const out = validateCampaignCreate({
       name: "Q2 push",
@@ -65,6 +80,7 @@ describe("validateCampaignCreate", () => {
       status: "draft",
       targetMetrics: { impressions: 50000 },
       blog_url: "https://blog.example.com/q2",
+      link_tracking_id: "acme-q2-launch",
     });
     expect(out).toEqual({
       name: "Q2 push",
@@ -75,6 +91,7 @@ describe("validateCampaignCreate", () => {
       status: "draft",
       targetMetrics: { impressions: 50000 },
       blogUrl: "https://blog.example.com/q2",
+      linkTrackingId: "acme-q2-launch",
     });
   });
 });
@@ -124,5 +141,11 @@ describe("validateCampaignUpdate", () => {
     expect(validateCampaignUpdate({ blog_url: "https://example.com/post" }))
       .toEqual({ blogUrl: "https://example.com/post" });
     expect(() => validateCampaignUpdate({ blog_url: "javascript:alert(1)" })).toThrow();
+  });
+
+  test("accepts and validates link_tracking_id", () => {
+    expect(validateCampaignUpdate({ link_tracking_id: "acme-q2" }))
+      .toEqual({ linkTrackingId: "acme-q2" });
+    expect(() => validateCampaignUpdate({ link_tracking_id: "has spaces" })).toThrow();
   });
 });

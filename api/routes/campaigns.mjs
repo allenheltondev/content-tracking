@@ -47,6 +47,7 @@ const formatCampaign = (row) => ({
   targetMetrics: row.targetMetrics ?? null,
   payout: formatPayout(row.payout),
   blog_url: row.blogUrl ?? null,
+  link_tracking_id: row.linkTrackingId ?? null,
   created_at: row.createdAt,
 });
 

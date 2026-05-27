@@ -7,6 +7,7 @@ const VALID_STATUSES = new Set(["draft", "active", "completed"]);
 const NAME_MAX = 200;
 const SPONSOR_MAX = 200;
 const BLOG_URL_MAX = 2048;
+const LINK_TRACKING_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 
 // The campaign's published blog post. Used as the GA4 page-path filter and
 // the Core Web Vitals lookup URL. Must be an absolute http(s) URL.
@@ -31,7 +32,17 @@ export function validateCampaignCreate(body) {
     throw new BadRequestError("request body must be a JSON object");
   }
 
-  const { name, sponsor, vendor_id, startDate, endDate, status, targetMetrics, blog_url } = body;
+  const {
+    name,
+    sponsor,
+    vendor_id,
+    startDate,
+    endDate,
+    status,
+    targetMetrics,
+    blog_url,
+    link_tracking_id,
+  } = body;
 
   if (typeof name !== "string" || name.trim().length === 0) {
     throw new BadRequestError("name is required");
@@ -92,6 +103,15 @@ export function validateCampaignCreate(body) {
     out.blogUrl = validateBlogUrl(blog_url);
   }
 
+  if (link_tracking_id !== undefined && link_tracking_id !== null && link_tracking_id !== "") {
+    if (typeof link_tracking_id !== "string" || !LINK_TRACKING_ID_RE.test(link_tracking_id)) {
+      throw new BadRequestError(
+        "link_tracking_id must be 1-128 characters of letters, digits, underscores, or hyphens",
+      );
+    }
+    out.linkTrackingId = link_tracking_id;
+  }
+
   return out;
 }
 
@@ -106,7 +126,17 @@ export function validateCampaignUpdate(body) {
     throw new BadRequestError("request body must be a JSON object");
   }
 
-  const { name, sponsor, startDate, endDate, status, targetMetrics, payout, blog_url } = body;
+  const {
+    name,
+    sponsor,
+    startDate,
+    endDate,
+    status,
+    targetMetrics,
+    payout,
+    blog_url,
+    link_tracking_id,
+  } = body;
   const out = {};
 
   if (name !== undefined) {
@@ -160,6 +190,15 @@ export function validateCampaignUpdate(body) {
 
   if (blog_url !== undefined && blog_url !== null && blog_url !== "") {
     out.blogUrl = validateBlogUrl(blog_url);
+  }
+
+  if (link_tracking_id !== undefined && link_tracking_id !== null && link_tracking_id !== "") {
+    if (typeof link_tracking_id !== "string" || !LINK_TRACKING_ID_RE.test(link_tracking_id)) {
+      throw new BadRequestError(
+        "link_tracking_id must be 1-128 characters of letters, digits, underscores, or hyphens",
+      );
+    }
+    out.linkTrackingId = link_tracking_id;
   }
 
   return out;
