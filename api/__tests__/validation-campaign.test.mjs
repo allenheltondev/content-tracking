@@ -1,4 +1,4 @@
-import { validateCampaignCreate } from "../validation/campaign.mjs";
+import { validateCampaignCreate, validateCampaignUpdate } from "../validation/campaign.mjs";
 import { BadRequestError } from "../services/errors.mjs";
 
 describe("validateCampaignCreate", () => {
@@ -60,5 +60,47 @@ describe("validateCampaignCreate", () => {
       status: "draft",
       targetMetrics: { impressions: 50000 },
     });
+  });
+});
+
+describe("validateCampaignUpdate", () => {
+  test("rejects non-object body", () => {
+    expect(() => validateCampaignUpdate(null)).toThrow(BadRequestError);
+    expect(() => validateCampaignUpdate([])).toThrow(BadRequestError);
+  });
+
+  test("empty body is a valid no-op", () => {
+    expect(validateCampaignUpdate({})).toEqual({});
+  });
+
+  test("only includes provided fields (partial)", () => {
+    expect(validateCampaignUpdate({ startDate: "2026-06-01" })).toEqual({ startDate: "2026-06-01" });
+  });
+
+  test("rejects empty name when present", () => {
+    expect(() => validateCampaignUpdate({ name: "  " })).toThrow(/non-empty/);
+  });
+
+  test("trims name", () => {
+    expect(validateCampaignUpdate({ name: "  hi  " }).name).toBe("hi");
+  });
+
+  test("rejects bad status and date", () => {
+    expect(() => validateCampaignUpdate({ status: "live" })).toThrow(/status/);
+    expect(() => validateCampaignUpdate({ startDate: "2026/06/01" })).toThrow(/YYYY-MM-DD/);
+  });
+
+  test("normalizes payout to a full object", () => {
+    const out = validateCampaignUpdate({ payout: { amount: 1500, currency: "USD", paid: true } });
+    expect(out.payout).toEqual({ amount: 1500, currency: "USD", paid: true });
+  });
+
+  test("rejects malformed payout", () => {
+    expect(() => validateCampaignUpdate({ payout: { amount: -1 } })).toThrow(/amount/);
+    expect(() => validateCampaignUpdate({ payout: { amount: 10, currency: "usd" } })).toThrow(/ISO 4217/);
+  });
+
+  test("treats empty-string dates as omitted", () => {
+    expect(validateCampaignUpdate({ startDate: "", endDate: "" })).toEqual({});
   });
 });

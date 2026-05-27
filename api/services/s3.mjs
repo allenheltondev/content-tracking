@@ -15,9 +15,10 @@ const PRESIGN_EXPIRES_SECONDS = 15 * 60;
 
 // Presigned URL the client uses to PUT a PDF directly to S3. Bound to
 // content-type so the dashboard can't accidentally upload non-PDFs
-// against an URL minted for a PDF brief.
-export async function presignBriefUpload({ briefId, contentType }) {
-  const key = `uploads/${briefId}.pdf`;
+// against an URL minted for a PDF brief. Keyed by campaignId since a
+// campaign owns at most one brief.
+export async function presignBriefUpload({ campaignId, contentType }) {
+  const key = `uploads/${campaignId}.pdf`;
   const command = new PutObjectCommand({
     Bucket: BRIEFS_BUCKET,
     Key: key,
@@ -48,8 +49,8 @@ export async function presignBriefDownload(key) {
 // Writes a chat transcript (already serialized to UTF-8 text) to S3 so
 // every brief — PDF or chat — has a single canonical raw artifact in
 // the same bucket.
-export async function putBriefTranscript({ briefId, body }) {
-  const key = `uploads/${briefId}.txt`;
+export async function putBriefTranscript({ campaignId, body }) {
+  const key = `uploads/${campaignId}.txt`;
   await s3.send(new PutObjectCommand({
     Bucket: BRIEFS_BUCKET,
     Key: key,

@@ -21,35 +21,28 @@ export interface SuggestedCampaign {
   targetMetrics?: Record<string, unknown>;
 }
 
+// Returned by POST /campaigns/:campaignId/brief after the model summarizes
+// the brief and it's stored on the campaign.
 export interface BriefResponse {
-  brief_id: string;
+  campaign_id: string;
   source_type: 'pdf' | 'chat';
   summary: string;
   suggested_campaign: SuggestedCampaign;
   warnings: string[];
-  campaign_id: string | null;
 }
 
 export interface UploadUrlResponse {
-  brief_id: string;
   upload_url: string;
   s3_key: string;
   expires_at: string;
 }
 
-export interface ConfirmResponse {
-  brief_id: string;
-  campaign_id: string;
-  already_confirmed: boolean;
-}
-
-export interface BriefDetailResponse {
-  brief_id: string;
+// The brief attached to a campaign, as embedded in CampaignDetailResponse.
+export interface CampaignBrief {
   source_type: 'pdf' | 'chat';
   summary: string;
   suggested_campaign: SuggestedCampaign;
   warnings: string[];
-  campaign_id: string | null;
   raw: { download_url: string } | null;
   created_at: string;
 }
@@ -159,6 +152,7 @@ export interface CampaignLink {
 export interface CampaignDetailResponse {
   campaign: Campaign;
   links: CampaignLink[];
+  brief: CampaignBrief | null;
 }
 
 export interface CampaignAnalyticsLink {
@@ -221,14 +215,14 @@ export interface PayoutFields {
   paid: boolean;
 }
 
-export interface ConfirmRequest {
-  name: string;
+// Fields a user can apply to an existing campaign from a brief's
+// suggestions (PATCH /campaigns/:campaignId). All optional.
+export interface UpdateCampaignRequest {
+  name?: string;
   sponsor?: string;
-  vendor_id?: string;
   startDate?: string;
   endDate?: string;
-  status?: 'draft' | 'active' | 'completed';
-  deliverables?: Deliverable[];
+  status?: CampaignStatus;
   payout?: PayoutFields;
   targetMetrics?: Record<string, unknown>;
 }

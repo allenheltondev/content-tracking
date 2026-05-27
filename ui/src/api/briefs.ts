@@ -1,15 +1,13 @@
 import type { ApiFetch } from '../auth/useApiFetch';
-import type {
-  BriefDetailResponse,
-  BriefResponse,
-  ChatEntry,
-  ConfirmRequest,
-  ConfirmResponse,
-  UploadUrlResponse,
-} from './types';
+import type { BriefResponse, ChatEntry, UploadUrlResponse } from './types';
 
-export async function requestUploadUrl(apiFetch: ApiFetch): Promise<UploadUrlResponse> {
-  return apiFetch<UploadUrlResponse>('/briefs/upload-url', { method: 'POST' });
+export async function requestBriefUploadUrl(
+  apiFetch: ApiFetch,
+  campaignId: string,
+): Promise<UploadUrlResponse> {
+  return apiFetch<UploadUrlResponse>(`/campaigns/${campaignId}/brief/upload-url`, {
+    method: 'POST',
+  });
 }
 
 // Uploads a PDF File directly to S3 via the presigned URL. This bypasses
@@ -26,40 +24,23 @@ export async function uploadPdf(uploadUrl: string, file: File): Promise<void> {
   }
 }
 
-export async function submitPdfBrief(
-  apiFetch: ApiFetch,
-  briefId: string,
-): Promise<BriefResponse> {
-  return apiFetch<BriefResponse>('/briefs', {
-    method: 'POST',
-    body: { source_type: 'pdf', brief_id: briefId },
-  });
-}
-
 export async function submitChatBrief(
   apiFetch: ApiFetch,
+  campaignId: string,
   conversation: ChatEntry[],
 ): Promise<BriefResponse> {
-  return apiFetch<BriefResponse>('/briefs', {
+  return apiFetch<BriefResponse>(`/campaigns/${campaignId}/brief`, {
     method: 'POST',
     body: { source_type: 'chat', conversation },
   });
 }
 
-export async function confirmBrief(
+export async function submitPdfBrief(
   apiFetch: ApiFetch,
-  briefId: string,
-  payload: ConfirmRequest,
-): Promise<ConfirmResponse> {
-  return apiFetch<ConfirmResponse>(`/briefs/${briefId}/confirm`, {
+  campaignId: string,
+): Promise<BriefResponse> {
+  return apiFetch<BriefResponse>(`/campaigns/${campaignId}/brief`, {
     method: 'POST',
-    body: payload,
+    body: { source_type: 'pdf' },
   });
-}
-
-export async function getBrief(
-  apiFetch: ApiFetch,
-  briefId: string,
-): Promise<BriefDetailResponse> {
-  return apiFetch<BriefDetailResponse>(`/briefs/${briefId}`);
 }

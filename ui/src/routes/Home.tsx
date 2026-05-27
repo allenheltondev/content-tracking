@@ -2,10 +2,9 @@ import type { ReactElement } from 'react';
 import { Link } from 'react-router-dom';
 
 const tiles: { to: string; title: string; description: string }[] = [
-  { to: '/campaigns', title: 'Campaigns', description: 'Active and historical campaigns with link analytics.' },
+  { to: '/campaigns', title: 'Campaigns', description: 'Active and historical campaigns with briefs and link analytics.' },
   { to: '/vendors', title: 'Vendors', description: 'Vendor records, contacts, and payment terms.' },
   { to: '/revenue', title: 'Revenue', description: 'Year-over-year revenue trend and per-vendor breakdown.' },
-  { to: '/briefs/new', title: 'New brief', description: 'Drop in a vendor brief and turn it into a campaign.' },
 ];
 
 export default function Home(): ReactElement {
