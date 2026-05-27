@@ -350,6 +350,28 @@ Resources:
                 - ssm:GetParameters
               Resource:
                 - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/newsletter-service/${Environment}/*"
+            # SSM: read + write the booked-owned Google credentials
+            # (GA4 service account, CrUX API key) stored as SecureStrings.
+            # PutParameter is used by PUT /profile when the user saves them.
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+                - ssm:GetParameters
+                - ssm:PutParameter
+              Resource:
+                - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/booked/${Environment}/*"
+            # KMS: SecureString encrypt/decrypt, but only when the call comes
+            # through SSM (ViaService condition). Covers the AWS-managed
+            # aws/ssm key without naming a specific key ARN.
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+                - kms:Encrypt
+                - kms:GenerateDataKey
+              Resource: "*"
+              Condition:
+                StringEquals:
+                  kms:ViaService: !Sub "ssm.${AWS::Region}.amazonaws.com"
             # S3: read + write objects in the briefs bucket. PutObject is
             # used by the chat-source flow (writing transcripts inline) and
             # by presigned-URL signing for PDF uploads. GetObject is used

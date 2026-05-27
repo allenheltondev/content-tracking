@@ -8,15 +8,19 @@ import {
   deleteSocialPost,
   getCampaign,
   getCampaignAnalytics,
+  getCampaignWebAnalytics,
 } from '../api/campaigns';
 import type {
   Campaign,
   CampaignAnalyticsResponse,
   CampaignBrief,
   CampaignLink,
+  CoreWebVitalsSection,
   CreateLinkRequest,
   CreateSocialPostRequest,
+  Ga4Section,
   SocialPost,
+  WebAnalyticsResponse,
 } from '../api/types';
 import ClicksChart from '../components/ClicksChart';
 import RegisterLinkForm from '../components/RegisterLinkForm';
@@ -38,6 +42,10 @@ export default function CampaignDetail(): ReactElement {
   const [analytics, setAnalytics] = useState<CampaignAnalyticsResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+
+  const [webAnalytics, setWebAnalytics] = useState<WebAnalyticsResponse | null>(null);
+  const [webAnalyticsError, setWebAnalyticsError] = useState<string | null>(null);
+  const [webAnalyticsLoading, setWebAnalyticsLoading] = useState(false);
 
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
@@ -82,6 +90,33 @@ export default function CampaignDetail(): ReactElement {
     const { cancel } = loadAll();
     return cancel;
   }, [loadAll]);
+
+  // Web analytics (GA4 + Core Web Vitals) only make sense once we know the
+  // campaign's blog URL, and the call is slow (it hits Google), so it runs
+  // on its own after the campaign loads and only when a blogUrl is set.
+  const blogUrl = bundle?.campaign.blog_url ?? null;
+  useEffect(() => {
+    if (!campaignId || !blogUrl) {
+      setWebAnalytics(null);
+      return;
+    }
+    let cancelled = false;
+    setWebAnalyticsLoading(true);
+    setWebAnalyticsError(null);
+    getCampaignWebAnalytics(apiFetch, campaignId)
+      .then((res) => {
+        if (!cancelled) setWebAnalytics(res);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setWebAnalyticsError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setWebAnalyticsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiFetch, campaignId, blogUrl]);
 
   // Optimistically append a freshly minted link and rerun analytics. The
   // new link has zero clicks so the chart won't change, but link count and
@@ -207,6 +242,21 @@ export default function CampaignDetail(): ReactElement {
             </dd>
           </div>
         )}
+        {campaign.blog_url && (
+          <div className="col-span-2">
+            <dt className="text-xs uppercase tracking-wide text-muted-foreground">Blog post</dt>
+            <dd className="text-sm mt-0.5">
+              <a
+                href={campaign.blog_url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary-600 hover:underline"
+              >
+                {truncate(campaign.blog_url, 70)}
+              </a>
+            </dd>
+          </div>
+        )}
       </dl>
 
       <CampaignBriefSection
@@ -249,6 +299,13 @@ export default function CampaignDetail(): ReactElement {
           </>
         )}
       </section>
+
+      <WebAnalyticsSection
+        blogUrl={campaign.blog_url}
+        data={webAnalytics}
+        loading={webAnalyticsLoading}
+        error={webAnalyticsError}
+      />
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold text-foreground">Links</h2>
@@ -411,6 +468,140 @@ function Breakdown({ title, data }: { title: string; data: Record<string, number
       )}
     </div>
   );
+}
+
+function WebAnalyticsSection({
+  blogUrl,
+  data,
+  loading,
+  error,
+}: {
+  blogUrl: string | null;
+  data: WebAnalyticsResponse | null;
+  loading: boolean;
+  error: string | null;
+}): ReactElement {
+  return (
+    <section className="space-y-3">
+      <h2 className="text-lg font-semibold text-foreground">Web analytics</h2>
+      {!blogUrl ? (
+        <p className="text-sm text-muted-foreground">
+          Set a blog post URL on this campaign to pull GA4 traffic and Core Web Vitals.
+        </p>
+      ) : (
+        <>
+          {error && <p className="form-error">Could not load web analytics: {error}</p>}
+          {loading && !data && <p className="text-muted-foreground">Loading web analytics...</p>}
+          {data && (
+            <>
+              <Ga4Block ga4={data.ga4} />
+              <CoreWebVitalsBlock cwv={data.core_web_vitals} />
+            </>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function Ga4Block({ ga4 }: { ga4: Ga4Section }): ReactElement {
+  if (!ga4.configured) {
+    return <NotConnected label="Google Analytics 4" />;
+  }
+  if (ga4.error || !ga4.totals) {
+    return (
+      <div className="card card-body">
+        <h3 className="text-sm font-semibold text-foreground mb-1">Google Analytics 4</h3>
+        <p className="form-error">{ga4.error ?? 'No data returned.'}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <h3 className="text-sm font-medium text-foreground">Google Analytics 4</h3>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Tile label="Pageviews" value={ga4.totals.pageviews.toLocaleString()} />
+        <Tile label="Users" value={ga4.totals.users.toLocaleString()} />
+        <Tile label="Sessions" value={ga4.totals.sessions.toLocaleString()} />
+        <Tile label="Engagement" value={formatPercent(ga4.totals.engagement_rate)} />
+        <Tile label="Avg. session" value={formatDuration(ga4.totals.avg_session_duration)} />
+        <Tile label="Bounce rate" value={formatPercent(ga4.totals.bounce_rate)} />
+      </div>
+      {ga4.by_day && Object.keys(ga4.by_day).length > 0 && (
+        <>
+          <h4 className="text-sm font-medium text-foreground mt-2">Pageviews per day</h4>
+          <ClicksChart byDay={ga4.by_day} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function CoreWebVitalsBlock({ cwv }: { cwv: CoreWebVitalsSection }): ReactElement {
+  if (!cwv.configured) {
+    return <NotConnected label="Core Web Vitals" />;
+  }
+  if (cwv.error || !cwv.metrics) {
+    return (
+      <div className="card card-body">
+        <h3 className="text-sm font-semibold text-foreground mb-1">Core Web Vitals</h3>
+        <p className="form-error">{cwv.error ?? 'No data returned.'}</p>
+      </div>
+    );
+  }
+  const sourceLabel =
+    cwv.source === 'crux' ? 'real-user field data (CrUX)' : 'lab estimate (PageSpeed Insights)';
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-medium text-foreground">Core Web Vitals</h3>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Tile label="LCP" value={formatMs(cwv.metrics.lcp_ms)} />
+        <Tile label="CLS" value={formatCls(cwv.metrics.cls)} />
+        <Tile label="INP" value={formatMs(cwv.metrics.inp_ms)} />
+        <Tile label="FCP" value={formatMs(cwv.metrics.fcp_ms)} />
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Source: {sourceLabel}
+        {typeof cwv.performance_score === 'number' &&
+          ` · Performance score ${Math.round(cwv.performance_score * 100)}`}
+      </p>
+    </div>
+  );
+}
+
+function NotConnected({ label }: { label: string }): ReactElement {
+  return (
+    <div className="card card-body">
+      <h3 className="text-sm font-semibold text-foreground mb-1">{label}</h3>
+      <p className="text-sm text-muted-foreground">
+        Not connected.{' '}
+        <Link to="/settings" className="text-primary-600 hover:underline">
+          Connect it in Settings
+        </Link>
+        .
+      </p>
+    </div>
+  );
+}
+
+function formatMs(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined) return '—';
+  return ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${Math.round(ms)} ms`;
+}
+
+function formatCls(cls: number | null | undefined): string {
+  return cls === null || cls === undefined ? '—' : cls.toFixed(3);
+}
+
+function formatPercent(rate: number): string {
+  return `${Math.round(rate * 100)}%`;
+}
+
+function formatDuration(seconds: number): string {
+  if (!seconds) return '0s';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.round(seconds % 60);
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 }
 
 function CopyableShortUrl({ url }: { url: string }): ReactElement {

@@ -4,8 +4,10 @@ import { registerCampaignRoutes } from "./routes/campaigns.mjs";
 import { registerLinkRoutes } from "./routes/links.mjs";
 import { registerSocialPostRoutes } from "./routes/social-posts.mjs";
 import { registerAnalyticsRoutes } from "./routes/analytics.mjs";
+import { registerWebAnalyticsRoutes } from "./routes/web-analytics.mjs";
 import { registerPayoutRoutes } from "./routes/payout.mjs";
 import { registerRevenueRoutes } from "./routes/revenue.mjs";
+import { registerProfileRoutes } from "./routes/profile.mjs";
 import { logger } from "./services/logger.mjs";
 import { jsonResponse } from "./services/http-handler.mjs";
 import { ApiError } from "./services/errors.mjs";
@@ -17,8 +19,10 @@ registerCampaignRoutes(app);
 registerLinkRoutes(app);
 registerSocialPostRoutes(app);
 registerAnalyticsRoutes(app);
+registerWebAnalyticsRoutes(app);
 registerPayoutRoutes(app);
 registerRevenueRoutes(app);
+registerProfileRoutes(app);
 
 app.notFound(({ event }) => {
   const method = event.httpMethod || event?.requestContext?.http?.method;

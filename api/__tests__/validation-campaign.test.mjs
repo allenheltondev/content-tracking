@@ -41,6 +41,20 @@ describe("validateCampaignCreate", () => {
     expect(() => validateCampaignCreate({ name: "ok", targetMetrics: [1, 2] })).toThrow(/object/);
   });
 
+  test("accepts a valid blog_url and maps it to blogUrl", () => {
+    expect(validateCampaignCreate({ name: "ok", blog_url: "https://blog.example.com/my-post" }).blogUrl)
+      .toBe("https://blog.example.com/my-post");
+  });
+
+  test("rejects a non-http(s) or malformed blog_url", () => {
+    expect(() => validateCampaignCreate({ name: "ok", blog_url: "ftp://example.com" })).toThrow(/http/);
+    expect(() => validateCampaignCreate({ name: "ok", blog_url: "not a url" })).toThrow(/valid absolute URL/);
+  });
+
+  test("treats empty-string blog_url as omitted", () => {
+    expect(validateCampaignCreate({ name: "ok", blog_url: "" }).blogUrl).toBeUndefined();
+  });
+
   test("happy path with all fields", () => {
     const out = validateCampaignCreate({
       name: "Q2 push",
@@ -50,6 +64,7 @@ describe("validateCampaignCreate", () => {
       endDate: "2026-06-30",
       status: "draft",
       targetMetrics: { impressions: 50000 },
+      blog_url: "https://blog.example.com/q2",
     });
     expect(out).toEqual({
       name: "Q2 push",
@@ -59,6 +74,7 @@ describe("validateCampaignCreate", () => {
       endDate: "2026-06-30",
       status: "draft",
       targetMetrics: { impressions: 50000 },
+      blogUrl: "https://blog.example.com/q2",
     });
   });
 });
@@ -102,5 +118,11 @@ describe("validateCampaignUpdate", () => {
 
   test("treats empty-string dates as omitted", () => {
     expect(validateCampaignUpdate({ startDate: "", endDate: "" })).toEqual({});
+  });
+
+  test("accepts and validates blog_url", () => {
+    expect(validateCampaignUpdate({ blog_url: "https://example.com/post" }))
+      .toEqual({ blogUrl: "https://example.com/post" });
+    expect(() => validateCampaignUpdate({ blog_url: "javascript:alert(1)" })).toThrow();
   });
 });

@@ -22,6 +22,7 @@ export default function CreateCampaignForm({
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [status, setStatus] = useState<CampaignStatus>('draft');
+  const [blogUrl, setBlogUrl] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
 
   const submit = (): void => {
@@ -39,6 +40,7 @@ export default function CreateCampaignForm({
     }
     if (startDate) payload.startDate = startDate;
     if (endDate) payload.endDate = endDate;
+    if (blogUrl.trim()) payload.blog_url = blogUrl.trim();
     onSubmit(payload);
   };
 
@@ -103,6 +105,21 @@ export default function CreateCampaignForm({
           </select>
         </label>
       </div>
+
+      <label className="block">
+        <span className="field-label">Blog post URL</span>
+        <input
+          type="url"
+          className="input"
+          placeholder="https://blog.example.com/my-post"
+          value={blogUrl}
+          onChange={(e) => setBlogUrl(e.target.value)}
+          disabled={busy}
+        />
+        <span className="text-xs text-muted-foreground mt-1 block">
+          Optional. Links this campaign to a published post for GA4 + Core Web Vitals analytics.
+        </span>
+      </label>
 
       {validationError && <p className="form-error">{validationError}</p>}
       {serverError && <p className="form-error">{serverError}</p>}

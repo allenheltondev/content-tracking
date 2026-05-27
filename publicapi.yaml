@@ -285,6 +285,76 @@ paths:
         httpMethod: POST
         type: aws_proxy
 
+  /campaigns/{campaignId}/web-analytics:
+    parameters:
+      - name: campaignId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 64
+    get:
+      summary: GA4 traffic and Core Web Vitals for a campaign's blog post
+      description: |
+        Pulls Google Analytics 4 traffic and Core Web Vitals for the
+        campaign's `blog_url`. GA4 is filtered by the URL's path; Core Web
+        Vitals use the full URL (real-user CrUX data, falling back to a
+        PageSpeed Insights lab run when CrUX has no data). Each source is
+        fetched independently — a failure or missing configuration in one
+        is reported inline on that section rather than failing the call.
+        Requires the GA4 and CrUX credentials to be configured via
+        PUT /profile.
+      tags:
+        - Campaigns
+      security:
+        - CognitoUserPoolAuthorizer: []
+      parameters:
+        - name: startDate
+          in: query
+          description: ISO 8601 date (inclusive). Defaults to 28 days ago.
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          description: ISO 8601 date (inclusive). Defaults to today.
+          schema:
+            type: string
+            format: date
+      responses:
+        200:
+          description: Web analytics for the campaign's blog post
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAnalytics"
+        400:
+          description: Campaign has no blog_url, or invalid date range
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        404:
+          description: Campaign not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetWebAnalyticsFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
   /campaigns/{campaignId}/links:
     parameters:
       - name: campaignId
@@ -732,6 +802,67 @@ paths:
         httpMethod: POST
         type: aws_proxy
 
+  /profile:
+    get:
+      summary: Read account-level integration settings
+      description: |
+        Returns whether the Google Analytics 4 and Core Web Vitals
+        integrations are configured. Secrets are never returned — only the
+        GA4 property id, the service-account email, and per-integration
+        `configured` flags.
+      tags:
+        - Profile
+      security:
+        - CognitoUserPoolAuthorizer: []
+      responses:
+        200:
+          description: Current integration settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetProfileFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+    put:
+      summary: Update account-level integration settings
+      description: |
+        Stores the Google credentials used by GET /campaigns/{id}/web-analytics.
+        The GA4 service account and CrUX API key are written to SSM
+        SecureStrings; the GA4 property id is stored in DynamoDB. All fields
+        are optional — only those present are applied. The response is the
+        same shape as GET /profile and never echoes the secrets back.
+      tags:
+        - Profile
+      security:
+        - CognitoUserPoolAuthorizer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProfileRequest"
+      responses:
+        200:
+          description: Updated integration settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        400:
+          $ref: "#/components/responses/BadRequest"
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UpdateProfileFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
 components:
   securitySchemes:
     CognitoUserPoolAuthorizer:
@@ -784,6 +915,15 @@ components:
           additionalProperties: true
         payout:
           $ref: "#/components/schemas/Payout"
+        blog_url:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: |
+            Published blog post URL for this campaign. Used as the GA4
+            page-path filter and the Core Web Vitals lookup URL on
+            GET /campaigns/{campaignId}/web-analytics. Must be an absolute
+            http(s) URL.
 
     Campaign:
       type: object
@@ -821,6 +961,11 @@ components:
           allOf:
             - $ref: "#/components/schemas/Payout"
           nullable: true
+        blog_url:
+          type: string
+          format: uri
+          nullable: true
+          description: Published blog post URL, or null if not set.
         created_at:
           type: string
           format: date-time
@@ -905,6 +1050,11 @@ components:
           additionalProperties: true
         payout:
           $ref: "#/components/schemas/Payout"
+        blog_url:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: Published blog post URL. Absolute http(s) URL.
 
     Deliverable:
       type: object
@@ -1500,6 +1650,174 @@ components:
         created_at:
           type: string
           format: date-time
+
+    UpdateProfileRequest:
+      type: object
+      description: |
+        Account-level integration settings. All properties optional; only
+        those present are applied. Secrets (service account, API key) are
+        write-only.
+      properties:
+        ga4_property_id:
+          type: string
+          pattern: '^\d{1,20}$'
+          description: Numeric GA4 property id (e.g. 123456789).
+        ga4_service_account:
+          type: string
+          description: |
+            The Google service-account JSON key, as a string (the contents
+            of the downloaded key file). Written to an SSM SecureString.
+        crux_api_key:
+          type: string
+          maxLength: 200
+          description: |
+            A Google API key with the CrUX API and PageSpeed Insights API
+            enabled. Written to an SSM SecureString.
+
+    Profile:
+      type: object
+      required:
+        - ga4
+        - core_web_vitals
+      properties:
+        ga4:
+          type: object
+          properties:
+            property_id:
+              type: string
+              nullable: true
+            service_account_email:
+              type: string
+              nullable: true
+              description: client_email from the stored service account, or null.
+            configured:
+              type: boolean
+              description: True when both a property id and service account are stored.
+        core_web_vitals:
+          type: object
+          properties:
+            configured:
+              type: boolean
+              description: True when a CrUX/PageSpeed API key is stored.
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    WebAnalytics:
+      type: object
+      required:
+        - campaign_id
+        - blog_url
+        - page_path
+        - ga4
+        - core_web_vitals
+      properties:
+        campaign_id:
+          type: string
+        blog_url:
+          type: string
+        page_path:
+          type: string
+          description: The path portion of blog_url, used as the GA4 filter.
+        range:
+          type: object
+          properties:
+            startDate:
+              type: string
+              format: date
+            endDate:
+              type: string
+              format: date
+        ga4:
+          $ref: "#/components/schemas/Ga4Section"
+        core_web_vitals:
+          $ref: "#/components/schemas/CoreWebVitalsSection"
+
+    Ga4Section:
+      type: object
+      description: |
+        GA4 traffic for the page. `configured` is false when GA4 isn't set
+        up; `error` is non-null when configured but the fetch failed.
+      properties:
+        configured:
+          type: boolean
+        error:
+          type: string
+          nullable: true
+        property_id:
+          type: string
+        page_path:
+          type: string
+        totals:
+          type: object
+          properties:
+            pageviews:
+              type: integer
+            users:
+              type: integer
+            sessions:
+              type: integer
+            avg_session_duration:
+              type: number
+              description: Average session duration in seconds.
+            engagement_rate:
+              type: number
+            bounce_rate:
+              type: number
+        by_day:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Date (YYYY-MM-DD) → pageviews.
+
+    CoreWebVitalsSection:
+      type: object
+      description: |
+        Core Web Vitals for the page. `source` is `crux` for real-user
+        field data or `psi` for a PageSpeed Insights lab run. `inp_ms` is
+        null for `psi` (INP is a field-only metric).
+      properties:
+        configured:
+          type: boolean
+        error:
+          type: string
+          nullable: true
+        source:
+          type: string
+          enum: [crux, psi]
+        url:
+          type: string
+        strategy:
+          type: string
+          description: Present for the psi source (e.g. mobile).
+        performance_score:
+          type: number
+          nullable: true
+          description: Present for the psi source (0-1).
+        metrics:
+          type: object
+          properties:
+            lcp_ms:
+              type: number
+              nullable: true
+            cls:
+              type: number
+              nullable: true
+            inp_ms:
+              type: number
+              nullable: true
+            fcp_ms:
+              type: number
+              nullable: true
+            ttfb_ms:
+              type: number
+              nullable: true
+              description: Present for the crux source.
+            tbt_ms:
+              type: number
+              nullable: true
+              description: Present for the psi source.
 
   responses:
     BadRequest:

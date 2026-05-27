@@ -56,6 +56,30 @@ exact URL and credentials). Then store the key:
 The key has a minimum length of 20 characters and is rejected by
 CloudFormation if shorter.
 
+## Google credentials (configured at runtime, not at deploy)
+
+The GA4 + Core Web Vitals integration powering
+`GET /campaigns/{id}/web-analytics` is **not** configured via deploy
+parameters. Credentials are entered in the dashboard's **Settings** page
+(or `PUT /profile`) and stored by the app as SSM SecureStrings under
+`/booked/{env}/*`:
+
+| SSM parameter | Holds |
+| --- | --- |
+| `/booked/{env}/ga4/service-account` | The GA4 service-account JSON key |
+| `/booked/{env}/crux/api-key` | A Google API key for the CrUX + PageSpeed Insights APIs |
+
+The Lambda execution role grants `ssm:GetParameter`/`ssm:PutParameter` on
+`/booked/{env}/*` plus `kms:Encrypt`/`kms:Decrypt` restricted (via the
+`kms:ViaService` condition) to SSM, so it can read and write these
+SecureStrings using the AWS-managed `aws/ssm` key. No deploy-time
+parameter or KMS key creation is required.
+
+To set them up: create a Google Cloud service account, download its JSON
+key, grant it **Viewer** on the GA4 property, and create a Google API key
+with the **CrUX API** and **PageSpeed Insights API** enabled. Paste both
+into the Settings page.
+
 ## Local-dev deploy
 
 The `[default]` profile in `samconfig.toml` targets staging via the

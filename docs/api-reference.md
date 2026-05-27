@@ -55,6 +55,7 @@ Create a campaign.
 | `status` | enum | no | `draft` \| `active` \| `completed` (default `active`) |
 | `targetMetrics` | object | no | Free-form sponsor targets, stored as-is |
 | `payout` | object | no | See [Payout](#payout-object) |
+| `blog_url` | string (uri) | no | Published blog post URL, absolute http(s), <=2048 chars. Used by [web analytics](#get-campaignscampaignidweb-analytics) |
 
 Example:
 
@@ -207,6 +208,85 @@ Example success body:
   ]
 }
 ```
+
+---
+
+### GET /campaigns/{campaignId}/web-analytics
+
+GA4 traffic and Core Web Vitals for the campaign's `blog_url`. GA4 metrics
+are filtered to the URL's path; Core Web Vitals use the full URL (real-user
+CrUX data, falling back to a PageSpeed Insights lab run when CrUX has no
+data for the URL). Each source is fetched independently — a failure or
+missing configuration in one is reported inline on that section's
+`configured`/`error` fields rather than failing the whole call. Requires
+the GA4 and CrUX credentials to be set via [`PUT /profile`](#put-profile).
+
+**Authentication:** Cognito.
+
+**Path parameters:**
+
+| Name | Type | Notes |
+| --- | --- | --- |
+| `campaignId` | string | 1-64 chars |
+
+**Query parameters:**
+
+| Name | Type | Notes |
+| --- | --- | --- |
+| `startDate` | string (date) | ISO 8601 inclusive. Defaults to 28 days ago |
+| `endDate` | string (date) | ISO 8601 inclusive. Defaults to today |
+
+**Responses:**
+
+- `200 OK` - [WebAnalytics](#webanalytics-object).
+- `400 Bad Request` - campaign has no `blog_url`, or the date range is invalid.
+- `404 Not Found` - campaign does not exist.
+- `500 Internal Server Error`.
+
+Example success body:
+
+```json
+{
+  "campaign_id": "01HZX7P1F0Q3WJX5T2J9C8R6KT",
+  "blog_url": "https://readysetcloud.io/blog/q3-launch",
+  "page_path": "/blog/q3-launch",
+  "range": { "startDate": "2026-04-29", "endDate": "2026-05-27" },
+  "ga4": {
+    "configured": true,
+    "error": null,
+    "property_id": "123456789",
+    "page_path": "/blog/q3-launch",
+    "totals": {
+      "pageviews": 4210,
+      "users": 3380,
+      "sessions": 3702,
+      "avg_session_duration": 96.4,
+      "engagement_rate": 0.72,
+      "bounce_rate": 0.28
+    },
+    "by_day": { "2026-05-26": 180, "2026-05-27": 142 }
+  },
+  "core_web_vitals": {
+    "configured": true,
+    "error": null,
+    "source": "crux",
+    "url": "https://readysetcloud.io/blog/q3-launch",
+    "metrics": {
+      "lcp_ms": 2100,
+      "cls": 0.04,
+      "inp_ms": 180,
+      "fcp_ms": 1400,
+      "ttfb_ms": 600
+    }
+  }
+}
+```
+
+When an integration isn't configured, its section is
+`{ "configured": false, "error": null }`. When the PageSpeed Insights
+fallback is used, `source` is `psi`, `inp_ms` is `null` (INP is a
+field-only metric), and the section adds `strategy`, `performance_score`,
+and `tbt_ms`.
 
 ---
 
@@ -568,6 +648,75 @@ Example success body (grouping=month):
 
 ---
 
+## Profile
+
+Account-level integration settings for the Google Analytics 4 and Core Web
+Vitals lookups used by [web analytics](#get-campaignscampaignidweb-analytics).
+This stack is effectively single-tenant, so there is one shared profile
+rather than one per user. Secrets (the GA4 service account and the CrUX API
+key) are stored in SSM SecureStrings and are **never returned** — responses
+only report whether each integration is configured.
+
+### GET /profile
+
+Read the current integration settings.
+
+**Authentication:** Cognito.
+
+**Responses:**
+
+- `200 OK` - [Profile](#profile-object).
+- `500 Internal Server Error`.
+
+Example success body:
+
+```json
+{
+  "ga4": {
+    "property_id": "123456789",
+    "service_account_email": "booked@my-project.iam.gserviceaccount.com",
+    "configured": true
+  },
+  "core_web_vitals": { "configured": true },
+  "updated_at": "2026-05-27T14:03:11.512Z"
+}
+```
+
+### PUT /profile
+
+Store integration credentials. The GA4 service account and CrUX API key are
+written to SSM SecureStrings; the GA4 property id is stored in DynamoDB. All
+fields are optional — only those present are applied. The response is the
+same shape as `GET /profile` and never echoes the secrets back.
+
+**Authentication:** Cognito.
+
+**Request body** (all fields optional):
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `ga4_property_id` | string | Numeric GA4 property id (e.g. `123456789`) |
+| `ga4_service_account` | string | The Google service-account JSON key, as a string (contents of the downloaded key file). The service account needs Viewer on the GA4 property |
+| `crux_api_key` | string | A Google API key with the CrUX API and PageSpeed Insights API enabled. <=200 chars |
+
+Example request:
+
+```json
+{
+  "ga4_property_id": "123456789",
+  "ga4_service_account": "{ \"type\": \"service_account\", \"client_email\": \"...\", \"private_key\": \"-----BEGIN PRIVATE KEY-----\\n...\" }",
+  "crux_api_key": "AIza..."
+}
+```
+
+**Responses:**
+
+- `200 OK` - updated [Profile](#profile-object).
+- `400 Bad Request` - validation failure (non-numeric property id, malformed service account JSON).
+- `500 Internal Server Error`.
+
+---
+
 ## Vendors
 
 ### POST /vendors
@@ -812,6 +961,7 @@ This document will be updated when those routes are merged into
 | `status` | enum | `draft` \| `active` \| `completed` |
 | `targetMetrics` | object \| null | |
 | `payout` | [Payout](#payout-object) \| null | |
+| `blog_url` | string (uri) \| null | Published blog post URL, or `null` |
 | `created_at` | string (date-time) | |
 
 ### Payout object
@@ -977,3 +1127,37 @@ additional `campaign_name` field.
 | `currency` | string | |
 | `amount` | number | |
 | `reason` | string | For example `non-USD currency` |
+
+### Profile object
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `ga4.property_id` | string \| null | Numeric GA4 property id |
+| `ga4.service_account_email` | string \| null | `client_email` from the stored service account |
+| `ga4.configured` | boolean | True when both a property id and service account are stored |
+| `core_web_vitals.configured` | boolean | True when a CrUX/PageSpeed API key is stored |
+| `updated_at` | string (date-time) \| null | Last settings write |
+
+### WebAnalytics object
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `campaign_id` | string | |
+| `blog_url` | string | The campaign's blog post URL |
+| `page_path` | string | Path portion of `blog_url`, used as the GA4 filter |
+| `range.startDate` | string (date) | Inclusive lower bound of the GA4 query |
+| `range.endDate` | string (date) | Inclusive upper bound of the GA4 query |
+| `ga4` | object | GA4 section (see below) |
+| `core_web_vitals` | object | Core Web Vitals section (see below) |
+| `ga4.configured` | boolean | False when GA4 isn't set up |
+| `ga4.error` | string \| null | Non-null when configured but the fetch failed |
+| `ga4.property_id` | string | Present when configured and successful |
+| `ga4.totals` | object | `pageviews`, `users`, `sessions` (integers); `avg_session_duration` (seconds), `engagement_rate`, `bounce_rate` (0-1) |
+| `ga4.by_day` | object<string,integer> | Date (`YYYY-MM-DD`) → pageviews |
+| `core_web_vitals.configured` | boolean | False when no CrUX/PageSpeed key is stored |
+| `core_web_vitals.error` | string \| null | Non-null when configured but the fetch failed |
+| `core_web_vitals.source` | enum | `crux` (real-user field data) or `psi` (PageSpeed Insights lab run) |
+| `core_web_vitals.url` | string | URL the metrics describe |
+| `core_web_vitals.strategy` | string | `psi` only (e.g. `mobile`) |
+| `core_web_vitals.performance_score` | number \| null | `psi` only, 0-1 |
+| `core_web_vitals.metrics` | object | `lcp_ms`, `cls`, `inp_ms`, `fcp_ms` (all nullable); `ttfb_ms` for `crux`, `tbt_ms` for `psi`. `inp_ms` is null for `psi` |
