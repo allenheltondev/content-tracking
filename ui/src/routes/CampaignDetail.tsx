@@ -35,6 +35,7 @@ import CampaignBriefSection from '../components/CampaignBriefSection';
 import CampaignDraftTab from '../components/CampaignDraftTab';
 import InstallExtensionModal from '../components/InstallExtensionModal';
 import Modal from '../components/Modal';
+import SocialEngagementSection from '../components/SocialEngagementSection';
 import VendorForm from '../components/VendorForm';
 import VendorSelect from '../components/VendorSelect';
 
@@ -617,14 +618,17 @@ export default function CampaignDetail(): ReactElement {
 
                 <h3 className="text-sm font-medium text-foreground mt-2">Clicks per day</h3>
                 <ClicksChart byDay={analytics.by_day} />
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Breakdown title="By role" data={analytics.by_role} />
-                  <Breakdown title="By platform" data={analytics.by_platform} />
-                </div>
               </>
             )}
           </section>
+
+          {campaignId && (
+            <SocialEngagementSection
+              apiFetch={apiFetch}
+              campaignId={campaignId}
+              posts={socialPosts}
+            />
+          )}
 
           <WebAnalyticsSection
             blogUrl={campaign.blog_url}
@@ -736,27 +740,6 @@ function Tile({ label, value }: { label: string; value: string }): ReactElement 
     <div className="card card-body !py-3">
       <span className="text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
       <span className="text-2xl font-semibold text-foreground mt-1 block">{value}</span>
-    </div>
-  );
-}
-
-function Breakdown({ title, data }: { title: string; data: Record<string, number> }): ReactElement {
-  const rows = Object.entries(data).sort((a, b) => b[1] - a[1]);
-  return (
-    <div className="card card-body">
-      <h4 className="text-sm font-semibold text-foreground mb-2">{title}</h4>
-      {rows.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No data.</p>
-      ) : (
-        <ul className="space-y-1">
-          {rows.map(([key, value]) => (
-            <li key={key} className="flex justify-between text-sm">
-              <span className="text-muted-foreground">{key}</span>
-              <span className="text-foreground font-medium">{value}</span>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }

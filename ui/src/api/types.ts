@@ -175,6 +175,23 @@ export interface CreateSocialPostRequest {
   notes?: string;
 }
 
+// A daily engagement snapshot for one social post. The metric values are
+// cumulative-to-that-day totals (likes, comments, etc., platform-specific).
+// `snapshot_date` is the UTC calendar day; only the last write of the day
+// is kept on the server.
+export interface SocialPostSnapshot {
+  snapshot_date: string;
+  metrics: Record<string, number>;
+  captured_at: string | null;
+  recorded_at: string;
+}
+
+export interface SocialPostSnapshotsResponse {
+  campaign_id: string;
+  post_id: string;
+  snapshots: SocialPostSnapshot[];
+}
+
 export interface CampaignDetailResponse {
   campaign: Campaign;
   links: CampaignLink[];

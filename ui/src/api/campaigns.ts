@@ -12,6 +12,7 @@ import type {
   CreateSocialPostRequest,
   SaveDraftRequest,
   SocialPost,
+  SocialPostSnapshotsResponse,
   UpdateCampaignRequest,
   WebAnalyticsResponse,
 } from './types';
@@ -105,6 +106,16 @@ export async function reviewDraft(
   return apiFetch<CampaignDraft>(`/campaigns/${campaignId}/draft/review`, {
     method: 'POST',
   });
+}
+
+export async function getSocialPostSnapshots(
+  apiFetch: ApiFetch,
+  campaignId: string,
+  postId: string,
+): Promise<SocialPostSnapshotsResponse> {
+  return apiFetch<SocialPostSnapshotsResponse>(
+    `/campaigns/${campaignId}/social-posts/${postId}/snapshots`,
+  );
 }
 
 export async function deleteSocialPost(
