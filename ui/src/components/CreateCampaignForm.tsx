@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 import { useState } from 'react';
-import type { CampaignStatus, CreateCampaignRequest } from '../api/types';
+import type { CreateCampaignRequest } from '../api/types';
 import VendorSelect from './VendorSelect';
 
 interface Props {
@@ -13,6 +13,11 @@ interface Props {
   lockedVendorId?: string;
 }
 
+// Intentionally minimal: only name and vendor. Everything else (dates,
+// status, payout, blog URL, link tracking ID) is filled in either by the
+// brief upload that immediately follows creation, or inline on the campaign
+// page once it exists. The point is to get to the brief upload as fast as
+// possible.
 export default function CreateCampaignForm({
   busy,
   serverError,
@@ -22,11 +27,6 @@ export default function CreateCampaignForm({
 }: Props): ReactElement {
   const [name, setName] = useState('');
   const [vendorId, setVendorId] = useState(lockedVendorId ?? '');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [status, setStatus] = useState<CampaignStatus>('draft');
-  const [blogUrl, setBlogUrl] = useState('');
-  const [linkTrackingId, setLinkTrackingId] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
 
   const submit = (): void => {
@@ -36,14 +36,10 @@ export default function CreateCampaignForm({
       setValidationError('Name is required.');
       return;
     }
-    const payload: CreateCampaignRequest = { name: trimmed, status };
+    const payload: CreateCampaignRequest = { name: trimmed };
     if (vendorId) {
       payload.vendor_id = vendorId;
     }
-    if (startDate) payload.startDate = startDate;
-    if (endDate) payload.endDate = endDate;
-    if (blogUrl.trim()) payload.blog_url = blogUrl.trim();
-    if (linkTrackingId.trim()) payload.link_tracking_id = linkTrackingId.trim();
     onSubmit(payload);
   };
 
@@ -76,74 +72,6 @@ export default function CreateCampaignForm({
             here when you return.
           </span>
         )}
-      </label>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <label className="block">
-          <span className="field-label">Start date</span>
-          <input
-            type="date"
-            className="input"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            disabled={busy}
-          />
-        </label>
-        <label className="block">
-          <span className="field-label">End date</span>
-          <input
-            type="date"
-            className="input"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            disabled={busy}
-          />
-        </label>
-        <label className="block">
-          <span className="field-label">Status</span>
-          <select
-            className="input"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as CampaignStatus)}
-            disabled={busy}
-          >
-            <option value="draft">draft</option>
-            <option value="active">active</option>
-            <option value="monitoring">monitoring</option>
-            <option value="completed">completed</option>
-          </select>
-        </label>
-      </div>
-
-      <label className="block">
-        <span className="field-label">Blog post URL</span>
-        <input
-          type="url"
-          className="input"
-          placeholder="https://blog.example.com/my-post"
-          value={blogUrl}
-          onChange={(e) => setBlogUrl(e.target.value)}
-          disabled={busy}
-        />
-        <span className="text-xs text-muted-foreground mt-1 block">
-          Optional. Links this campaign to a published post for GA4 + Core Web Vitals analytics.
-        </span>
-      </label>
-
-      <label className="block">
-        <span className="field-label">Link tracking ID</span>
-        <input
-          type="text"
-          className="input"
-          placeholder="acme-q2-launch"
-          value={linkTrackingId}
-          onChange={(e) => setLinkTrackingId(e.target.value)}
-          disabled={busy}
-        />
-        <span className="text-xs text-muted-foreground mt-1 block">
-          Optional. Tags every short link minted for this campaign so the newsletter service can
-          group analytics by campaign. Letters, digits, underscores, or hyphens.
-        </span>
       </label>
 
       {validationError && <p className="form-error">{validationError}</p>}

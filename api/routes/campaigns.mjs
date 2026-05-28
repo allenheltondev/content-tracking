@@ -21,10 +21,12 @@ import { validateDraftSubmission } from "../validation/draft.mjs";
 import { formatPayout } from "../validation/payout.mjs";
 import {
   createCampaign,
+  findCampaign,
   getCampaignWithLinks,
   listCampaigns,
   updateCampaignFields,
 } from "../domain/campaign.mjs";
+import { listVendors } from "../domain/vendor.mjs";
 import { getBriefForCampaign, saveBriefForCampaign } from "../domain/brief.mjs";
 import {
   getDraftForCampaign,
@@ -204,6 +206,21 @@ export function registerCampaignRoutes(app) {
       }
       bedrockInput = { sourceType: "pdf", pdfBytes };
     }
+
+    // Give the model what we already know about the campaign and the
+    // vendors in our system so it can avoid re-suggesting what's set and
+    // match the brief's vendor against an existing record rather than
+    // fabricating a new spelling. Both are best-effort: empty list /
+    // missing campaign just means the prompt has less context.
+    const [existingCampaign, vendorList] = await Promise.all([
+      findCampaign(campaignId),
+      listVendors({}),
+    ]);
+    bedrockInput.existingCampaign = existingCampaign;
+    bedrockInput.vendors = (vendorList.items ?? []).map((v) => ({
+      vendorId: v.vendorId,
+      name: v.name,
+    }));
 
     // Let exceptions propagate. We're inside withIdempotency, which caches
     // *return values*, not thrown errors — returning a 502 here would pin

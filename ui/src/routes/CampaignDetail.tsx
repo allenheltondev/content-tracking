@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Line, LineChart, ResponsiveContainer } from 'recharts';
 import { useApiFetch, ApiError, type ApiFetch } from '../auth/useApiFetch';
 import {
@@ -40,6 +40,14 @@ import VendorSelect from '../components/VendorSelect';
 
 type CampaignTab = 'overview' | 'brief' | 'draft' | 'promotion' | 'analytics';
 
+const CAMPAIGN_TABS: readonly CampaignTab[] = [
+  'overview',
+  'brief',
+  'draft',
+  'promotion',
+  'analytics',
+];
+
 interface CampaignBundle {
   campaign: Campaign;
   links: CampaignLink[];
@@ -50,7 +58,17 @@ interface CampaignBundle {
 
 export default function CampaignDetail(): ReactElement {
   const { campaignId } = useParams<{ campaignId: string }>();
+  const [searchParams] = useSearchParams();
   const apiFetch = useApiFetch();
+
+  // Honor ?tab=brief (etc) on first render so the "create then upload brief"
+  // flow can land users straight on the brief tab. Falls back to overview.
+  const initialTab: CampaignTab = (() => {
+    const candidate = searchParams.get('tab');
+    return CAMPAIGN_TABS.includes(candidate as CampaignTab)
+      ? (candidate as CampaignTab)
+      : 'overview';
+  })();
 
   const [bundle, setBundle] = useState<CampaignBundle | null>(null);
   const [analytics, setAnalytics] = useState<CampaignAnalyticsResponse | null>(null);
@@ -73,7 +91,7 @@ export default function CampaignDetail(): ReactElement {
   const [showLinkForm, setShowLinkForm] = useState(false);
   const [showPostForm, setShowPostForm] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<CampaignTab>('overview');
+  const [activeTab, setActiveTab] = useState<CampaignTab>(initialTab);
   const [extensionModalOpen, setExtensionModalOpen] = useState(false);
 
   // Campaign metadata + links. Cheap; fires on mount.

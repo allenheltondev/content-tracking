@@ -40,7 +40,7 @@ export default function Campaigns(): ReactElement {
     setServerError(null);
     try {
       const created = await createCampaign(apiFetch, payload);
-      navigate(`/campaigns/${created.campaign_id}`);
+      navigate(`/campaigns/${created.campaign_id}?tab=brief`);
     } catch (err) {
       setServerError(err instanceof ApiError ? err.message : (err as Error).message);
     } finally {
