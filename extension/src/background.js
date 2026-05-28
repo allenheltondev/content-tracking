@@ -188,10 +188,28 @@ async function buildStatus() {
   };
 }
 
+async function handleScraped({ platform, nativeId, metrics }) {
+  if (!metrics || !Object.keys(metrics).length) return;
+  await ensureFeed();
+  if (!feed?.length) return;
+  const adapter = adapters[platform];
+  if (!adapter) return;
+  const matched = feed
+    .filter((p) => p.platform === platform)
+    .find((p) => {
+      const id = adapter.parsePostId(p.url);
+      return id && String(id) === String(nativeId);
+    });
+  if (matched) await maybeSync(matched, metrics);
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   switch (msg?.type) {
     case "booked:captured":
       handleCaptured(msg).catch((err) => console.warn("[booked]", err));
+      return false;
+    case "booked:scraped":
+      handleScraped(msg).catch((err) => console.warn("[booked]", err));
       return false;
     case "booked:status":
       buildStatus().then(sendResponse);

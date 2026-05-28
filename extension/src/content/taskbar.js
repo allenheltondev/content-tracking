@@ -70,6 +70,20 @@
     await chrome.storage.local.set({ [VISITED_KEY]: visitedMap });
   }
 
+  // LinkedIn's post pages are server-rendered SDUI with no clean JSON
+  // API to capture, but the per-post analytics page exposes the same
+  // counts in the DOM where the analytics-linkedin content script can
+  // scrape them. Deep-link there for LinkedIn posts so a single menu
+  // click both opens the analytics view and triggers a fresh sync.
+  function destinationUrl(post) {
+    if (post.platform !== "linkedin") return post.url;
+    const m =
+      /urn:li:(?:activity|ugcPost|share):(\d+)/.exec(post.url) ||
+      /-(\d{17,20})(?:[/?#-]|$)/.exec(post.url);
+    if (!m) return post.url;
+    return `https://www.linkedin.com/analytics/post-summary/urn:li:activity:${m[1]}/`;
+  }
+
   function normalizeUrl(u) {
     try {
       const url = new URL(u);
@@ -409,11 +423,12 @@
       url.className = "url";
       url.textContent = post.url;
       a.append(name, url);
+      const destination = destinationUrl(post);
       a.addEventListener("click", (e) => {
         e.preventDefault();
         closeMenu();
         void markVisited(post.post_id).finally(() => {
-          window.location.href = post.url;
+          window.location.href = destination;
         });
       });
       li.appendChild(a);

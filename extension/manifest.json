@@ -54,6 +54,13 @@
       "run_at": "document_idle",
       "world": "ISOLATED",
       "all_frames": false
+    },
+    {
+      "matches": ["https://www.linkedin.com/analytics/post-summary/*"],
+      "js": ["src/content/analytics-linkedin.js"],
+      "run_at": "document_idle",
+      "world": "ISOLATED",
+      "all_frames": false
     }
   ]
 }
