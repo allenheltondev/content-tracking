@@ -43,9 +43,16 @@ async function apiFetch(path, { method = "GET", body } = {}) {
   return text.length ? JSON.parse(text) : null;
 }
 
-export async function getActivePosts() {
-  const res = await apiFetch("/social-posts/active");
-  return res?.social_posts ?? [];
+// Pulls the working set the extension scrapes against: every social post
+// and every cross-post link tied to a campaign in "monitoring" status.
+// Returns both arrays so the worker can match captured engagement to a
+// social post and surface cross-post links in the popup.
+export async function getMonitoringWorkingSet() {
+  const res = await apiFetch("/monitoring/working-set");
+  return {
+    socialPosts: res?.social_posts ?? [],
+    crossPostLinks: res?.cross_post_links ?? [],
+  };
 }
 
 export async function putAnalytics(campaignId, postId, metrics, capturedAt) {

@@ -153,10 +153,9 @@ export async function listCampaigns({ limit, exclusiveStartKey, status }) {
   };
 }
 
-// All active campaigns. Backs the social-post feed the Chrome extension
-// polls. Pages the GSI1 "CAMPAIGNS" partition with a status filter; the
-// data set is personal-scale so we fully consume it.
-export async function listActiveCampaigns() {
+// Campaigns at a given status. Pages the GSI1 "CAMPAIGNS" partition with a
+// status filter; the data set is personal-scale so we fully consume it.
+export async function listCampaignsByStatus(status) {
   const items = [];
   let exclusiveStartKey;
   do {
@@ -168,7 +167,7 @@ export async function listActiveCampaigns() {
       ExpressionAttributeNames: { "#status": "status" },
       ExpressionAttributeValues: {
         ":pk": CAMPAIGNS_PARTITION,
-        ":status": "active",
+        ":status": status,
       },
       ExclusiveStartKey: exclusiveStartKey,
     }));
@@ -176,6 +175,11 @@ export async function listActiveCampaigns() {
     exclusiveStartKey = result.LastEvaluatedKey;
   } while (exclusiveStartKey);
   return items;
+}
+
+// Back-compat shim — older call sites still ask for "active" campaigns.
+export function listActiveCampaigns() {
+  return listCampaignsByStatus("active");
 }
 
 // Used by the /revenue rollup. Queries all campaigns whose createdAt
