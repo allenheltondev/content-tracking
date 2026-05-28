@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react';
 import { useState } from 'react';
 import type { CampaignStatus, CreateCampaignRequest } from '../api/types';
-import VendorAutocomplete from './VendorAutocomplete';
+import VendorSelect from './VendorSelect';
 
 interface Props {
   busy: boolean;
@@ -18,7 +18,6 @@ export default function CreateCampaignForm({
 }: Props): ReactElement {
   const [name, setName] = useState('');
   const [vendorId, setVendorId] = useState('');
-  const [vendorName, setVendorName] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [status, setStatus] = useState<CampaignStatus>('draft');
@@ -36,8 +35,6 @@ export default function CreateCampaignForm({
     const payload: CreateCampaignRequest = { name: trimmed, status };
     if (vendorId) {
       payload.vendor_id = vendorId;
-    } else if (vendorName.trim().length > 0) {
-      payload.sponsor = vendorName.trim();
     }
     if (startDate) payload.startDate = startDate;
     if (endDate) payload.endDate = endDate;
@@ -62,14 +59,17 @@ export default function CreateCampaignForm({
 
       <label className="block">
         <span className="field-label">Vendor</span>
-        <VendorAutocomplete
-          vendorId={vendorId}
-          vendorName={vendorName}
-          onChange={(sel) => {
-            setVendorId(sel.vendorId);
-            setVendorName(sel.vendorName);
-          }}
+        <VendorSelect
+          value={vendorId}
+          onChange={setVendorId}
+          onCreateNew={() => window.open('/vendors/new', '_blank', 'noopener')}
+          disabled={busy}
+          ariaLabel="Vendor"
         />
+        <span className="text-xs text-muted-foreground mt-1 block">
+          Pick a vendor, or choose “Create new vendor…” to add one in a new tab — it appears
+          here when you return.
+        </span>
       </label>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
