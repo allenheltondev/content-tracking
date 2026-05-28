@@ -145,41 +145,75 @@
       },
     },
     linkedin: {
-      navSelector: "header.global-nav nav ul.global-nav__primary-items",
-      buildButton(onClick) {
-        const li = document.createElement("li");
-        li.className = "global-nav__primary-item";
+      // LinkedIn ships hashed utility classes that rotate; the componentkey
+      // attribute is stable. Anchor on it, then clone a sibling <li> so our
+      // button inherits whatever styling the current build hands the others.
+      navSelector: 'nav[componentkey="primaryNavLinksComponentRef"] ul',
+      buildButton(onClick, ul) {
+        const sample = ul && ul.querySelector("li");
+        const li = sample
+          ? sample.cloneNode(true)
+          : document.createElement("li");
         li.dataset.bookedTaskbar = "1";
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.setAttribute("aria-label", "Booked");
-        btn.style.cssText = [
-          "background:transparent",
-          "border:0",
-          "cursor:pointer",
-          "padding:4px 12px",
-          "color:rgba(0,0,0,0.6)",
-          "display:flex",
-          "flex-direction:column",
-          "align-items:center",
-          "gap:2px",
-          "font:inherit",
-          "font-size:12px",
-          "min-width:80px",
-          "position:relative",
-        ].join(";");
-        btn.innerHTML = `
-          <span data-booked-icon-wrap style="position:relative;display:inline-flex;width:24px;height:24px;align-items:center;justify-content:center;">
-            ${ICON_SVG}
-            <span data-booked-badge style="${BADGE_STYLE}"></span>
-          </span>
-          <span>Booked</span>
-        `;
-        btn.addEventListener("click", (e) => {
+        li.removeAttribute("componentkey");
+
+        // Drop existing listeners by cloning the actionable element, then
+        // mutate the clone into our Booked button.
+        const original = li.querySelector("button, a");
+        const action = original ? original.cloneNode(true) : document.createElement("button");
+        if (original) original.replaceWith(action);
+        else li.appendChild(action);
+
+        if (action.tagName === "A") action.removeAttribute("href");
+        if (action.tagName === "BUTTON") action.type = "button";
+        action.removeAttribute("aria-current");
+        action.setAttribute("aria-label", "Booked");
+
+        // Replace the icon: keep LinkedIn's wrapper span (and its classes,
+        // which carry the sizing/color rules), swap the svg, attach badge.
+        const existingSvg = action.querySelector("svg");
+        const iconWrap = existingSvg ? existingSvg.parentElement : action;
+        if (existingSvg) {
+          iconWrap.innerHTML = ICON_SVG;
+        } else {
+          // No sibling to clone from — fall back to inline-styled markup.
+          action.style.cssText = [
+            "background:transparent",
+            "border:0",
+            "cursor:pointer",
+            "padding:4px 12px",
+            "display:flex",
+            "flex-direction:column",
+            "align-items:center",
+            "gap:2px",
+            "font:inherit",
+            "font-size:12px",
+            "min-width:80px",
+          ].join(";");
+          action.innerHTML = `<span data-booked-icon-wrap style="position:relative;display:inline-flex;width:24px;height:24px;align-items:center;justify-content:center;">${ICON_SVG}</span><span>Booked</span>`;
+        }
+        const badge = document.createElement("span");
+        badge.setAttribute("data-booked-badge", "");
+        badge.style.cssText = BADGE_STYLE;
+        const finalIconWrap = action.querySelector("svg")?.parentElement;
+        if (finalIconWrap) {
+          finalIconWrap.style.position = finalIconWrap.style.position || "relative";
+          finalIconWrap.appendChild(badge);
+        }
+
+        // Replace the label text. The label is the deepest text-only span;
+        // walking from the leaves finds it regardless of nesting depth.
+        const labelSpan = [...action.querySelectorAll("span")]
+          .reverse()
+          .find((s) => s.children.length === 0 && s.textContent.trim().length > 0);
+        if (labelSpan) labelSpan.textContent = "Booked";
+
+        action.addEventListener("click", (e) => {
           e.preventDefault();
-          onClick(btn);
+          e.stopPropagation();
+          onClick(action);
         });
-        li.appendChild(btn);
+
         return li;
       },
       insert(ul, el) {
@@ -399,7 +433,7 @@
     if (existing) {
       buttonEl = existing;
     } else {
-      buttonEl = PLATFORM_TARGETS[platform].buildButton(toggleMenu);
+      buttonEl = PLATFORM_TARGETS[platform].buildButton(toggleMenu, nav);
       PLATFORM_TARGETS[platform].insert(nav, buttonEl);
     }
     renderButton();
