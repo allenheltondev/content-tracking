@@ -120,10 +120,15 @@ export default function CampaignReport(): ReactElement {
               <Tile label="Total clicks" value={analytics.total_clicks.toLocaleString()} />
               <Tile label="Links tracked" value={String(analytics.link_count)} />
               <Tile
-                label="Top platform"
-                value={topKey(analytics.by_platform) ?? '-'}
+                label="First click"
+                value={
+                  pickEarliest(analytics.links.map((l) => l.first_click_at)) ?? '-'
+                }
               />
-              <Tile label="Top role" value={topKey(analytics.by_role) ?? '-'} />
+              <Tile
+                label="Last click"
+                value={pickLatest(analytics.links.map((l) => l.last_click_at)) ?? '-'}
+              />
             </div>
             {analytics.upstream_failures > 0 && (
               <p className="text-xs text-muted-foreground">
@@ -135,10 +140,14 @@ export default function CampaignReport(): ReactElement {
         )}
       </section>
 
-      {analytics && Object.keys(analytics.by_platform).length > 0 && (
+      {analytics && Object.keys(analytics.by_src).length > 0 && (
         <section className="mb-6 print:break-inside-avoid">
-          <h2 className="text-lg font-semibold text-foreground mb-3">Clicks by platform</h2>
-          <BreakdownTable data={analytics.by_platform} total={analytics.total_clicks} />
+          <h2 className="text-lg font-semibold text-foreground mb-3">Clicks by source</h2>
+          <BreakdownTable
+            data={analytics.by_src}
+            total={analytics.total_clicks}
+            keyHeader="Source"
+          />
         </section>
       )}
 
@@ -159,18 +168,16 @@ export default function CampaignReport(): ReactElement {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Platform</th>
-                <th>Role</th>
                 <th>Destination</th>
                 <th>Short URL</th>
                 <th className="text-right">Clicks</th>
+                <th>First clicked</th>
+                <th>Last clicked</th>
               </tr>
             </thead>
             <tbody>
-              {sortedLinks(links, analytics).map(({ link, clicks }) => (
+              {sortedLinks(links, analytics).map(({ link, clicks, first, last }) => (
                 <tr key={link.link_id} className="print:break-inside-avoid">
-                  <td>{link.platform}</td>
-                  <td>{link.role}</td>
                   <td>
                     <a
                       href={link.url}
@@ -183,6 +190,12 @@ export default function CampaignReport(): ReactElement {
                   </td>
                   <td className="font-mono text-xs">{link.short_url}</td>
                   <td className="text-right">{clicks?.toLocaleString() ?? '-'}</td>
+                  <td className="text-muted-foreground">
+                    {first ? first.slice(0, 10) : '-'}
+                  </td>
+                  <td className="text-muted-foreground">
+                    {last ? last.slice(0, 10) : '-'}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -209,16 +222,18 @@ function Tile({ label, value }: { label: string; value: string }): ReactElement 
 function BreakdownTable({
   data,
   total,
+  keyHeader = 'Platform',
 }: {
   data: Record<string, number>;
   total: number;
+  keyHeader?: string;
 }): ReactElement {
   const rows = Object.entries(data).sort((a, b) => b[1] - a[1]);
   return (
     <table className="data-table">
       <thead>
         <tr>
-          <th>Platform</th>
+          <th>{keyHeader}</th>
           <th className="text-right">Clicks</th>
           <th className="text-right">Share</th>
         </tr>
@@ -238,23 +253,51 @@ function BreakdownTable({
   );
 }
 
+interface LinkWithStats {
+  link: CampaignLink;
+  clicks: number | undefined;
+  first: string | null;
+  last: string | null;
+}
+
 function sortedLinks(
   links: CampaignLink[],
   analytics: CampaignAnalyticsResponse | null,
-): { link: CampaignLink; clicks: number | undefined }[] {
-  const clicksByLink = new Map(
-    analytics?.links.map((l) => [l.link_id, l.total_clicks] as const) ?? [],
+): LinkWithStats[] {
+  const statsByLink = new Map(
+    analytics?.links.map(
+      (l) => [l.link_id, { clicks: l.total_clicks, first: l.first_click_at, last: l.last_click_at }] as const,
+    ) ?? [],
   );
   return links
-    .map((link) => ({ link, clicks: clicksByLink.get(link.link_id) }))
+    .map((link) => {
+      const s = statsByLink.get(link.link_id);
+      return {
+        link,
+        clicks: s?.clicks,
+        first: s?.first ?? null,
+        last: s?.last ?? null,
+      };
+    })
     .sort((a, b) => (b.clicks ?? 0) - (a.clicks ?? 0));
 }
 
-function topKey(data: Record<string, number>): string | null {
-  const entries = Object.entries(data);
-  if (entries.length === 0) return null;
-  entries.sort((a, b) => b[1] - a[1]);
-  return entries[0][0];
+function pickEarliest(values: (string | null)[]): string | null {
+  let best: string | null = null;
+  for (const v of values) {
+    if (!v) continue;
+    if (!best || v < best) best = v;
+  }
+  return best ? best.slice(0, 10) : null;
+}
+
+function pickLatest(values: (string | null)[]): string | null {
+  let best: string | null = null;
+  for (const v of values) {
+    if (!v) continue;
+    if (!best || v > best) best = v;
+  }
+  return best ? best.slice(0, 10) : null;
 }
 
 function formatDateRange(startDate: string | null, endDate: string | null): string {

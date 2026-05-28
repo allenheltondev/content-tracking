@@ -913,7 +913,6 @@ function ClickSummaryTiles({
 }): ReactElement {
   const first = pickEarliest(analytics.links.map((l) => l.first_click_at));
   const last = pickLatest(analytics.links.map((l) => l.last_click_at));
-  const topPlatform = pickTopEntry(analytics.by_platform);
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
       <Tile label="Total clicks" value={analytics.total_clicks.toLocaleString()} />
@@ -934,11 +933,7 @@ function ClickSummaryTiles({
       <Tile
         label="Last click"
         value={last ? formatRelative(last) : '—'}
-        sublabel={
-          topPlatform
-            ? `Top platform: ${topPlatform[0]} (${topPlatform[1].toLocaleString()})`
-            : null
-        }
+        sublabel={last ? formatDate(last) : null}
       />
     </div>
   );
@@ -949,31 +944,14 @@ function ClickBreakdowns({
 }: {
   analytics: CampaignAnalyticsResponse;
 }): ReactElement | null {
-  const hasAny =
-    Object.keys(analytics.by_platform).length > 0 ||
-    Object.keys(analytics.by_role).length > 0 ||
-    Object.keys(analytics.by_src).length > 0;
-  if (!hasAny) return null;
+  if (Object.keys(analytics.by_src).length === 0) return null;
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-      <Breakdown
-        title="By platform"
-        counts={analytics.by_platform}
-        total={analytics.total_clicks}
-      />
-      <Breakdown
-        title="By role"
-        counts={analytics.by_role}
-        total={analytics.total_clicks}
-        formatKey={formatRole}
-      />
-      <Breakdown
-        title="By source"
-        counts={analytics.by_src}
-        total={analytics.total_clicks}
-        emptyLabel="No tagged sources"
-      />
-    </div>
+    <Breakdown
+      title="By source"
+      counts={analytics.by_src}
+      total={analytics.total_clicks}
+      emptyLabel="No tagged sources"
+    />
   );
 }
 
@@ -1046,9 +1024,6 @@ function ClickLinkTable({
         <table className="data-table">
           <thead>
             <tr>
-              <th>Platform</th>
-              <th>Role</th>
-              <th>Short URL</th>
               <th>Destination</th>
               <th className="text-right">Clicks</th>
               <th>First clicked</th>
@@ -1058,23 +1033,6 @@ function ClickLinkTable({
           <tbody>
             {rows.map((l) => (
               <tr key={l.code}>
-                <td>{l.platform ?? <span className="text-muted-foreground">—</span>}</td>
-                <td>
-                  {l.role ? (
-                    formatRole(l.role)
-                  ) : (
-                    <span className="text-muted-foreground italic">unlinked</span>
-                  )}
-                </td>
-                <td>
-                  {l.short_url ? (
-                    <code className="bg-muted text-foreground rounded px-1.5 py-0.5 text-xs font-mono">
-                      {l.short_url}
-                    </code>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </td>
                 <td>
                   {l.url ? (
                     <a
@@ -1083,7 +1041,7 @@ function ClickLinkTable({
                       rel="noreferrer"
                       className="text-primary-600 hover:underline"
                     >
-                      {truncate(l.url, 50)}
+                      {truncate(l.url, 60)}
                     </a>
                   ) : (
                     <span className="text-muted-foreground">—</span>
@@ -1129,27 +1087,6 @@ function pickLatest(values: (string | null)[]): string | null {
     if (!best || v > best) best = v;
   }
   return best;
-}
-
-function pickTopEntry(counts: Record<string, number>): [string, number] | null {
-  let best: [string, number] | null = null;
-  for (const [k, n] of Object.entries(counts)) {
-    if (best === null || n > best[1]) best = [k, n];
-  }
-  return best && best[1] > 0 ? best : null;
-}
-
-function formatRole(role: string): string {
-  switch (role) {
-    case 'main':
-      return 'Main';
-    case 'cross_post':
-      return 'Cross-post';
-    case 'social_promo':
-      return 'Social promo';
-    default:
-      return role;
-  }
 }
 
 function formatDate(iso: string): string {
