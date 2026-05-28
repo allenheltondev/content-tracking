@@ -7,7 +7,10 @@ import type {
   CampaignLink,
   CampaignListResponse,
   CampaignStatus,
+  ContentPost,
+  ContentPostSnapshotsResponse,
   CreateCampaignRequest,
+  CreateContentPostRequest,
   CreateLinkRequest,
   CreateSocialPostRequest,
   SaveDraftRequest,
@@ -124,6 +127,37 @@ export async function deleteSocialPost(
   postId: string,
 ): Promise<void> {
   await apiFetch<void>(`/campaigns/${campaignId}/social-posts/${postId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function createContentPost(
+  apiFetch: ApiFetch,
+  campaignId: string,
+  payload: CreateContentPostRequest,
+): Promise<ContentPost> {
+  return apiFetch<ContentPost>(`/campaigns/${campaignId}/content-posts`, {
+    method: 'POST',
+    body: payload,
+  });
+}
+
+export async function getContentPostSnapshots(
+  apiFetch: ApiFetch,
+  campaignId: string,
+  postId: string,
+): Promise<ContentPostSnapshotsResponse> {
+  return apiFetch<ContentPostSnapshotsResponse>(
+    `/campaigns/${campaignId}/content-posts/${postId}/snapshots`,
+  );
+}
+
+export async function deleteContentPost(
+  apiFetch: ApiFetch,
+  campaignId: string,
+  postId: string,
+): Promise<void> {
+  await apiFetch<void>(`/campaigns/${campaignId}/content-posts/${postId}`, {
     method: 'DELETE',
   });
 }

@@ -5,7 +5,7 @@
 // writes the metrics back to Booked — all without any user interaction.
 
 import { getConfig, isConfigured } from "./config.js";
-import { adapters } from "./adapters.js";
+import { adapters, PLATFORM_BUCKET } from "./adapters.js";
 import { getMonitoringWorkingSet, putAnalytics } from "./api.js";
 import {
   clearPairing,
@@ -53,7 +53,14 @@ async function ensureFeed(force = false) {
 
   try {
     const workingSet = await getMonitoringWorkingSet();
-    feed = workingSet.socialPosts;
+    // Tag each post with its bucket so the sync path knows which endpoint
+    // to PUT to (social vs content). A platform belongs to exactly one
+    // bucket per PLATFORM_BUCKET, so the union stays unambiguous when the
+    // adapter dispatches by platform.
+    feed = [
+      ...workingSet.socialPosts.map((p) => ({ ...p, bucket: "social" })),
+      ...workingSet.contentPosts.map((p) => ({ ...p, bucket: "content" })),
+    ];
     crossPostLinks = workingSet.crossPostLinks;
     feedAt = Date.now();
     lastError = null;
@@ -157,7 +164,13 @@ async function syncPost(post, metrics) {
   if (previous && shallowEqual(previous, merged)) return;
 
   try {
+    // The bucket on each post (stamped in ensureFeed) decides which
+    // analytics endpoint to write to. Default to social so a feed row
+    // missing the field — e.g. one persisted by an older extension
+    // build — still syncs through the existing path.
+    const bucket = post.bucket ?? PLATFORM_BUCKET[post.platform] ?? "social";
     const updated = await putAnalytics(
+      bucket,
       post.campaign_id,
       post.post_id,
       merged,

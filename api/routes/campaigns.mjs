@@ -34,6 +34,7 @@ import {
   saveDraftReview,
 } from "../domain/draft.mjs";
 import { formatSocialPost } from "../validation/social-post.mjs";
+import { formatContentPost } from "../validation/content-post.mjs";
 
 const VALID_STATUSES = new Set(["draft", "active", "monitoring", "completed"]);
 const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -125,13 +126,16 @@ export function registerCampaignRoutes(app) {
 
   app.get("/campaigns/:campaignId", async ({ params }) => {
     const { campaignId } = params;
-    const { metadata, links, socialPosts, brief, draft } = await getCampaignWithLinks(campaignId);
+    const { metadata, links, socialPosts, contentPosts, brief, draft } = await getCampaignWithLinks(campaignId);
     const briefDownloadUrl = brief?.s3Key ? await presignBriefDownload(brief.s3Key) : null;
     return jsonResponse(200, {
       campaign: formatCampaign(metadata),
       links: links.map(formatLink).sort((a, b) => a.created_at.localeCompare(b.created_at)),
       social_posts: socialPosts
         .map(formatSocialPost)
+        .sort((a, b) => a.created_at.localeCompare(b.created_at)),
+      content_posts: contentPosts
+        .map(formatContentPost)
         .sort((a, b) => a.created_at.localeCompare(b.created_at)),
       brief: brief ? formatBrief(brief, briefDownloadUrl) : null,
       draft: draft ? formatDraft(draft) : null,

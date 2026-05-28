@@ -18,6 +18,12 @@
     "/api/v1/media",
     "/graphql/query",
     "/api/graphql",
+    // Medium author + per-post stats endpoints.
+    "/_/api/",
+    "/_/graphql",
+    // dev.to analytics dashboard + per-article shapes.
+    "/api/analytics",
+    "/api/articles",
   ];
 
   function shouldCapture(url) {
