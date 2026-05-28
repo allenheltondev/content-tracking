@@ -112,9 +112,27 @@
     renderButton(currentBtn);
   }
 
-  // Tab switches and SPA navigations swap the slot in and out. A subtree
-  // observer is cheap on a small dashboard and catches both cases.
-  const obs = new MutationObserver(() => mount());
+  // Tab switches and SPA navigations swap the slot in and out. Only react
+  // when the slot itself enters or leaves the DOM — reacting to any subtree
+  // mutation would loop, because mount() sets the button's textContent,
+  // and that childList mutation would re-fire the observer indefinitely.
+  const SLOT_SELECTOR = '[data-booked-slot="social-posts-actions"]';
+  function affectsSlot(nodes) {
+    for (const node of nodes) {
+      if (node.nodeType !== 1) continue;
+      if (node.matches?.(SLOT_SELECTOR)) return true;
+      if (node.querySelector?.(SLOT_SELECTOR)) return true;
+    }
+    return false;
+  }
+  const obs = new MutationObserver((records) => {
+    for (const r of records) {
+      if (affectsSlot(r.addedNodes) || affectsSlot(r.removedNodes)) {
+        mount();
+        return;
+      }
+    }
+  });
   obs.observe(document.body, { childList: true, subtree: true });
 
   chrome.storage.onChanged.addListener((changes, area) => {
