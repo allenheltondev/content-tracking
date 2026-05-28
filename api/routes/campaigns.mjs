@@ -33,7 +33,7 @@ import {
 } from "../domain/draft.mjs";
 import { formatSocialPost } from "../validation/social-post.mjs";
 
-const VALID_STATUSES = new Set(["draft", "active", "completed"]);
+const VALID_STATUSES = new Set(["draft", "active", "monitoring", "completed"]);
 const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
 const formatCampaign = (row) => ({

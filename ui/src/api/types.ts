@@ -110,7 +110,7 @@ export interface RevenueResponse {
   skipped: { campaign_id: string; currency: string; amount: number; reason: string }[];
 }
 
-export type CampaignStatus = 'draft' | 'active' | 'completed';
+export type CampaignStatus = 'draft' | 'active' | 'monitoring' | 'completed';
 
 export interface Campaign {
   campaign_id: string;

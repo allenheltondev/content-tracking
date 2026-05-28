@@ -103,6 +103,7 @@ export default function CreateCampaignForm({
           >
             <option value="draft">draft</option>
             <option value="active">active</option>
+            <option value="monitoring">monitoring</option>
             <option value="completed">completed</option>
           </select>
         </label>

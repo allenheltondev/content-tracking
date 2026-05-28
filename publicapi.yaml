@@ -1055,7 +1055,7 @@ components:
           format: date
         status:
           type: string
-          enum: [draft, active, completed]
+          enum: [draft, active, monitoring, completed]
           default: active
         targetMetrics:
           type: object
@@ -1110,7 +1110,7 @@ components:
           nullable: true
         status:
           type: string
-          enum: [draft, active, completed]
+          enum: [draft, active, monitoring, completed]
         targetMetrics:
           type: object
           nullable: true
@@ -1215,7 +1215,7 @@ components:
           format: date
         status:
           type: string
-          enum: [draft, active, completed]
+          enum: [draft, active, monitoring, completed]
         targetMetrics:
           type: object
           additionalProperties: true
@@ -1702,7 +1702,7 @@ components:
           type: string
         status:
           type: string
-          enum: [draft, active, completed]
+          enum: [draft, active, monitoring, completed]
         startDate:
           type: string
           format: date
