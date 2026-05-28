@@ -7,9 +7,17 @@ import {
   getVendor,
   listCampaignsForVendor,
 } from '../api/vendors';
+import { createCampaign } from '../api/campaigns';
 import { getRevenue } from '../api/revenue';
-import type { RevenueResponse, Vendor, VendorCampaignSummary } from '../api/types';
+import type {
+  CreateCampaignRequest,
+  RevenueResponse,
+  Vendor,
+  VendorCampaignSummary,
+} from '../api/types';
 import DeleteVendorModal from '../components/DeleteVendorModal';
+import Modal from '../components/Modal';
+import CreateCampaignForm from '../components/CreateCampaignForm';
 
 const WIDE_START = '1900-01-01';
 const WIDE_END = '2999-12-31';
@@ -30,6 +38,10 @@ export default function VendorDetail(): ReactElement {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteServerError, setDeleteServerError] = useState<string | null>(null);
   const [blockingCount, setBlockingCount] = useState<number | null>(null);
+
+  const [createCampaignOpen, setCreateCampaignOpen] = useState(false);
+  const [createCampaignBusy, setCreateCampaignBusy] = useState(false);
+  const [createCampaignError, setCreateCampaignError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!vendorId) return;
@@ -66,6 +78,19 @@ export default function VendorDetail(): ReactElement {
       cancelled = true;
     };
   }, [apiFetch, vendorId]);
+
+  const handleCreateCampaign = async (payload: CreateCampaignRequest): Promise<void> => {
+    setCreateCampaignBusy(true);
+    setCreateCampaignError(null);
+    try {
+      const created = await createCampaign(apiFetch, payload);
+      navigate(`/campaigns/${created.campaign_id}`);
+    } catch (err) {
+      setCreateCampaignError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setCreateCampaignBusy(false);
+    }
+  };
 
   const handleDelete = async (): Promise<void> => {
     if (!vendorId) return;
@@ -210,7 +235,19 @@ export default function VendorDetail(): ReactElement {
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-foreground">Campaigns</h2>
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-lg font-semibold text-foreground">Campaigns</h2>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => {
+              setCreateCampaignError(null);
+              setCreateCampaignOpen(true);
+            }}
+          >
+            Add campaign
+          </button>
+        </div>
         {campaignsError && (
           <p className="form-error">Could not load campaigns: {campaignsError}</p>
         )}
@@ -254,6 +291,28 @@ export default function VendorDetail(): ReactElement {
           </table>
         )}
       </section>
+
+      <Modal
+        open={createCampaignOpen}
+        title="Add campaign"
+        onClose={() => {
+          if (!createCampaignBusy) {
+            setCreateCampaignOpen(false);
+            setCreateCampaignError(null);
+          }
+        }}
+      >
+        <CreateCampaignForm
+          busy={createCampaignBusy}
+          serverError={createCampaignError}
+          lockedVendorId={vendor.vendor_id}
+          onSubmit={(p) => void handleCreateCampaign(p)}
+          onCancel={() => {
+            setCreateCampaignOpen(false);
+            setCreateCampaignError(null);
+          }}
+        />
+      </Modal>
 
       <DeleteVendorModal
         open={deleteOpen}

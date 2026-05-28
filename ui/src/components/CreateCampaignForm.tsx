@@ -8,6 +8,9 @@ interface Props {
   serverError: string | null;
   onSubmit: (payload: CreateCampaignRequest) => void;
   onCancel: () => void;
+  // When set, the vendor field is pre-filled with this id and locked so the
+  // user can't change it — used by the "Add campaign" flow on a vendor page.
+  lockedVendorId?: string;
 }
 
 export default function CreateCampaignForm({
@@ -15,9 +18,10 @@ export default function CreateCampaignForm({
   serverError,
   onSubmit,
   onCancel,
+  lockedVendorId,
 }: Props): ReactElement {
   const [name, setName] = useState('');
-  const [vendorId, setVendorId] = useState('');
+  const [vendorId, setVendorId] = useState(lockedVendorId ?? '');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [status, setStatus] = useState<CampaignStatus>('draft');
@@ -63,13 +67,15 @@ export default function CreateCampaignForm({
           value={vendorId}
           onChange={setVendorId}
           onCreateNew={() => window.open('/vendors/new', '_blank', 'noopener')}
-          disabled={busy}
+          disabled={busy || Boolean(lockedVendorId)}
           ariaLabel="Vendor"
         />
-        <span className="text-xs text-muted-foreground mt-1 block">
-          Pick a vendor, or choose “Create new vendor…” to add one in a new tab — it appears
-          here when you return.
-        </span>
+        {!lockedVendorId && (
+          <span className="text-xs text-muted-foreground mt-1 block">
+            Pick a vendor, or choose “Create new vendor…” to add one in a new tab — it appears
+            here when you return.
+          </span>
+        )}
       </label>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
