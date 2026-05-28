@@ -195,8 +195,12 @@ jobs:
           # so the packaged extension already knows which Booked API to
           # call. Same value the dashboard build above uses.
           VITE_API_BASE_URL: ${{ steps.outputs.outputs.api-url }}
-          # Lets the popup deep-link unpaired users back to
-          # Settings → Extension on this dashboard.
+          # Two uses: lets the popup deep-link unpaired users back to
+          # Settings → Extension, and rewrites the dashboard
+          # content_script's match in the zipped manifest so the
+          # Refresh-stale button injects on whichever origin the
+          # dashboard was deployed to (CloudFront URL on staging,
+          # custom domain on prod).
           BOOKED_DASHBOARD_URL: ${{ steps.outputs.outputs.dashboard-url }}
         run: npm run build-extension-zip
 
