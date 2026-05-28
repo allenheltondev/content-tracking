@@ -260,13 +260,21 @@ export default function CampaignDetail(): ReactElement {
   return (
     <section className="space-y-6">
       <header className="flex items-start justify-between gap-4">
-        <div className="space-y-1 flex-1 min-w-0">
-          <NameEditor apiFetch={apiFetch} campaign={campaign} onCampaignChange={onCampaignChange} />
-          <VendorEditor
-            apiFetch={apiFetch}
-            campaign={campaign}
-            onCampaignChange={onCampaignChange}
-          />
+        <div className="space-y-2 flex-1 min-w-0">
+          <div>
+            <NameEditor
+              apiFetch={apiFetch}
+              campaign={campaign}
+              onCampaignChange={onCampaignChange}
+            />
+          </div>
+          <div>
+            <VendorEditor
+              apiFetch={apiFetch}
+              campaign={campaign}
+              onCampaignChange={onCampaignChange}
+            />
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Link
@@ -310,64 +318,51 @@ export default function CampaignDetail(): ReactElement {
       </nav>
 
       {activeTab === 'overview' && (
-        <>
-          <dl className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Status</dt>
-              <dd className="text-sm mt-0.5">
-                <StatusEditor
-                  apiFetch={apiFetch}
-                  campaign={campaign}
-                  onCampaignChange={onCampaignChange}
-                />
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Dates</dt>
-              <dd className="text-sm mt-0.5">
-                <DateRangeEditor
-                  apiFetch={apiFetch}
-                  campaign={campaign}
-                  onCampaignChange={onCampaignChange}
-                />
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Created</dt>
-              <dd className="text-sm text-foreground mt-0.5">{campaign.created_at.slice(0, 10)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Payout</dt>
-              <dd className="text-sm mt-0.5">
-                <PayoutEditor
-                  apiFetch={apiFetch}
-                  campaign={campaign}
-                  onCampaignChange={onCampaignChange}
-                />
-              </dd>
-            </div>
-            <div className="col-span-2">
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Blog post</dt>
-              <dd className="text-sm mt-0.5">
-                <BlogUrlEditor
-                  apiFetch={apiFetch}
-                  campaign={campaign}
-                  onCampaignChange={onCampaignChange}
-                />
-              </dd>
-            </div>
-            <div className="col-span-2">
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Link tracking ID</dt>
-              <dd className="text-sm mt-0.5">
-                <LinkTrackingIdEditor
-                  apiFetch={apiFetch}
-                  campaign={campaign}
-                  onCampaignChange={onCampaignChange}
-                />
-              </dd>
-            </div>
-          </dl>
-        </>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <FieldCard label="Status" accent="primary" icon={<StatusIconSvg />}>
+            <StatusEditor
+              apiFetch={apiFetch}
+              campaign={campaign}
+              onCampaignChange={onCampaignChange}
+            />
+          </FieldCard>
+          <FieldCard label="Dates" accent="success" icon={<CalendarIconSvg />}>
+            <DateRangeEditor
+              apiFetch={apiFetch}
+              campaign={campaign}
+              onCampaignChange={onCampaignChange}
+            />
+          </FieldCard>
+          <FieldCard label="Created" accent="secondary" icon={<ClockIconSvg />}>
+            <span className="text-foreground">{campaign.created_at.slice(0, 10)}</span>
+          </FieldCard>
+          <FieldCard label="Payout" accent="warning" icon={<DollarIconSvg />}>
+            <PayoutEditor
+              apiFetch={apiFetch}
+              campaign={campaign}
+              onCampaignChange={onCampaignChange}
+            />
+          </FieldCard>
+          <FieldCard
+            label="Blog post"
+            accent="primary"
+            icon={<LinkIconSvg />}
+            className="sm:col-span-2"
+          >
+            <BlogUrlEditor
+              apiFetch={apiFetch}
+              campaign={campaign}
+              onCampaignChange={onCampaignChange}
+            />
+          </FieldCard>
+          <FieldCard label="Link tracking ID" accent="secondary" icon={<TagIconSvg />}>
+            <LinkTrackingIdEditor
+              apiFetch={apiFetch}
+              campaign={campaign}
+              onCampaignChange={onCampaignChange}
+            />
+          </FieldCard>
+        </div>
       )}
 
       {activeTab === 'promotion' && (
@@ -915,9 +910,7 @@ function EditScaffold({
     return (
       <span className="inline-flex items-center gap-2 flex-wrap">
         {hasValue ? display : <span className="text-muted-foreground italic">{emptyLabel}</span>}
-        <button type="button" className="btn-link" onClick={onStart}>
-          {hasValue ? 'Edit' : 'Add'}
-        </button>
+        <EditIconButton onClick={onStart} label={hasValue ? 'Edit' : 'Add'} />
       </span>
     );
   }
@@ -1085,16 +1078,13 @@ function VendorEditor({ apiFetch, campaign, onCampaignChange }: FieldEditorProps
           ) : (
             <span className="text-muted-foreground italic">No vendor</span>
           )}
-          <button
-            type="button"
-            className="btn-link"
+          <EditIconButton
             onClick={() => {
               setError(null);
               setEditing(true);
             }}
-          >
-            {hasVendor ? 'Change' : campaign.sponsor ? 'Link vendor' : 'Add'}
-          </button>
+            label={hasVendor ? 'Change vendor' : campaign.sponsor ? 'Link vendor' : 'Add vendor'}
+          />
         </span>
       ) : (
         <div className="space-y-2 max-w-sm">
@@ -1529,9 +1519,10 @@ function LinkTrackingIdEditor({
         ) : (
           <span className="text-muted-foreground italic">Not set</span>
         )}
-        <button type="button" className="btn-link" onClick={startEdit}>
-          {campaign.link_tracking_id ? 'Edit' : 'Add'}
-        </button>
+        <EditIconButton
+          onClick={startEdit}
+          label={campaign.link_tracking_id ? 'Edit' : 'Add'}
+        />
       </span>
     );
   }
@@ -1576,4 +1567,199 @@ function formatDateRange(startDate: string | null, endDate: string | null): stri
 
 function truncate(s: string, n: number): string {
   return s.length <= n ? s : `${s.slice(0, n - 1)}…`;
+}
+
+function EditIconButton({
+  onClick,
+  label,
+  disabled,
+}: {
+  onClick: () => void;
+  label: string;
+  disabled?: boolean;
+}): ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className="inline-flex items-center justify-center rounded-md p-1 text-muted-foreground hover:text-primary-600 hover:bg-muted transition-colors disabled:opacity-50"
+    >
+      <PencilIcon />
+    </button>
+  );
+}
+
+function PencilIcon({ className = 'w-3.5 h-3.5' }: { className?: string }): ReactElement {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.379-8.379-2.828-2.828z" />
+    </svg>
+  );
+}
+
+type FieldAccent = 'primary' | 'secondary' | 'success' | 'warning';
+
+const ACCENT_STYLES: Record<FieldAccent, string> = {
+  primary: 'bg-primary-50 text-primary-600 ring-primary-100',
+  secondary: 'bg-secondary-100 text-secondary-700 ring-secondary-200',
+  success: 'bg-success-50 text-success-700 ring-success-100',
+  warning: 'bg-warning-50 text-warning-700 ring-warning-100',
+};
+
+function FieldCard({
+  label,
+  icon,
+  accent,
+  children,
+  className,
+}: {
+  label: string;
+  icon: ReactElement;
+  accent: FieldAccent;
+  children: ReactElement;
+  className?: string;
+}): ReactElement {
+  return (
+    <div
+      className={`group relative bg-surface border border-border rounded-xl shadow-soft px-5 py-4 hover:shadow-medium hover:border-primary-200 transition ${className ?? ''}`}
+    >
+      <div className="flex items-start gap-3">
+        <span
+          className={`shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-lg ring-1 ring-inset ${ACCENT_STYLES[accent]}`}
+          aria-hidden="true"
+        >
+          {icon}
+        </span>
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground font-medium">
+            {label}
+          </p>
+          <div className="text-sm text-foreground">{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatusIconSvg(): ReactElement {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="w-5 h-5"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8 12l3 3 5-6" />
+    </svg>
+  );
+}
+
+function CalendarIconSvg(): ReactElement {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="w-5 h-5"
+      aria-hidden="true"
+    >
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M16 3v4M8 3v4M3 10h18" />
+    </svg>
+  );
+}
+
+function ClockIconSvg(): ReactElement {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="w-5 h-5"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  );
+}
+
+function DollarIconSvg(): ReactElement {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="w-5 h-5"
+      aria-hidden="true"
+    >
+      <path d="M12 3v18" />
+      <path d="M17 7H9.5a2.5 2.5 0 100 5h5a2.5 2.5 0 010 5H7" />
+    </svg>
+  );
+}
+
+function LinkIconSvg(): ReactElement {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="w-5 h-5"
+      aria-hidden="true"
+    >
+      <path d="M10 13a5 5 0 007.07 0l3-3a5 5 0 00-7.07-7.07l-1.5 1.5" />
+      <path d="M14 11a5 5 0 00-7.07 0l-3 3a5 5 0 007.07 7.07l1.5-1.5" />
+    </svg>
+  );
+}
+
+function TagIconSvg(): ReactElement {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="w-5 h-5"
+      aria-hidden="true"
+    >
+      <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" />
+      <circle cx="7" cy="7" r="1.5" fill="currentColor" />
+    </svg>
+  );
 }
