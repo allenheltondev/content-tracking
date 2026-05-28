@@ -185,6 +185,9 @@
   .status-active {
     @apply bg-success-100 text-success-800;
   }
+  .status-monitoring {
+    @apply bg-primary-100 text-primary-800;
+  }
   .status-completed {
     @apply bg-secondary-200 text-secondary-900;
   }

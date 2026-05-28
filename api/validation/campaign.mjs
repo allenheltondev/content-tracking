@@ -3,7 +3,7 @@ import { validatePayoutPayload } from "./payout.mjs";
 import { VENDOR_ID_RE } from "./vendor.mjs";
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const VALID_STATUSES = new Set(["draft", "active", "completed"]);
+const VALID_STATUSES = new Set(["draft", "active", "monitoring", "completed"]);
 const NAME_MAX = 200;
 const SPONSOR_MAX = 200;
 const BLOG_URL_MAX = 2048;
