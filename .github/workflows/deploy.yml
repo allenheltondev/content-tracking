@@ -92,7 +92,9 @@ jobs:
             --no-fail-on-empty-changeset \
             --parameter-overrides \
               "Environment=${{ env.ENVIRONMENT }}" \
-              "NewsletterMintApiKey=${{ secrets.NEWSLETTER_MINT_API_KEY }}"
+              "NewsletterMintApiKey=${{ secrets.NEWSLETTER_MINT_API_KEY }}" \
+              "UserPoolId=${{ vars.USER_POOL_ID }}" \
+              "UserPoolClientId=${{ vars.USER_POOL_CLIENT_ID }}"
 
       - name: Diagnose failed deploy
         if: ${{ failure() }}
@@ -187,6 +189,11 @@ jobs:
         # bundle so the InstallExtensionModal's /booked-extension.zip
         # download link resolves on the same origin. Runs after the
         # vite build because vite cleans dist/ on each run.
+        env:
+          # Substituted into the extension's src/config.js at zip time
+          # so the packaged extension already knows which Booked API to
+          # call. Same value the dashboard build above uses.
+          VITE_API_BASE_URL: ${{ steps.outputs.outputs.api-url }}
         run: npm run build-extension-zip
 
       - name: Sync dashboard to S3

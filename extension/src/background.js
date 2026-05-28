@@ -7,7 +7,12 @@
 import { getConfig, isConfigured } from "./config.js";
 import { adapters } from "./adapters.js";
 import { getMonitoringWorkingSet, putAnalytics } from "./api.js";
-import { getSession, isSignedIn, signIn, signOut } from "./auth.js";
+import {
+  clearPairing,
+  getPairingMetadata,
+  isPaired,
+  setPairingToken,
+} from "./pairing.js";
 
 const FEED_KEY = "booked_feed";
 const SENT_KEY = "booked_sent";
@@ -32,7 +37,7 @@ async function loadFeedFromStorage() {
 
 async function ensureFeed(force = false) {
   const cfg = await getConfig();
-  if (!isConfigured(cfg) || !(await isSignedIn())) {
+  if (!isConfigured(cfg) || !(await isPaired())) {
     feed = null;
     crossPostLinks = [];
     updateBadge();
@@ -168,14 +173,14 @@ async function syncPost(post, metrics) {
 async function buildStatus() {
   const cfg = await getConfig();
   const configured = isConfigured(cfg);
-  const signedIn = configured && (await isSignedIn());
-  const session = signedIn ? await getSession() : null;
+  const paired = configured && (await isPaired());
+  const pairingMetadata = paired ? await getPairingMetadata() : null;
   return {
     configured,
-    signedIn,
-    email: session?.email || null,
-    posts: signedIn ? feed || [] : [],
-    crossPostLinks: signedIn ? crossPostLinks || [] : [],
+    paired,
+    paired_at: pairingMetadata?.paired_at ?? null,
+    posts: paired ? feed || [] : [],
+    crossPostLinks: paired ? crossPostLinks || [] : [],
     activeCount: feed?.length ?? 0,
     crossPostLinkCount: crossPostLinks?.length ?? 0,
     syncedThisSession,
@@ -196,15 +201,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         .then(() => buildStatus())
         .then(sendResponse);
       return true;
-    case "booked:signIn":
-      signIn()
+    case "booked:pair":
+      setPairingToken(msg.token)
         .then(() => ensureFeed(true))
         .then(() => buildStatus())
         .then(sendResponse)
         .catch((err) => sendResponse({ error: String(err?.message || err) }));
       return true;
-    case "booked:signOut":
-      signOut()
+    case "booked:unpair":
+      clearPairing()
         .then(() => {
           feed = null;
           crossPostLinks = [];

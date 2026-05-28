@@ -2,9 +2,75 @@ import type { ReactElement } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { useApiFetch, ApiError } from '../auth/useApiFetch';
 import { getProfile, updateProfile } from '../api/profile';
-import type { ProfileResponse, ProfileUpdateRequest } from '../api/types';
+import {
+  createExtensionPairing,
+  listExtensionPairings,
+  revokeExtensionPairing,
+} from '../api/extensions';
+import type {
+  CreateExtensionPairingResponse,
+  ExtensionPairing,
+  ProfileResponse,
+  ProfileUpdateRequest,
+} from '../api/types';
+import Modal from '../components/Modal';
+
+type SettingsTab = 'integrations' | 'extension';
 
 export default function Settings(): ReactElement {
+  const [activeTab, setActiveTab] = useState<SettingsTab>('integrations');
+
+  return (
+    <section className="space-y-6 max-w-3xl">
+      <header className="space-y-1">
+        <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
+      </header>
+
+      <nav className="border-b border-border flex gap-1" aria-label="Settings sections">
+        <TabButton
+          label="Integrations"
+          active={activeTab === 'integrations'}
+          onClick={() => setActiveTab('integrations')}
+        />
+        <TabButton
+          label="Extension"
+          active={activeTab === 'extension'}
+          onClick={() => setActiveTab('extension')}
+        />
+      </nav>
+
+      {activeTab === 'integrations' && <IntegrationsTab />}
+      {activeTab === 'extension' && <ExtensionTab />}
+    </section>
+  );
+}
+
+function TabButton({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}): ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+      className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+        active
+          ? 'border-primary-600 text-primary-700'
+          : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function IntegrationsTab(): ReactElement {
   const apiFetch = useApiFetch();
 
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
@@ -68,14 +134,11 @@ export default function Settings(): ReactElement {
   };
 
   return (
-    <section className="space-y-6 max-w-2xl">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
-        <p className="text-sm text-muted-foreground">
-          Connect Google Analytics 4 and Core Web Vitals to pull per-post web analytics on each
-          campaign. Credentials are stored encrypted and never shown again after saving.
-        </p>
-      </header>
+    <div className="space-y-6">
+      <p className="text-sm text-muted-foreground">
+        Connect Google Analytics 4 and Core Web Vitals to pull per-post web analytics on each
+        campaign. Credentials are stored encrypted and never shown again after saving.
+      </p>
 
       {loadError && <p className="form-error">Could not load settings: {loadError}</p>}
 
@@ -163,7 +226,207 @@ export default function Settings(): ReactElement {
           {busy ? 'Saving...' : 'Save settings'}
         </button>
       </div>
-    </section>
+    </div>
+  );
+}
+
+function ExtensionTab(): ReactElement {
+  const apiFetch = useApiFetch();
+
+  const [pairings, setPairings] = useState<ExtensionPairing[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const [label, setLabel] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const [justMinted, setJustMinted] = useState<CreateExtensionPairingResponse | null>(null);
+
+  const [revoking, setRevoking] = useState<string | null>(null);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoadError(null);
+    setLoading(true);
+    try {
+      const res = await listExtensionPairings(apiFetch);
+      setPairings(res.pairings);
+    } catch (err) {
+      setLoadError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [apiFetch]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const generate = async (): Promise<void> => {
+    setGenerateError(null);
+    setGenerating(true);
+    try {
+      const res = await createExtensionPairing(apiFetch, {
+        label: label.trim() || undefined,
+      });
+      setJustMinted(res);
+      setLabel('');
+      setPairings((prev) => [...prev, res.pairing]);
+    } catch (err) {
+      setGenerateError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const revoke = async (jti: string): Promise<void> => {
+    setRevokeError(null);
+    setRevoking(jti);
+    try {
+      await revokeExtensionPairing(apiFetch, jti);
+      setPairings((prev) => prev.filter((p) => p.jti !== jti));
+    } catch (err) {
+      setRevokeError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setRevoking(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-muted-foreground">
+        Pair the Booked Chrome extension by generating a code below and pasting it into the
+        extension's Options page. Each code grants the extension access to your Booked account
+        until you revoke it.
+      </p>
+
+      <div className="card card-body space-y-4">
+        <h2 className="text-lg font-semibold text-foreground">Generate a new code</h2>
+        <label className="block">
+          <span className="field-label">Label (optional)</span>
+          <input
+            type="text"
+            className="input"
+            placeholder="e.g. Allen's laptop"
+            value={label}
+            maxLength={60}
+            onChange={(e) => setLabel(e.target.value)}
+            disabled={generating}
+          />
+          <span className="field-hint">
+            Used only on this page so you can tell devices apart when revoking.
+          </span>
+        </label>
+        {generateError && <p className="form-error">{generateError}</p>}
+        <div className="flex justify-end">
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => void generate()}
+            disabled={generating}
+          >
+            {generating ? 'Generating...' : 'Generate pairing code'}
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold text-foreground">Paired devices</h2>
+        {loadError && <p className="form-error">Could not load pairings: {loadError}</p>}
+        {revokeError && <p className="form-error">{revokeError}</p>}
+        {loading ? (
+          <p className="text-muted-foreground">Loading...</p>
+        ) : pairings.length === 0 ? (
+          <p className="text-muted-foreground">No paired devices yet.</p>
+        ) : (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Label</th>
+                <th>Created</th>
+                <th>Last used</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {pairings.map((p) => (
+                <tr key={p.jti}>
+                  <td>{p.label}</td>
+                  <td className="text-muted-foreground">{p.created_at.slice(0, 10)}</td>
+                  <td className="text-muted-foreground">
+                    {p.last_used_at ? new Date(p.last_used_at).toLocaleString() : 'never'}
+                  </td>
+                  <td className="text-right">
+                    <button
+                      type="button"
+                      className="btn-link text-error-600"
+                      onClick={() => void revoke(p.jti)}
+                      disabled={revoking === p.jti}
+                    >
+                      {revoking === p.jti ? 'Revoking...' : 'Revoke'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <NewPairingDialog
+        result={justMinted}
+        onClose={() => setJustMinted(null)}
+      />
+    </div>
+  );
+}
+
+function NewPairingDialog({
+  result,
+  onClose,
+}: {
+  result: CreateExtensionPairingResponse | null;
+  onClose: () => void;
+}): ReactElement | null {
+  const [copied, setCopied] = useState(false);
+
+  if (!result) return null;
+
+  const copy = (): void => {
+    void navigator.clipboard.writeText(result.token).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  return (
+    <Modal open title="Pairing code" onClose={onClose}>
+      <div className="space-y-4 text-sm text-foreground">
+        <p>
+          Paste this code into the Booked Chrome extension's Options page. This is the only time
+          it will be shown. Generate a new code if you lose it.
+        </p>
+        <div className="space-y-2">
+          <code className="block bg-muted rounded p-3 font-mono text-xs break-all">
+            {result.token}
+          </code>
+          <div className="flex justify-end">
+            <button type="button" className="btn-secondary" onClick={copy}>
+              {copied ? 'Copied' : 'Copy to clipboard'}
+            </button>
+          </div>
+        </div>
+        <p className="text-muted-foreground">
+          Treat this code like a password. Anyone with it can read and update your campaign data.
+          Revoke it from the Paired devices list if it leaks.
+        </p>
+        <div className="flex justify-end">
+          <button type="button" className="btn-primary" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

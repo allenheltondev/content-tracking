@@ -16,13 +16,15 @@ to Booked — automatically, with no clicking. Every write stamps a
                                                                   │ chrome.runtime
                                                                   ▼
                                   background.js (service worker)
-                                    • OAuth/PKCE against Cognito Hosted UI
                                     • polls GET /monitoring/working-set
                                     • matches captured payload → tracked post
                                     • PUT …/social-posts/{id}/analytics
                                                                   │
                                                                   ▼
                                                           Booked REST API
+                                                  (Lambda authorizer verifies
+                                                   the pairing token's HMAC
+                                                   signature on every call)
 ```
 
 - `inject.js` runs in the page's own JS context and wraps `fetch`/`XHR` so
@@ -36,54 +38,62 @@ The extension only ever **reads** post engagement that the page already
 loaded for you; it does not scrape logged-out data or take any action on
 the platforms.
 
-## Prerequisites
+## Install
 
-- A deployed Booked stack (you need its `ContentTrackingApiBaseUrl`).
-- The shared `RSCUserPool` Cognito user pool with a **Hosted UI domain** and
-  a **public app client** (no client secret) that has the *Authorization
-  code grant* enabled and `openid` in its allowed scopes.
+The dashboard's **Campaign → Promotion** tab has an **Install Chrome
+extension** button that opens an in-app modal with a one-click download
+of the prepackaged zip. The zip is built by CI on every Booked deploy
+with the API URL already baked in, so you don't have to configure
+anything beyond pairing.
 
-## Install (load unpacked)
+1. From the dashboard, download `booked-extension.zip` and unzip it.
+2. Open `chrome://extensions`, enable **Developer mode**, click **Load
+   unpacked**, and select the `booked-extension` folder you just
+   unzipped.
+3. Open the dashboard's **Settings → Extension** page and click
+   **Generate pairing code**.
+4. Open the extension popup, paste the code into the **Pairing code**
+   field, and click **Pair extension**. The popup switches to showing
+   your tracked posts.
 
-1. Open `chrome://extensions`, enable **Developer mode**, click **Load
-   unpacked**, and select this `extension/` folder.
-2. Open the extension's **Settings** (right-click the icon → Options, or the
-   "Settings" link in the popup).
-3. Copy the **Redirect URI** shown on the settings page. It looks like
-   `https://<extension-id>.chromiumapp.org/`.
-4. In the Cognito console, edit your app client and add that redirect URI to
-   **Allowed callback URLs** (and **Allowed sign-out URLs**). Make sure the
-   Authorization code grant and the `openid` scope are enabled.
-5. Back on the settings page, fill in:
-   - **Booked API base URL** — the stack's `ContentTrackingApiBaseUrl`
-     output (include the `/v1` stage if it's the `execute-api` hostname).
-   - **Cognito Hosted UI domain** — e.g.
-     `https://your-domain.auth.us-east-1.amazoncognito.com`.
-   - **App client id**, **region**, and **scopes** (`openid email profile`).
-6. Click **Save & grant access**. Chrome will ask permission to access the
-   API and Cognito origins — approve it (the extension needs host access to
-   call them cross-origin).
-7. Open the popup and click **Sign in**. The Cognito Hosted UI opens; after
-   you log in the popup shows your tracked posts.
+## Revoking access
 
-## Using it
+The dashboard's **Settings → Extension** page lists every paired device
+with a **Revoke** button. Revoking takes effect on the extension's next
+API call (the Lambda authorizer rechecks revocation each request).
 
-1. In the Booked dashboard, open a campaign and add posts under **Social
-   posts** (paste the post URL; the platform is auto-detected).
-2. Keep the campaign **active**.
-3. Browse to those posts in Chrome. When the page loads its engagement data,
-   the extension captures and syncs it. Reopen the popup to see the updated
-   counts and "fetched … ago" times, or check the campaign in the dashboard.
+## How auth works
 
-The post list refreshes every 15 minutes (configurable) and on demand via
-**Refresh list** in the popup.
+- The user signs into the dashboard via Cognito as usual.
+- On **Settings → Extension** they mint a pairing token. The server
+  signs it with an HMAC key stored in Secrets Manager and persists
+  only metadata (`jti`, label, created_at, last_used_at) in DynamoDB
+  — the token value itself is shown once and never stored.
+- The extension stores the pasted token in `chrome.storage.local` and
+  sends it as `Authorization: Bearer <token>` on every API call.
+- The API's Lambda authorizer accepts both Cognito id tokens (dashboard)
+  and HMAC-signed pairing tokens (extension). For pairing tokens it
+  verifies the signature, then `GetItem`s the `jti` to confirm the
+  pairing hasn't been revoked, and bumps `last_used_at` in the same
+  conditional update.
 
-## Configuration & tokens
+Pairing tokens don't expire on their own. Revocation is the lifecycle —
+the dashboard's **Revoke** removes the metadata row, and the next call
+that token makes fails the authorizer's existence check.
 
-- Settings and OAuth tokens are stored in `chrome.storage.local`. Nothing is
-  a secret: the app client is public and uses PKCE.
-- The id token (not the access token) is sent in the `Authorization` header,
-  matching the dashboard and the API's Cognito authorizer.
+## Repackaging by hand
+
+CI bakes the API base URL into the zip, but you can repackage locally
+for development:
+
+```
+VITE_API_BASE_URL="https://your-api.example.com/v1" \
+  npm run build-extension-zip
+```
+
+The zip lands at `ui/dist/booked-extension.zip`. The script substitutes
+the URL into the placeholder in `src/config.js` (`__BOOKED_API_BASE_URL__`)
+before zipping.
 
 ## Maintenance note
 

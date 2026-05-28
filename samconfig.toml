@@ -4,6 +4,11 @@ version = 0.1
 # Provide it via samconfig.local.toml (gitignored) or
 # `sam deploy --parameter-overrides "NewsletterMintApiKey=..."`.
 #
+# UserPoolId + UserPoolClientId are also not defined here. They feed
+# the Lambda authorizer's Cognito JWT verification; provide them in
+# samconfig.local.toml or via --parameter-overrides for ad-hoc deploys.
+# CI sources them from GitHub environment vars (vars.USER_POOL_ID, etc.).
+#
 # CognitoUserPoolArn resolves from SSM `/readysetcloud/auth/user-pool-arn`
 # (published by rsc-core) at deploy time, no override needed.
 

@@ -81,6 +81,8 @@ jobs:
             --parameter-overrides \
               "Environment=${{ env.ENVIRONMENT }}" \
               "NewsletterMintApiKey=${{ secrets.NEWSLETTER_MINT_API_KEY }}" \
+              "UserPoolId=${{ vars.USER_POOL_ID }}" \
+              "UserPoolClientId=${{ vars.USER_POOL_CLIENT_ID }}" \
               "BaseCustomDomain=${{ vars.BASE_CUSTOM_DOMAIN }}" \
               "HostedZoneId=${{ vars.HOSTED_ZONE_ID }}"
 
@@ -164,6 +166,8 @@ jobs:
 
       - name: Package Chrome extension into dashboard build
         # See deploy.yml for rationale.
+        env:
+          VITE_API_BASE_URL: ${{ steps.outputs.outputs.api-url }}
         run: npm run build-extension-zip
 
       - name: Sync dashboard to S3

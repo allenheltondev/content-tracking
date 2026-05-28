@@ -17,22 +17,31 @@
     </main>
 
     <footer class="footer">
-      <button id="settings" class="link">Settings</button>
       <span id="synced" class="muted"></span>
     </footer>
 
-    <template id="signin-tpl">
-      <p class="muted">Sign in with your Booked account to start syncing engagement.</p>
-      <button id="signin" class="primary">Sign in</button>
-      <p class="error" id="signin-error" hidden></p>
+    <template id="pair-tpl">
+      <p class="muted">
+        Generate a pairing code in Booked under <strong>Settings → Extension</strong>, then paste
+        it below.
+      </p>
+      <label for="pair-token" class="muted small">Pairing code</label>
+      <textarea
+        id="pair-token"
+        rows="3"
+        placeholder="Paste the code from Booked"
+        spellcheck="false"
+        autocomplete="off"
+      ></textarea>
+      <button id="pair" class="primary">Pair extension</button>
+      <p class="error" id="pair-error" hidden></p>
     </template>
 
     <template id="setup-tpl">
-      <p class="muted">
-        This extension isn't configured yet. Add your Booked API URL and Cognito details on the
-        settings page.
+      <p class="error">
+        This build is missing its Booked API URL. Download a fresh extension zip from the
+        dashboard.
       </p>
-      <button id="open-settings" class="primary">Open settings</button>
     </template>
 
     <script type="module" src="popup.js"></script>
