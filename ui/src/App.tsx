@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from './auth/useAuth';
 import Logo from './components/Logo';
 import UserMenu from './components/UserMenu';
+import { useTheme } from './theme/useTheme';
 
 const baseLink = 'px-3 py-1.5 rounded-md text-sm font-medium transition-colors';
 const navLinkClass = ({ isActive }: { isActive: boolean }): string =>
@@ -13,6 +14,7 @@ const navLinkClass = ({ isActive }: { isActive: boolean }): string =>
 export default function App(): ReactElement {
   const { user, isAuthenticated, signOut } = useAuth();
   const navigate = useNavigate();
+  const { theme, toggleTheme } = useTheme();
 
   const handleSignOut = (): void => {
     void signOut().then(() => navigate('/signin', { replace: true }));
@@ -37,6 +39,14 @@ export default function App(): ReactElement {
               Revenue
             </NavLink>
           </nav>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            className="flex items-center justify-center h-9 w-9 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary-500"
+          >
+            <span aria-hidden>{theme === 'dark' ? '☀' : '☾'}</span>
+          </button>
           {isAuthenticated && user && (
             <UserMenu user={user} onSignOut={handleSignOut} />
           )}
