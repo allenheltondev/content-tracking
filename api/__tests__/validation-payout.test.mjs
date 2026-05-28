@@ -1,4 +1,4 @@
-import { validatePayoutPayload, formatPayout } from "../validation/payout.mjs";
+import { applyPaidAtDefault, validatePayoutPayload, formatPayout } from "../validation/payout.mjs";
 import { BadRequestError } from "../services/errors.mjs";
 
 describe("validatePayoutPayload", () => {
@@ -52,6 +52,37 @@ describe("validatePayoutPayload", () => {
     test("rejects malformed paid_at", () => {
       expect(() => validatePayoutPayload({ paid_at: "yesterday" }, opts)).toThrow(/YYYY-MM-DD/);
     });
+  });
+});
+
+describe("applyPaidAtDefault", () => {
+  test("paid=true with no paid_at fills today's UTC date", () => {
+    const payout = { amount: 5000, currency: "USD", paid: true };
+    applyPaidAtDefault(payout);
+    expect(payout.paid_at).toBe(new Date().toISOString().slice(0, 10));
+  });
+
+  test("paid=false with no paid_at clears to null", () => {
+    const payout = { amount: 5000, currency: "USD", paid: false };
+    applyPaidAtDefault(payout);
+    expect(payout.paid_at).toBeNull();
+  });
+
+  test("does not overwrite an explicit paid_at", () => {
+    const payout = { paid: true, paid_at: "2026-01-15" };
+    applyPaidAtDefault(payout);
+    expect(payout.paid_at).toBe("2026-01-15");
+  });
+
+  test("explicit null paid_at is preserved", () => {
+    const payout = { paid: true, paid_at: null };
+    applyPaidAtDefault(payout);
+    expect(payout.paid_at).toBeNull();
+  });
+
+  test("no-op when payout is missing", () => {
+    expect(applyPaidAtDefault(undefined)).toBeUndefined();
+    expect(applyPaidAtDefault(null)).toBeNull();
   });
 });
 

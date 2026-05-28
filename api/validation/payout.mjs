@@ -80,6 +80,21 @@ export function validatePayoutPayload(payout, { partial }) {
   return out;
 }
 
+// Mutates `payout` so that toggling `paid` carries a `paid_at` with it:
+// paid=true with no paid_at defaults to today (UTC); paid=false with no
+// paid_at clears the date. Used by both PATCH /campaigns and PATCH
+// /campaigns/{id}/payout so revenue tracking sees a received date the
+// moment a campaign is marked paid.
+export function applyPaidAtDefault(payout) {
+  if (!payout) return payout;
+  if (payout.paid === true && payout.paid_at === undefined) {
+    payout.paid_at = new Date().toISOString().slice(0, 10);
+  } else if (payout.paid === false && payout.paid_at === undefined) {
+    payout.paid_at = null;
+  }
+  return payout;
+}
+
 export function formatPayout(payout) {
   if (!payout) return null;
   return {

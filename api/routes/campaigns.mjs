@@ -18,7 +18,7 @@ import {
   validateUploadUrlRequest,
 } from "../validation/brief.mjs";
 import { validateDraftSubmission } from "../validation/draft.mjs";
-import { formatPayout } from "../validation/payout.mjs";
+import { applyPaidAtDefault, formatPayout } from "../validation/payout.mjs";
 import {
   createCampaign,
   findCampaign,
@@ -146,6 +146,7 @@ export function registerCampaignRoutes(app) {
     const { campaignId } = params;
     const body = parseBody(event);
     const fields = validateCampaignUpdate(body);
+    applyPaidAtDefault(fields.payout);
     const updated = await updateCampaignFields(campaignId, fields);
     return jsonResponse(200, formatCampaign(updated));
   });
