@@ -3,7 +3,7 @@
   "name": "Booked Social Analytics",
   "version": "0.1.0",
   "description": "Automatically captures engagement on your tracked social posts and syncs it to the Booked app.",
-  "permissions": ["identity", "storage", "alarms"],
+  "permissions": ["storage", "alarms"],
   "host_permissions": [
     "https://x.com/*",
     "https://twitter.com/*",
@@ -19,7 +19,6 @@
     "default_popup": "src/popup.html",
     "default_title": "Booked Social Analytics"
   },
-  "options_page": "src/options.html",
   "content_scripts": [
     {
       "matches": [

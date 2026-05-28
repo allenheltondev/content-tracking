@@ -1,11 +1,12 @@
 // Thin authenticated client for the Booked API. The extension is granted
-// host permission for the API origin (requested on the options page), so
-// these cross-origin fetches are not subject to the API's CORS allow-list.
-// The id_token goes in the raw Authorization header — no "Bearer" prefix —
-// matching the dashboard and the API's Cognito authorizer.
+// host permission for the API origin so these cross-origin fetches are
+// not subject to the API's CORS allow-list. The pairing token goes in
+// the Authorization header as `Bearer <token>` — the Lambda authorizer
+// verifies the HMAC signature and checks revocation before forwarding
+// the request to the API.
 
-import { getConfig } from "./config.js";
-import { getIdToken } from "./auth.js";
+import { getConfig, isConfigured } from "./config.js";
+import { getPairingToken } from "./pairing.js";
 
 export class ApiError extends Error {
   constructor(status, message) {
@@ -17,13 +18,19 @@ export class ApiError extends Error {
 
 async function apiFetch(path, { method = "GET", body } = {}) {
   const cfg = await getConfig();
-  const token = await getIdToken();
+  if (!isConfigured(cfg)) {
+    throw new ApiError(0, "Extension build is missing its API base URL.");
+  }
+  const token = await getPairingToken();
+  if (!token) {
+    throw new ApiError(0, "Not paired. Open the popup and paste a pairing code.");
+  }
   const base = cfg.apiBaseUrl.replace(/\/$/, "");
 
   const res = await fetch(`${base}${path}`, {
     method,
     headers: {
-      Authorization: token,
+      Authorization: `Bearer ${token}`,
       ...(body !== undefined ? { "content-type": "application/json" } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,

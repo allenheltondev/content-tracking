@@ -1,15 +1,32 @@
-// Popup UI. All real work lives in the background service worker; the popup
-// just renders status and forwards button intents (sign in/out, refresh).
+// Popup UI. All real work lives in the background service worker; the
+// popup just renders status, captures the pairing-code paste, and
+// forwards button intents.
+
+import { getConfig } from "./config.js";
 
 const content = document.getElementById("content");
 const syncedEl = document.getElementById("synced");
 
-document.getElementById("settings").addEventListener("click", () => {
-  chrome.runtime.openOptionsPage();
-});
+// Asks Chrome for cross-origin access to the API host. The packaged zip
+// bakes this into manifest host_permissions at build time (so this call
+// resolves true immediately with no prompt); for load-unpacked from the
+// source folder the user gets a single permission prompt the first time
+// they pair. Must be invoked from a user gesture, which the pair-button
+// click handler provides.
+async function ensureApiHostAccess() {
+  const cfg = await getConfig();
+  if (!cfg.apiBaseUrl) return false;
+  let pattern;
+  try {
+    pattern = `${new URL(cfg.apiBaseUrl).origin}/*`;
+  } catch {
+    return false;
+  }
+  return chrome.permissions.request({ origins: [pattern] });
+}
 
-function send(type) {
-  return chrome.runtime.sendMessage({ type });
+function send(message) {
+  return chrome.runtime.sendMessage(message);
 }
 
 function timeAgo(iso) {
@@ -37,25 +54,38 @@ function clear() {
 function renderSetup() {
   clear();
   const tpl = document.getElementById("setup-tpl").content.cloneNode(true);
-  tpl.querySelector("#open-settings").addEventListener("click", () => chrome.runtime.openOptionsPage());
   content.appendChild(tpl);
 }
 
-function renderSignIn(error) {
+function renderPair(error) {
   clear();
-  const tpl = document.getElementById("signin-tpl").content.cloneNode(true);
-  const btn = tpl.querySelector("#signin");
-  const errEl = tpl.querySelector("#signin-error");
+  const tpl = document.getElementById("pair-tpl").content.cloneNode(true);
+  const input = tpl.querySelector("#pair-token");
+  const btn = tpl.querySelector("#pair");
+  const errEl = tpl.querySelector("#pair-error");
   if (error) {
     errEl.textContent = error;
     errEl.hidden = false;
   }
   btn.addEventListener("click", async () => {
+    const token = input.value.trim();
+    if (!token) {
+      errEl.textContent = "Paste a pairing code first.";
+      errEl.hidden = false;
+      return;
+    }
     btn.disabled = true;
-    btn.textContent = "Opening sign-in…";
-    const status = await send("booked:signIn");
+    btn.textContent = "Pairing…";
+
+    const granted = await ensureApiHostAccess();
+    if (!granted) {
+      renderPair("Host access denied. The extension can't reach the Booked API without it.");
+      return;
+    }
+
+    const status = await send({ type: "booked:pair", token });
     if (status?.error) {
-      renderSignIn(status.error);
+      renderPair(status.error);
     } else {
       render(status);
     }
@@ -63,19 +93,21 @@ function renderSignIn(error) {
   content.appendChild(tpl);
 }
 
-function renderSignedIn(status) {
+function renderPaired(status) {
   clear();
 
   const account = document.createElement("div");
   account.className = "account";
-  const email = document.createElement("span");
-  email.className = "email";
-  email.textContent = status.email || "Signed in";
-  const signOut = document.createElement("button");
-  signOut.className = "link";
-  signOut.textContent = "Sign out";
-  signOut.addEventListener("click", async () => render(await send("booked:signOut")));
-  account.append(email, signOut);
+  const label = document.createElement("span");
+  label.className = "email";
+  label.textContent = status.paired_at
+    ? `Paired ${timeAgo(status.paired_at)}`
+    : "Paired";
+  const unpair = document.createElement("button");
+  unpair.className = "link";
+  unpair.textContent = "Unpair";
+  unpair.addEventListener("click", async () => render(await send({ type: "booked:unpair" })));
+  account.append(label, unpair);
   content.appendChild(account);
 
   const summary = document.createElement("p");
@@ -98,7 +130,7 @@ function renderSignedIn(status) {
   refresh.addEventListener("click", async () => {
     refresh.disabled = true;
     refresh.textContent = "Refreshing…";
-    render(await send("booked:refreshFeed"));
+    render(await send({ type: "booked:refreshFeed" }));
   });
   actions.appendChild(refresh);
   content.appendChild(actions);
@@ -136,21 +168,17 @@ function renderSignedIn(status) {
 }
 
 function render(status) {
-  if (!status) {
-    renderSignIn();
-    return;
-  }
-  if (!status.configured) {
+  if (!status || !status.configured) {
     renderSetup();
     return;
   }
-  if (!status.signedIn) {
-    renderSignIn();
+  if (!status.paired) {
+    renderPair();
     return;
   }
-  renderSignedIn(status);
+  renderPaired(status);
 }
 
 (async function start() {
-  render(await send("booked:status"));
+  render(await send({ type: "booked:status" }));
 })();

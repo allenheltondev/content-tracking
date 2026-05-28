@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react';
+import { Link } from 'react-router-dom';
 import Modal from './Modal';
 
 interface Props {
@@ -12,8 +13,6 @@ interface Props {
 // local `npm run dev` the URL 404s; run `npm run build-extension-zip`
 // from repo root + `npm run preview` to exercise the download path.
 const EXTENSION_ZIP_URL = '/booked-extension.zip';
-const README_URL =
-  'https://github.com/allenheltondev/content-tracking/blob/main/extension/README.md';
 
 export default function InstallExtensionModal({ open, onClose }: Props): ReactElement {
   return (
@@ -50,27 +49,28 @@ export default function InstallExtensionModal({ open, onClose }: Props): ReactEl
             unzipped.
           </li>
           <li>
-            Right-click the new extension icon and pick{' '}
-            <span className="font-medium">Options</span>. Fill in the API URL, Cognito Hosted
-            UI domain, app client id, region, and scopes.
+            Open{' '}
+            <Link
+              to="/settings"
+              className="text-primary-600 hover:underline"
+              onClick={onClose}
+            >
+              Settings → Extension
+            </Link>{' '}
+            and click <span className="font-medium">Generate pairing code</span>. Copy the
+            code from the dialog.
           </li>
           <li>
-            Open the popup and click <span className="font-medium">Sign in</span>. Once you
-            see your tracked posts in the popup, the extension is wired up.
+            Open the extension popup, paste the code into the{' '}
+            <span className="font-medium">Pairing code</span> field, and click{' '}
+            <span className="font-medium">Pair extension</span>. Your tracked posts show up
+            in the popup once the pairing finishes.
           </li>
         </ol>
 
         <p className="text-muted-foreground">
-          Full setup details, including the Cognito redirect URI step, are in the{' '}
-          <a
-            href={README_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="text-primary-600 hover:underline"
-          >
-            extension README
-          </a>
-          .
+          The pairing code grants the extension access to your Booked account. Revoke it any
+          time from the same Settings page.
         </p>
 
         <div className="flex justify-end pt-2">

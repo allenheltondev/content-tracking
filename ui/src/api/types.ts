@@ -314,6 +314,29 @@ export interface ProfileUpdateRequest {
   crux_api_key?: string;
 }
 
+// Chrome-extension pairing tokens. The token value itself only appears
+// in the POST response (one-time view); GET only returns metadata so
+// nothing on the wire reveals a previously minted token.
+export interface ExtensionPairing {
+  jti: string;
+  label: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface ListExtensionPairingsResponse {
+  pairings: ExtensionPairing[];
+}
+
+export interface CreateExtensionPairingRequest {
+  label?: string;
+}
+
+export interface CreateExtensionPairingResponse {
+  pairing: ExtensionPairing;
+  token: string;
+}
+
 export interface Ga4Totals {
   pageviews: number;
   users: number;

@@ -9,6 +9,7 @@ import { registerWebAnalyticsRoutes } from "./routes/web-analytics.mjs";
 import { registerPayoutRoutes } from "./routes/payout.mjs";
 import { registerRevenueRoutes } from "./routes/revenue.mjs";
 import { registerProfileRoutes } from "./routes/profile.mjs";
+import { registerExtensionPairingRoutes } from "./routes/extension-pairings.mjs";
 import { logger } from "./services/logger.mjs";
 import { jsonResponse } from "./services/http-handler.mjs";
 import { ApiError } from "./services/errors.mjs";
@@ -25,6 +26,7 @@ registerWebAnalyticsRoutes(app);
 registerPayoutRoutes(app);
 registerRevenueRoutes(app);
 registerProfileRoutes(app);
+registerExtensionPairingRoutes(app);
 
 app.notFound(({ event }) => {
   const method = event.httpMethod || event?.requestContext?.http?.method;
