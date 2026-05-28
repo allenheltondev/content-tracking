@@ -1,7 +1,7 @@
 import { BadRequestError } from "../services/errors.mjs";
 import { jsonResponse } from "../services/http-handler.mjs";
 import { updateCampaignPayout } from "../domain/campaign.mjs";
-import { formatPayout, validatePayoutPayload } from "../validation/payout.mjs";
+import { applyPaidAtDefault, formatPayout, validatePayoutPayload } from "../validation/payout.mjs";
 
 const formatCampaign = (row) => ({
   campaign_id: row.campaignId,
@@ -33,12 +33,7 @@ export function registerPayoutRoutes(app) {
       throw new BadRequestError("request body must contain at least one payout field");
     }
 
-    if (fields.paid === true && fields.paid_at === undefined) {
-      fields.paid_at = new Date().toISOString().slice(0, 10);
-    }
-    if (fields.paid === false && fields.paid_at === undefined) {
-      fields.paid_at = null;
-    }
+    applyPaidAtDefault(fields);
 
     const updated = await updateCampaignPayout(campaignId, fields);
     return jsonResponse(200, formatCampaign(updated));
