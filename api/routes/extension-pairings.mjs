@@ -1,5 +1,5 @@
 import { BadRequestError, UnauthorizedError } from "../services/errors.mjs";
-import { jsonResponse } from "../services/http-handler.mjs";
+import { emptyResponse, jsonResponse } from "../services/http-handler.mjs";
 import { logger } from "../services/logger.mjs";
 import {
   listPairings,
@@ -44,7 +44,7 @@ export function registerExtensionPairingRoutes(app) {
     const sub = requireCognitoSub(event);
     await revokePairing({ sub, jti: params.jti });
     logger.info("Extension pairing revoked", { sub, jti: params.jti });
-    return jsonResponse(204, null);
+    return emptyResponse(204);
   });
 }
 
