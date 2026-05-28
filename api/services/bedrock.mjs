@@ -46,9 +46,15 @@ const RECORD_BRIEF_TOOL = {
               vendor: {
                 type: "object",
                 properties: {
+                  vendor_id: {
+                    type: "string",
+                    description:
+                      "If the brief's vendor matches one in the Known vendors list, set this to that vendor_id. Leave unset when no match is confident.",
+                  },
                   name_hint: {
                     type: "string",
-                    description: "Vendor / brand name exactly as it appears in the brief.",
+                    description:
+                      "The vendor (brand) name as it should appear on the campaign. Match the spelling of an existing vendor when one applies; otherwise the brand the brief is promoting — NOT an intermediary agency.",
                   },
                 },
               },
@@ -127,16 +133,26 @@ For each brief, do all of the following and return them by calling the record_br
 - For each deliverable, give platform (instagram, youtube, tiktok, x, blog, ...) and content type (reel, post, video, article, ...) in lowercase, plus count (default 1) and notes describing tone, length, or must-mention features.
 - Surface warnings for anything missing, ambiguous, or that the user should confirm before accepting the draft.
 
+Vendor vs agency: the vendor is the company whose product or brand is being promoted. If the brief is sent by a marketing or PR agency representing a brand, the agency is NOT the vendor — the brand they represent is. Pull the vendor from the body of the brief (the product being promoted), not from the sender's signature or the cover letter. Call this out in a warning when an agency is acting as a proxy.
+
+Existing context: the user message may include an "Existing campaign" block (fields already set on this campaign — treat as ground truth; only suggest changes when the brief contradicts or adds to them) and a "Known vendors" block (vendors already in the system, with their vendor_id and name). When the brief's vendor matches one of the known vendors, set suggested_campaign.vendor.vendor_id to that exact id and use the known vendor's name in name_hint — do not invent a new spelling. Leave vendor_id unset when no known vendor clearly matches.
+
 Be conservative. If a field is genuinely not stated in the brief, leave it off rather than guessing. Add a warning instead. Currency defaults to USD only when an amount is given without a currency. Do not write prose — only call the tool.`;
 
 // Calls Bedrock Converse with the appropriate content for the source type.
 // `pdfBytes` is a Buffer; pass it for PDF briefs. `text` is the chat
 // transcript for chat briefs. Exactly one should be set.
-export async function summarizeBrief({ sourceType, pdfBytes, text }) {
+//
+// `existingCampaign` is the campaign row this brief is being attached to
+// (so the model knows what's already set and doesn't re-suggest it).
+// `vendors` is the list of known vendors so the model can match by id
+// rather than fabricating a new spelling. Both are optional.
+export async function summarizeBrief({ sourceType, pdfBytes, text, existingCampaign, vendors }) {
   if (!MODEL_ID) {
     throw new Error("BEDROCK_MODEL_ID env var is not set");
   }
 
+  const contextBlock = formatBriefContext({ existingCampaign, vendors });
   const userContent = [];
 
   if (sourceType === "pdf") {
@@ -149,12 +165,12 @@ export async function summarizeBrief({ sourceType, pdfBytes, text }) {
       },
     });
     userContent.push({
-      text: "Extract the structured summary from this brief by calling the record_brief_summary tool.",
+      text: `Extract the structured summary from this brief by calling the record_brief_summary tool.${contextBlock}`,
     });
   } else if (sourceType === "chat") {
     if (!text) throw new Error("text is required for source_type=chat");
     userContent.push({
-      text: `Extract the structured summary from the following chat transcript by calling the record_brief_summary tool.\n\n--- BEGIN TRANSCRIPT ---\n${text}\n--- END TRANSCRIPT ---`,
+      text: `Extract the structured summary from the following chat transcript by calling the record_brief_summary tool.${contextBlock}\n\n--- BEGIN TRANSCRIPT ---\n${text}\n--- END TRANSCRIPT ---`,
     });
   } else {
     throw new Error(`Unsupported source_type: ${sourceType}`);
@@ -165,6 +181,44 @@ export async function summarizeBrief({ sourceType, pdfBytes, text }) {
     userContent,
     tool: RECORD_BRIEF_TOOL,
   });
+}
+
+// Renders the per-call context (existing campaign fields + known vendors)
+// that the system prompt tells the model to consult. Returns "" when both
+// inputs are empty so the user message stays clean.
+function formatBriefContext({ existingCampaign, vendors }) {
+  const sections = [];
+
+  if (existingCampaign) {
+    const lines = [];
+    const c = existingCampaign;
+    if (c.name) lines.push(`name: ${c.name}`);
+    if (c.vendorId) lines.push(`vendor_id: ${c.vendorId}`);
+    if (c.sponsor) lines.push(`sponsor (display name): ${c.sponsor}`);
+    if (c.startDate) lines.push(`startDate: ${c.startDate}`);
+    if (c.endDate) lines.push(`endDate: ${c.endDate}`);
+    if (c.status) lines.push(`status: ${c.status}`);
+    if (c.payout?.amount !== undefined) {
+      const currency = c.payout.currency ?? "USD";
+      lines.push(`payout: ${c.payout.amount} ${currency}`);
+    }
+    if (c.targetMetrics && Object.keys(c.targetMetrics).length > 0) {
+      lines.push(`targetMetrics: ${JSON.stringify(c.targetMetrics)}`);
+    }
+    if (lines.length > 0) {
+      sections.push(`Existing campaign:\n${lines.map((l) => `  ${l}`).join("\n")}`);
+    } else {
+      sections.push("Existing campaign: (no fields set yet)");
+    }
+  }
+
+  if (Array.isArray(vendors) && vendors.length > 0) {
+    const lines = vendors.map((v) => `  - ${v.vendorId}: ${v.name}`);
+    sections.push(`Known vendors:\n${lines.join("\n")}`);
+  }
+
+  if (sections.length === 0) return "";
+  return `\n\n${sections.join("\n\n")}`;
 }
 
 // Tool the model is forced to call when reviewing a draft. Same rationale

@@ -14,7 +14,7 @@ interface Props {
 }
 
 export default function SourcePicker({ busy, onSubmitChat, onSubmitPdf }: Props): ReactElement {
-  const [tab, setTab] = useState<Tab>('chat');
+  const [tab, setTab] = useState<Tab>('pdf');
   const [chatText, setChatText] = useState('');
   const [chatError, setChatError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);

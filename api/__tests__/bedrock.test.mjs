@@ -56,6 +56,49 @@ describe("services/bedrock summarizeBrief", () => {
       );
       expect(command.input.toolConfig.toolChoice.tool.name).toBe("record_brief_summary");
     });
+
+    test("renders existing campaign + known vendors into the user message", async () => {
+      mockSend.mockResolvedValueOnce(validToolUseResponse({
+        summary: "ok",
+        suggested_campaign: { name: "ok" },
+      }));
+
+      await summarizeBrief({
+        sourceType: "chat",
+        text: "vendor: hi",
+        existingCampaign: {
+          name: "Acme Q2",
+          vendorId: "acme",
+          sponsor: "Acme Inc.",
+          startDate: "2026-06-01",
+        },
+        vendors: [
+          { vendorId: "acme", name: "Acme Inc." },
+          { vendorId: "globex", name: "Globex" },
+        ],
+      });
+
+      const userText = mockSend.mock.calls[0][0].input.messages[0].content[0].text;
+      expect(userText).toContain("Existing campaign:");
+      expect(userText).toContain("name: Acme Q2");
+      expect(userText).toContain("vendor_id: acme");
+      expect(userText).toContain("Known vendors:");
+      expect(userText).toContain("acme: Acme Inc.");
+      expect(userText).toContain("globex: Globex");
+    });
+
+    test("omits context block when no campaign or vendors are provided", async () => {
+      mockSend.mockResolvedValueOnce(validToolUseResponse({
+        summary: "ok",
+        suggested_campaign: { name: "ok" },
+      }));
+
+      await summarizeBrief({ sourceType: "chat", text: "vendor: hi" });
+
+      const userText = mockSend.mock.calls[0][0].input.messages[0].content[0].text;
+      expect(userText).not.toContain("Existing campaign");
+      expect(userText).not.toContain("Known vendors");
+    });
   });
 
   describe("pdf source", () => {
