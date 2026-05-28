@@ -195,6 +195,9 @@ jobs:
           # so the packaged extension already knows which Booked API to
           # call. Same value the dashboard build above uses.
           VITE_API_BASE_URL: ${{ steps.outputs.outputs.api-url }}
+          # Lets the popup deep-link unpaired users back to
+          # Settings → Extension on this dashboard.
+          BOOKED_DASHBOARD_URL: ${{ steps.outputs.outputs.dashboard-url }}
         run: npm run build-extension-zip
 
       - name: Sync dashboard to S3

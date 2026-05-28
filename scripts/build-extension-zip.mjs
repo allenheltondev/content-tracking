@@ -23,12 +23,18 @@ const outPath = path.join(outDir, 'booked-extension.zip');
 // produce a working zip; the extension's popup flags the missing URL
 // instead of silently calling the wrong host.
 const apiBaseUrl = process.env.VITE_API_BASE_URL || '';
+// Dashboard URL is baked in so the popup's "Settings → Extension" hint
+// can deep-link the user back into the dashboard. Optional — a zip
+// without it just shows the destination as plain text.
+const dashboardBaseUrl = process.env.BOOKED_DASHBOARD_URL || '';
 
 await mkdir(outDir, { recursive: true });
 
 const configPath = path.join(extensionDir, 'src', 'config.js');
 const configTemplate = await readFile(configPath, 'utf8');
-const configWithUrl = configTemplate.replace('__BOOKED_API_BASE_URL__', apiBaseUrl);
+const configWithUrl = configTemplate
+  .replace('__BOOKED_API_BASE_URL__', apiBaseUrl)
+  .replace('__BOOKED_DASHBOARD_URL__', dashboardBaseUrl);
 
 // Append the API origin to manifest host_permissions so installs from
 // the packaged zip can hit the API cross-origin from the service
@@ -48,7 +54,7 @@ await new Promise((resolve, reject) => {
 
   output.on('close', () => {
     console.log(
-      `[build-extension-zip] wrote ${path.relative(repoRoot, outPath)} (${archive.pointer()} bytes), apiBaseUrl=${apiBaseUrl || '(unset)'}`,
+      `[build-extension-zip] wrote ${path.relative(repoRoot, outPath)} (${archive.pointer()} bytes), apiBaseUrl=${apiBaseUrl || '(unset)'}, dashboardBaseUrl=${dashboardBaseUrl || '(unset)'}`,
     );
     resolve();
   });

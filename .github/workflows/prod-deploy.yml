@@ -169,6 +169,7 @@ jobs:
         # See deploy.yml for rationale.
         env:
           VITE_API_BASE_URL: ${{ steps.outputs.outputs.api-url }}
+          BOOKED_DASHBOARD_URL: ${{ steps.outputs.outputs.dashboard-url }}
         run: npm run build-extension-zip
 
       - name: Sync dashboard to S3

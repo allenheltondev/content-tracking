@@ -29,6 +29,22 @@ function send(message) {
   return chrome.runtime.sendMessage(message);
 }
 
+// Dashboard URL is baked in at packaging time; an unfilled placeholder
+// means a hand-packed zip without the substitution, in which case we
+// keep the plain "Settings → Extension" text rather than render a broken
+// link.
+function dashboardSettingsUrl(cfg) {
+  const base = cfg.dashboardBaseUrl;
+  if (!base || base.startsWith("__")) return null;
+  try {
+    const url = new URL("/settings", base);
+    url.searchParams.set("tab", "extension");
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 function timeAgo(iso) {
   if (!iso) return "never";
   const then = new Date(iso).getTime();
@@ -57,12 +73,22 @@ function renderSetup() {
   content.appendChild(tpl);
 }
 
-function renderPair(error) {
+async function renderPair(error) {
   clear();
   const tpl = document.getElementById("pair-tpl").content.cloneNode(true);
   const input = tpl.querySelector("#pair-token");
   const btn = tpl.querySelector("#pair");
   const errEl = tpl.querySelector("#pair-error");
+  const slot = tpl.querySelector("#pair-settings-slot");
+  const settingsUrl = dashboardSettingsUrl(await getConfig());
+  if (settingsUrl && slot) {
+    const link = document.createElement("a");
+    link.href = settingsUrl;
+    link.target = "_blank";
+    link.rel = "noreferrer";
+    link.textContent = "Settings → Extension";
+    slot.replaceChildren(link);
+  }
   if (error) {
     errEl.textContent = error;
     errEl.hidden = false;
@@ -79,13 +105,13 @@ function renderPair(error) {
 
     const granted = await ensureApiHostAccess();
     if (!granted) {
-      renderPair("Host access denied. The extension can't reach the Booked API without it.");
+      void renderPair("Host access denied. The extension can't reach the Booked API without it.");
       return;
     }
 
     const status = await send({ type: "booked:pair", token });
     if (status?.error) {
-      renderPair(status.error);
+      void renderPair(status.error);
     } else {
       render(status);
     }
@@ -173,7 +199,7 @@ function render(status) {
     return;
   }
   if (!status.paired) {
-    renderPair();
+    void renderPair();
     return;
   }
   renderPaired(status);
