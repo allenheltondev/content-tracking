@@ -1,8 +1,8 @@
 // ISOLATED-world content script. Bridges the MAIN-world interceptor
 // (inject.js) to the background service worker: it receives the captured
-// response bodies via window.postMessage and relays them — tagged with the
-// platform and current page URL — to the background, which does the actual
-// metric extraction and sync.
+// response bodies via a CustomEvent on document and relays them — tagged
+// with the platform and current page URL — to the background, which does
+// the actual metric extraction and sync.
 (function () {
   function detectPlatform() {
     const host = location.hostname.replace(/^www\./, "");
@@ -17,17 +17,23 @@
   const platform = detectPlatform();
   if (!platform) return;
 
-  window.addEventListener("message", (event) => {
-    if (event.source !== window) return;
-    const data = event.data;
-    if (!data || data.__booked !== true || data.kind !== "response") return;
+  const CAPTURE_EVENT = "__booked_capture_v1";
+
+  document.addEventListener(CAPTURE_EVENT, (event) => {
+    let payload;
+    try {
+      payload = JSON.parse(event.detail);
+    } catch {
+      return;
+    }
+    if (!payload || typeof payload.url !== "string") return;
 
     chrome.runtime
       .sendMessage({
         type: "booked:captured",
         platform,
-        url: data.url,
-        body: data.body,
+        url: payload.url,
+        body: payload.body,
         pageUrl: location.href,
       })
       .catch(() => {
