@@ -30,6 +30,7 @@ import RegisterLinkForm from '../components/RegisterLinkForm';
 import RegisterSocialPostForm from '../components/RegisterSocialPostForm';
 import CampaignBriefSection from '../components/CampaignBriefSection';
 import CampaignDraftTab from '../components/CampaignDraftTab';
+import InstallExtensionModal from '../components/InstallExtensionModal';
 
 type CampaignTab = 'overview' | 'brief' | 'draft' | 'promotion' | 'analytics';
 
@@ -62,6 +63,7 @@ export default function CampaignDetail(): ReactElement {
   const [postError, setPostError] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<CampaignTab>('overview');
+  const [extensionModalOpen, setExtensionModalOpen] = useState(false);
 
   // Campaign metadata + links. Cheap; fires on mount.
   useEffect(() => {
@@ -389,7 +391,16 @@ export default function CampaignDetail(): ReactElement {
 
           <section className="space-y-3">
             <div className="space-y-1">
-              <h2 className="text-lg font-semibold text-foreground">Social posts</h2>
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <h2 className="text-lg font-semibold text-foreground">Social posts</h2>
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  onClick={() => setExtensionModalOpen(true)}
+                >
+                  Install Chrome extension
+                </button>
+              </div>
               <p className="text-sm text-muted-foreground">
                 Engagement is captured automatically by the Booked browser extension when you visit
                 each post. <span className="font-medium text-foreground">Last fetched</span> shows the
@@ -517,6 +528,11 @@ export default function CampaignDetail(): ReactElement {
           onDraftChange={(draft) => setBundle((prev) => (prev ? { ...prev, draft } : prev))}
         />
       )}
+
+      <InstallExtensionModal
+        open={extensionModalOpen}
+        onClose={() => setExtensionModalOpen(false)}
+      />
     </section>
   );
 }
