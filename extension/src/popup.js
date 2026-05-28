@@ -2,8 +2,28 @@
 // popup just renders status, captures the pairing-code paste, and
 // forwards button intents.
 
+import { getConfig } from "./config.js";
+
 const content = document.getElementById("content");
 const syncedEl = document.getElementById("synced");
+
+// Asks Chrome for cross-origin access to the API host. The packaged zip
+// bakes this into manifest host_permissions at build time (so this call
+// resolves true immediately with no prompt); for load-unpacked from the
+// source folder the user gets a single permission prompt the first time
+// they pair. Must be invoked from a user gesture, which the pair-button
+// click handler provides.
+async function ensureApiHostAccess() {
+  const cfg = await getConfig();
+  if (!cfg.apiBaseUrl) return false;
+  let pattern;
+  try {
+    pattern = `${new URL(cfg.apiBaseUrl).origin}/*`;
+  } catch {
+    return false;
+  }
+  return chrome.permissions.request({ origins: [pattern] });
+}
 
 function send(message) {
   return chrome.runtime.sendMessage(message);
@@ -56,6 +76,13 @@ function renderPair(error) {
     }
     btn.disabled = true;
     btn.textContent = "Pairing…";
+
+    const granted = await ensureApiHostAccess();
+    if (!granted) {
+      renderPair("Host access denied. The extension can't reach the Booked API without it.");
+      return;
+    }
+
     const status = await send({ type: "booked:pair", token });
     if (status?.error) {
       renderPair(status.error);
