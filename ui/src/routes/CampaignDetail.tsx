@@ -318,50 +318,51 @@ export default function CampaignDetail(): ReactElement {
       </nav>
 
       {activeTab === 'overview' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <FieldCard label="Status" accent="primary" icon={<StatusIconSvg />}>
+        <div className="card divide-y divide-border">
+          <FormRow label="Status" hint="Current lifecycle stage of the campaign.">
             <StatusEditor
               apiFetch={apiFetch}
               campaign={campaign}
               onCampaignChange={onCampaignChange}
             />
-          </FieldCard>
-          <FieldCard label="Dates" accent="success" icon={<CalendarIconSvg />}>
+          </FormRow>
+          <FormRow label="Dates" hint="Campaign window. Leave blank if open-ended.">
             <DateRangeEditor
               apiFetch={apiFetch}
               campaign={campaign}
               onCampaignChange={onCampaignChange}
             />
-          </FieldCard>
-          <FieldCard label="Created" accent="secondary" icon={<ClockIconSvg />}>
+          </FormRow>
+          <FormRow label="Created">
             <span className="text-foreground">{campaign.created_at.slice(0, 10)}</span>
-          </FieldCard>
-          <FieldCard label="Payout" accent="warning" icon={<DollarIconSvg />}>
+          </FormRow>
+          <FormRow label="Payout" hint="Amount, currency, and whether the sponsor has paid.">
             <PayoutEditor
               apiFetch={apiFetch}
               campaign={campaign}
               onCampaignChange={onCampaignChange}
             />
-          </FieldCard>
-          <FieldCard
+          </FormRow>
+          <FormRow
             label="Blog post"
-            accent="primary"
-            icon={<LinkIconSvg />}
-            className="sm:col-span-2"
+            hint="URL of the post promoting this campaign. Powers GA4 traffic and Core Web Vitals on the Analytics tab."
           >
             <BlogUrlEditor
               apiFetch={apiFetch}
               campaign={campaign}
               onCampaignChange={onCampaignChange}
             />
-          </FieldCard>
-          <FieldCard label="Link tracking ID" accent="secondary" icon={<TagIconSvg />}>
+          </FormRow>
+          <FormRow
+            label="Link tracking ID"
+            hint="Tags every short link minted for this campaign so the newsletter service can group analytics by campaign. Existing links minted before this is set won't be retroactively tagged."
+          >
             <LinkTrackingIdEditor
               apiFetch={apiFetch}
               campaign={campaign}
               onCampaignChange={onCampaignChange}
             />
-          </FieldCard>
+          </FormRow>
         </div>
       )}
 
@@ -1551,10 +1552,6 @@ function LinkTrackingIdEditor({
         </button>
       </div>
       {error && <p className="form-error">{error}</p>}
-      <p className="text-xs text-muted-foreground">
-        Tags every short link minted for this campaign so the newsletter service can group analytics
-        by campaign. Existing links minted before this is set won't be retroactively tagged.
-      </p>
     </div>
   );
 }
@@ -1606,160 +1603,22 @@ function PencilIcon({ className = 'w-3.5 h-3.5' }: { className?: string }): Reac
   );
 }
 
-type FieldAccent = 'primary' | 'secondary' | 'success' | 'warning';
-
-const ACCENT_STYLES: Record<FieldAccent, string> = {
-  primary: 'bg-primary-50 text-primary-600 ring-primary-100',
-  secondary: 'bg-secondary-100 text-secondary-700 ring-secondary-200',
-  success: 'bg-success-50 text-success-700 ring-success-100',
-  warning: 'bg-warning-50 text-warning-700 ring-warning-100',
-};
-
-function FieldCard({
+function FormRow({
   label,
-  icon,
-  accent,
+  hint,
   children,
-  className,
 }: {
   label: string;
-  icon: ReactElement;
-  accent: FieldAccent;
+  hint?: string;
   children: ReactElement;
-  className?: string;
 }): ReactElement {
   return (
-    <div
-      className={`group relative bg-surface border border-border rounded-xl shadow-soft px-5 py-4 hover:shadow-medium hover:border-primary-200 transition ${className ?? ''}`}
-    >
-      <div className="flex items-start gap-3">
-        <span
-          className={`shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-lg ring-1 ring-inset ${ACCENT_STYLES[accent]}`}
-          aria-hidden="true"
-        >
-          {icon}
-        </span>
-        <div className="min-w-0 flex-1 space-y-1">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground font-medium">
-            {label}
-          </p>
-          <div className="text-sm text-foreground">{children}</div>
-        </div>
+    <div className="grid grid-cols-1 sm:grid-cols-[200px,1fr] gap-x-6 gap-y-2 items-start px-6 py-4">
+      <p className="text-sm font-medium text-foreground sm:pt-1.5">{label}</p>
+      <div className="min-w-0 space-y-1.5">
+        <div className="text-sm text-foreground">{children}</div>
+        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       </div>
     </div>
-  );
-}
-
-function StatusIconSvg(): ReactElement {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="w-5 h-5"
-      aria-hidden="true"
-    >
-      <circle cx="12" cy="12" r="9" />
-      <path d="M8 12l3 3 5-6" />
-    </svg>
-  );
-}
-
-function CalendarIconSvg(): ReactElement {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="w-5 h-5"
-      aria-hidden="true"
-    >
-      <rect x="3" y="5" width="18" height="16" rx="2" />
-      <path d="M16 3v4M8 3v4M3 10h18" />
-    </svg>
-  );
-}
-
-function ClockIconSvg(): ReactElement {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="w-5 h-5"
-      aria-hidden="true"
-    >
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
-    </svg>
-  );
-}
-
-function DollarIconSvg(): ReactElement {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="w-5 h-5"
-      aria-hidden="true"
-    >
-      <path d="M12 3v18" />
-      <path d="M17 7H9.5a2.5 2.5 0 100 5h5a2.5 2.5 0 010 5H7" />
-    </svg>
-  );
-}
-
-function LinkIconSvg(): ReactElement {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="w-5 h-5"
-      aria-hidden="true"
-    >
-      <path d="M10 13a5 5 0 007.07 0l3-3a5 5 0 00-7.07-7.07l-1.5 1.5" />
-      <path d="M14 11a5 5 0 00-7.07 0l-3 3a5 5 0 007.07 7.07l1.5-1.5" />
-    </svg>
-  );
-}
-
-function TagIconSvg(): ReactElement {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="w-5 h-5"
-      aria-hidden="true"
-    >
-      <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" />
-      <circle cx="7" cy="7" r="1.5" fill="currentColor" />
-    </svg>
   );
 }
