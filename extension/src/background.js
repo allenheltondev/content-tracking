@@ -1,12 +1,12 @@
-// Service worker: the extension's brain. It keeps a cached feed of social
-// posts on active campaigns, listens for engagement payloads the content
-// scripts capture off each platform's own API traffic, matches them to a
-// tracked post, and writes the metrics back to Booked — all without any
-// user interaction.
+// Service worker: the extension's brain. It keeps a cached working set of
+// social posts and cross-post links on campaigns in the "monitoring"
+// phase, listens for engagement payloads the content scripts capture off
+// each platform's own API traffic, matches them to a tracked post, and
+// writes the metrics back to Booked — all without any user interaction.
 
 import { getConfig, isConfigured } from "./config.js";
 import { adapters } from "./adapters.js";
-import { getActivePosts, putAnalytics } from "./api.js";
+import { getMonitoringWorkingSet, putAnalytics } from "./api.js";
 import { getSession, isSignedIn, signIn, signOut } from "./auth.js";
 
 const FEED_KEY = "booked_feed";
@@ -14,6 +14,7 @@ const SENT_KEY = "booked_sent";
 const FEED_ALARM = "booked:feed-refresh";
 
 let feed = null;
+let crossPostLinks = [];
 let feedAt = 0;
 let lastError = null;
 let syncedThisSession = 0;
@@ -24,6 +25,7 @@ async function loadFeedFromStorage() {
   const stored = (await chrome.storage.local.get(FEED_KEY))[FEED_KEY];
   if (stored?.posts) {
     feed = stored.posts;
+    crossPostLinks = stored.crossPostLinks || [];
     feedAt = stored.at || 0;
   }
 }
@@ -32,6 +34,7 @@ async function ensureFeed(force = false) {
   const cfg = await getConfig();
   if (!isConfigured(cfg) || !(await isSignedIn())) {
     feed = null;
+    crossPostLinks = [];
     updateBadge();
     return null;
   }
@@ -39,10 +42,14 @@ async function ensureFeed(force = false) {
   if (!force && feed && Date.now() - feedAt < ttl) return feed;
 
   try {
-    feed = await getActivePosts();
+    const workingSet = await getMonitoringWorkingSet();
+    feed = workingSet.socialPosts;
+    crossPostLinks = workingSet.crossPostLinks;
     feedAt = Date.now();
     lastError = null;
-    await chrome.storage.local.set({ [FEED_KEY]: { posts: feed, at: feedAt } });
+    await chrome.storage.local.set({
+      [FEED_KEY]: { posts: feed, crossPostLinks, at: feedAt },
+    });
   } catch (err) {
     lastError = String(err?.message || err);
     console.warn("[booked] feed refresh failed:", lastError);
@@ -146,7 +153,7 @@ async function syncPost(post, metrics) {
     sentStore[post.post_id] = merged;
     await chrome.storage.local.set({
       [SENT_KEY]: sentStore,
-      [FEED_KEY]: { posts: feed, at: feedAt },
+      [FEED_KEY]: { posts: feed, crossPostLinks, at: feedAt },
     });
     syncedThisSession += 1;
     console.debug("[booked] synced", post.platform, post.post_id, merged);
@@ -168,7 +175,9 @@ async function buildStatus() {
     signedIn,
     email: session?.email || null,
     posts: signedIn ? feed || [] : [],
+    crossPostLinks: signedIn ? crossPostLinks || [] : [],
     activeCount: feed?.length ?? 0,
+    crossPostLinkCount: crossPostLinks?.length ?? 0,
     syncedThisSession,
     lastError,
   };
@@ -198,6 +207,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       signOut()
         .then(() => {
           feed = null;
+          crossPostLinks = [];
           syncedThisSession = 0;
           updateBadge();
         })

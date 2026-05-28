@@ -10,6 +10,7 @@ import {
   createSocialPost,
   deleteSocialPost,
   listActiveCampaignSocialPosts,
+  listSocialPostSnapshots,
   listSocialPosts,
   updateSocialPostAnalytics,
 } from "../domain/social-post.mjs";
@@ -40,6 +41,24 @@ export function registerSocialPostRoutes(app) {
     const fields = validateAnalyticsUpdate(parseBody(event));
     const updated = await updateSocialPostAnalytics(campaignId, postId, fields);
     return jsonResponse(200, formatSocialPost(updated));
+  });
+
+  // Per-day engagement history. Each snapshot is the final analytics map
+  // recorded for the post on that calendar day (UTC). Used by the campaign
+  // analytics UI to plot daily series.
+  app.get("/campaigns/:campaignId/social-posts/:postId/snapshots", async ({ params }) => {
+    const { campaignId, postId } = params;
+    const snapshots = await listSocialPostSnapshots(campaignId, postId);
+    return jsonResponse(200, {
+      campaign_id: campaignId,
+      post_id: postId,
+      snapshots: snapshots.map((s) => ({
+        snapshot_date: s.snapshotDate,
+        metrics: s.metrics,
+        captured_at: s.capturedAt ?? null,
+        recorded_at: s.recordedAt,
+      })),
+    });
   });
 
   app.delete("/campaigns/:campaignId/social-posts/:postId", async ({ params }) => {

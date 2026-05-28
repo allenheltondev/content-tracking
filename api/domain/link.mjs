@@ -3,6 +3,7 @@ import {
   DeleteCommand,
   GetCommand,
   PutCommand,
+  QueryCommand,
   TransactWriteCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
@@ -93,6 +94,20 @@ export async function createLink(campaignId, fields) {
   }));
 
   return item;
+}
+
+// Returns every Link under a campaign (any role). Callers filter by role
+// as needed — e.g. the monitoring working set only wants cross-post links.
+export async function listCampaignLinks(campaignId) {
+  const result = await ddb.send(new QueryCommand({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+    ExpressionAttributeValues: {
+      ":pk": `CAMPAIGN#${campaignId}`,
+      ":prefix": "LINK#",
+    },
+  }));
+  return result.Items ?? [];
 }
 
 export async function getLink(campaignId, linkId) {
