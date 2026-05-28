@@ -4,8 +4,10 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Line, LineChart, ResponsiveContainer } from 'recharts';
 import { useApiFetch, ApiError, type ApiFetch } from '../auth/useApiFetch';
 import {
+  createContentPost,
   createLink,
   createSocialPost,
+  deleteContentPost,
   deleteSocialPost,
   getCampaign,
   getCampaignAnalytics,
@@ -19,7 +21,9 @@ import type {
   CampaignDraft,
   CampaignLink,
   CampaignStatus,
+  ContentPost,
   CoreWebVitalsSection,
+  CreateContentPostRequest,
   CreateLinkRequest,
   CreateSocialPostRequest,
   Ga4Section,
@@ -31,8 +35,10 @@ import { createVendor } from '../api/vendors';
 import ClicksChart from '../components/ClicksChart';
 import RegisterLinkForm from '../components/RegisterLinkForm';
 import RegisterSocialPostForm from '../components/RegisterSocialPostForm';
+import RegisterContentPostForm from '../components/RegisterContentPostForm';
 import CampaignBriefSection from '../components/CampaignBriefSection';
 import CampaignDraftTab from '../components/CampaignDraftTab';
+import ContentEngagementSection from '../components/ContentEngagementSection';
 import InstallExtensionModal from '../components/InstallExtensionModal';
 import Modal from '../components/Modal';
 import SocialEngagementSection from '../components/SocialEngagementSection';
@@ -53,6 +59,7 @@ interface CampaignBundle {
   campaign: Campaign;
   links: CampaignLink[];
   social_posts: SocialPost[];
+  content_posts: ContentPost[];
   brief: CampaignBrief | null;
   draft: CampaignDraft | null;
 }
@@ -91,6 +98,10 @@ export default function CampaignDetail(): ReactElement {
 
   const [showLinkForm, setShowLinkForm] = useState(false);
   const [showPostForm, setShowPostForm] = useState(false);
+
+  const [contentBusy, setContentBusy] = useState(false);
+  const [contentError, setContentError] = useState<string | null>(null);
+  const [showContentForm, setShowContentForm] = useState(false);
 
   const [activeTab, setActiveTab] = useState<CampaignTab>(initialTab);
   const [extensionModalOpen, setExtensionModalOpen] = useState(false);
@@ -253,6 +264,38 @@ export default function CampaignDetail(): ReactElement {
     }
   };
 
+  const handleTrackContentPost = async (payload: CreateContentPostRequest): Promise<void> => {
+    if (!campaignId) return;
+    setContentBusy(true);
+    setContentError(null);
+    try {
+      const post = await createContentPost(apiFetch, campaignId, payload);
+      setBundle((prev) =>
+        prev ? { ...prev, content_posts: [...prev.content_posts, post] } : prev,
+      );
+      setShowContentForm(false);
+    } catch (err) {
+      setContentError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setContentBusy(false);
+    }
+  };
+
+  const handleDeleteContentPost = async (postId: string): Promise<void> => {
+    if (!campaignId) return;
+    setContentError(null);
+    try {
+      await deleteContentPost(apiFetch, campaignId, postId);
+      setBundle((prev) =>
+        prev
+          ? { ...prev, content_posts: prev.content_posts.filter((p) => p.post_id !== postId) }
+          : prev,
+      );
+    } catch (err) {
+      setContentError(err instanceof ApiError ? err.message : (err as Error).message);
+    }
+  };
+
   if (loadError) {
     return (
       <section className="space-y-2">
@@ -274,7 +317,7 @@ export default function CampaignDetail(): ReactElement {
     );
   }
 
-  const { campaign, links, social_posts: socialPosts } = bundle;
+  const { campaign, links, social_posts: socialPosts, content_posts: contentPosts } = bundle;
 
   const onCampaignChange = (updated: Campaign): void =>
     setBundle((prev) => (prev ? { ...prev, campaign: updated } : prev));
@@ -567,6 +610,95 @@ export default function CampaignDetail(): ReactElement {
               />
             )}
           </section>
+
+          <section className="space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="space-y-1">
+                <h2 className="text-lg font-semibold text-foreground">Content posts</h2>
+                <p className="text-sm text-muted-foreground">
+                  Cross-posts on Medium and dev.to. The Booked browser extension captures
+                  engagement as you browse to each post or its stats page.
+                </p>
+              </div>
+              <div
+                className="flex items-center gap-2 shrink-0"
+                data-booked-slot="content-posts-actions"
+              >
+                {!showContentForm && (
+                  <button
+                    type="button"
+                    className="btn-secondary py-1 px-2 text-sm"
+                    onClick={() => setShowContentForm(true)}
+                    aria-label="Track a new content post"
+                  >
+                    + Add post
+                  </button>
+                )}
+              </div>
+            </div>
+            {contentError && <p className="form-error">{contentError}</p>}
+            {contentPosts.length === 0 ? (
+              <p className="text-muted-foreground">
+                No content posts tracked yet. Click + Add post to start tracking one.
+              </p>
+            ) : (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Platform</th>
+                    <th>Post</th>
+                    <th>Engagement</th>
+                    <th>Last fetched</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {contentPosts.map((post) => (
+                    <tr key={post.post_id}>
+                      <td>{post.platform}</td>
+                      <td>
+                        <a
+                          href={post.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-primary-600 hover:underline"
+                        >
+                          {truncate(post.url, 50)}
+                        </a>
+                        {post.notes && (
+                          <span className="block text-xs text-muted-foreground">{post.notes}</span>
+                        )}
+                      </td>
+                      <td className="text-muted-foreground">{formatMetrics(post.analytics)}</td>
+                      <td className="text-muted-foreground">
+                        {formatTimestamp(post.last_fetched)}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn-link text-error-600"
+                          onClick={() => void handleDeleteContentPost(post.post_id)}
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {showContentForm && (
+              <RegisterContentPostForm
+                busy={contentBusy}
+                serverError={contentError}
+                onCancel={() => {
+                  setShowContentForm(false);
+                  setContentError(null);
+                }}
+                onSubmit={(p) => void handleTrackContentPost(p)}
+              />
+            )}
+          </section>
         </>
       )}
 
@@ -637,6 +769,14 @@ export default function CampaignDetail(): ReactElement {
               apiFetch={apiFetch}
               campaignId={campaignId}
               posts={socialPosts}
+            />
+          )}
+
+          {campaignId && (
+            <ContentEngagementSection
+              apiFetch={apiFetch}
+              campaignId={campaignId}
+              posts={contentPosts}
             />
           )}
 

@@ -182,7 +182,194 @@ const instagram = {
   },
 };
 
-export const adapters = { twitter, linkedin, instagram };
+const medium = {
+  platform: "medium",
+  bucket: "content",
+  parsePostId(url) {
+    // /p/{id}     — Medium short-link form
+    // /post/{id}  — author stats detail page (medium.com/me/stats/post/{id})
+    const direct = /\/(?:p|post)\/([0-9a-f]+)/i.exec(url || "");
+    if (direct) return direct[1].toLowerCase();
+    // Public article URL ends in -{hex post id}, e.g.
+    // /my-post-title-abc123def456. ≥6 chars to avoid matching short slug
+    // tokens.
+    const m = /-([0-9a-f]{6,})(?:[/?#]|$)/i.exec(url || "");
+    return m ? m[1].toLowerCase() : null;
+  },
+  extract(body) {
+    const out = [];
+    const seen = new Set();
+    const push = (id, metrics) => {
+      if (!id || seen.has(id) || Object.keys(metrics).length === 0) return;
+      seen.add(id);
+      out.push({ nativeId: id, metrics });
+    };
+    walk(body, (node) => {
+      // Per-post stats summary on the post-stats detail page. Counts live
+      // on the bundle (viewersCount, readersCount, presentationCount); the
+      // post id is one level down on the nested `post`. Match this shape
+      // first so the inner Post node gets short-circuited by `seen`.
+      if (
+        typeof node.viewersCount === "number" ||
+        typeof node.readersCount === "number" ||
+        typeof node.presentationCount === "number"
+      ) {
+        const metrics = {};
+        num(metrics, "views", node.viewersCount);
+        num(metrics, "reads", node.readersCount);
+        num(metrics, "impressions", node.presentationCount);
+        push(node.post?.id, metrics);
+        return;
+      }
+
+      // Post-typed nodes carry either nested `totalStats` (SummaryPostStat
+      // on the author-stats GraphQL list) or flat fields (postResult's
+      // `clapCount`, older REST stats responses). The __typename guard
+      // keeps us off PostViewerEdge — which also has an id and a
+      // clapCount, but that clapCount is the *viewer's* claps on the
+      // post (almost always 0), not the post's total.
+      if (node.__typename !== undefined && node.__typename !== "Post") return;
+
+      const id = node.postId || node.post_id || node.id;
+      if (typeof id !== "string" || !id) return;
+
+      const stats = node.totalStats || node.stats || node;
+      const hasStats =
+        typeof stats.views === "number" ||
+        typeof stats.reads === "number" ||
+        typeof stats.presentations === "number" ||
+        typeof stats.totalClapCount === "number" ||
+        typeof stats.claps === "number" ||
+        typeof stats.clapCount === "number" ||
+        typeof stats.fans === "number" ||
+        typeof stats.responsesCreatedCount === "number";
+      if (!hasStats) return;
+
+      const metrics = {};
+      num(metrics, "views", stats.views);
+      num(metrics, "reads", stats.reads);
+      num(metrics, "impressions", stats.presentations);
+      const claps = pick(stats.totalClapCount, stats.claps, stats.clapCount);
+      if (claps !== undefined) metrics.claps = claps;
+      const fans = pick(stats.fans, stats.fanCount, stats.uniqueClappers);
+      if (fans !== undefined) metrics.fans = fans;
+      const comments = pick(
+        stats.responsesCreatedCount,
+        stats.totalResponses,
+        stats.responses,
+        stats.commentsCount,
+      );
+      if (comments !== undefined) metrics.comments = comments;
+
+      push(id, metrics);
+    });
+    return out;
+  },
+};
+
+const devto = {
+  platform: "devto",
+  bucket: "content",
+  parsePostId(url) {
+    if (!url) return null;
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return null;
+    }
+    // Analytics dashboard URL: ?article_id={numeric id}. The article id
+    // is dev.to's internal integer; the public slug uses its base36
+    // form. Return base36 so the page-URL fallback matches what the slug
+    // parser returns for the tracked post URL.
+    const articleId = parsed.searchParams.get("article_id");
+    if (articleId && /^\d+$/.test(articleId)) {
+      return Number(articleId).toString(36);
+    }
+    // Article page URL: ends with -{base36 article id}. The per-post
+    // stats page is just the article URL with /stats appended, which is
+    // what auto-fires the analytics request — strip it so both URL forms
+    // parse to the same id.
+    const trimmed = parsed.pathname.replace(/\/$/, "").replace(/\/stats$/, "");
+    const m = /-([0-9a-z]{1,8})$/.exec(trimmed);
+    return m ? m[1] : null;
+  },
+  extract(body) {
+    const out = [];
+    const seen = new Set();
+
+    // Analytics dashboard shape: { totals, historical, referrers, ... }.
+    // `totals` and each `historical[date]` are structurally identical, so
+    // a generic walker would emit a row for every day too — and since
+    // the body has no article id, all those rows would race for the same
+    // page-URL fallback target. Match the dashboard shape at the root
+    // and pull from `totals` only; emit nativeId=null so background.js
+    // resolves the target from the page URL's article_id query param.
+    if (
+      body && typeof body === "object" &&
+      body.historical &&
+      body.totals?.page_views &&
+      typeof body.totals.page_views.total === "number"
+    ) {
+      const totals = body.totals;
+      const metrics = {};
+      num(metrics, "views", totals.page_views.total);
+      num(metrics, "reactions", totals.reactions?.total);
+      num(metrics, "comments", totals.comments?.total);
+      if (Object.keys(metrics).length) {
+        out.push({ nativeId: null, metrics });
+      }
+      return out;
+    }
+
+    // Article-record shape (/api/articles/{id} and similar): each node
+    // carries the article id and flat *_count fields.
+    walk(body, (node) => {
+      const hasCounts =
+        typeof node.page_views_count === "number" ||
+        typeof node.public_reactions_count === "number" ||
+        typeof node.positive_reactions_count === "number" ||
+        typeof node.comments_count === "number";
+      if (!hasCounts) return;
+
+      // The id on dev.to API responses is a number; the URL embeds its
+      // base36 representation. We emit the base36 form so the
+      // background's URL-derived id matches without extra conversion.
+      const rawId = node.id ?? node.article_id;
+      const nativeId =
+        typeof rawId === "number" && Number.isInteger(rawId)
+          ? rawId.toString(36)
+          : rawId != null
+            ? String(rawId)
+            : null;
+      if (nativeId && seen.has(nativeId)) return;
+
+      const metrics = {};
+      num(metrics, "views", node.page_views_count);
+      const reactions = pick(node.public_reactions_count, node.positive_reactions_count);
+      if (reactions !== undefined) metrics.reactions = reactions;
+      num(metrics, "comments", node.comments_count);
+
+      if (Object.keys(metrics).length === 0) return;
+      if (nativeId) seen.add(nativeId);
+      out.push({ nativeId, metrics });
+    });
+    return out;
+  },
+};
+
+export const adapters = { twitter, linkedin, instagram, medium, devto };
+
+// Which Booked-side bucket each platform writes into. Drives the endpoint
+// the background script PUTs to and the feed the extension fetches.
+// Platforms not listed here default to the social bucket.
+export const PLATFORM_BUCKET = {
+  twitter: "social",
+  linkedin: "social",
+  instagram: "social",
+  medium: "content",
+  devto: "content",
+};
 
 // URL substrings worth capturing, per platform — kept in sync with the
 // patterns the MAIN-world interceptor uses so noise stays low. Exported for
@@ -192,4 +379,11 @@ export const CAPTURE_PATTERNS = {
   twitter: ["/graphql", "/i/api/graphql", "api.x.com"],
   linkedin: ["/voyager/api"],
   instagram: ["/api/v1/media", "/graphql/query", "/api/graphql"],
+  // Medium's author-stats and per-post stats pages fetch from the
+  // internal REST and GraphQL endpoints under medium.com/_/.
+  medium: ["/_/api/", "/_/graphql"],
+  // dev.to's analytics dashboard hits /api/analytics; per-article shapes
+  // (with page_views_count, public_reactions_count) also show up on
+  // /api/articles.
+  devto: ["/api/analytics", "/api/articles"],
 };

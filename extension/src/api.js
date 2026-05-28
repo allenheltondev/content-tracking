@@ -50,20 +50,27 @@ async function apiFetch(path, { method = "GET", body } = {}) {
   return text.length ? JSON.parse(text) : null;
 }
 
-// Pulls the working set the extension scrapes against: every social post
-// and every cross-post link tied to a campaign in "monitoring" status.
-// Returns both arrays so the worker can match captured engagement to a
-// social post and surface cross-post links in the popup.
+// Pulls the working set the extension scrapes against: every social post,
+// every content post, and every cross-post link tied to a campaign in
+// "monitoring" status. Returns all three so the worker can match captured
+// engagement to a post (social or content) and surface cross-post links
+// in the popup.
 export async function getMonitoringWorkingSet() {
   const res = await apiFetch("/monitoring/working-set");
   return {
     socialPosts: res?.social_posts ?? [],
+    contentPosts: res?.content_posts ?? [],
     crossPostLinks: res?.cross_post_links ?? [],
   };
 }
 
-export async function putAnalytics(campaignId, postId, metrics, capturedAt) {
-  return apiFetch(`/campaigns/${campaignId}/social-posts/${postId}/analytics`, {
+// Used by the worker to write captured engagement back. Bucket selects
+// the endpoint — social posts and content posts live under sibling
+// resources on the API so sponsor reports can render the two
+// independently.
+export async function putAnalytics(bucket, campaignId, postId, metrics, capturedAt) {
+  const resource = bucket === "content" ? "content-posts" : "social-posts";
+  return apiFetch(`/campaigns/${campaignId}/${resource}/${postId}/analytics`, {
     method: "PUT",
     body: { metrics, capturedAt },
   });

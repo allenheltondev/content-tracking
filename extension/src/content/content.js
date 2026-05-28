@@ -11,6 +11,8 @@
     }
     if (host === "linkedin.com" || host.endsWith(".linkedin.com")) return "linkedin";
     if (host === "instagram.com" || host.endsWith(".instagram.com")) return "instagram";
+    if (host === "medium.com" || host.endsWith(".medium.com")) return "medium";
+    if (host === "dev.to" || host.endsWith(".dev.to")) return "devto";
     return null;
   }
 

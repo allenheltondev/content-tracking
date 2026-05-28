@@ -192,10 +192,51 @@ export interface SocialPostSnapshotsResponse {
   snapshots: SocialPostSnapshot[];
 }
 
+export type ContentPlatform = 'medium' | 'devto';
+
+// A long-form content piece (Medium, dev.to) the user cross-posted. Same
+// shape as SocialPost but in the content metric bucket — engagement is
+// captured by the Chrome extension off each platform's analytics traffic
+// and reported separately from social engagement.
+export interface ContentPost {
+  campaign_id: string;
+  post_id: string;
+  platform: ContentPlatform;
+  url: string;
+  notes: string | null;
+  analytics: Record<string, number> | null;
+  last_fetched: string | null;
+  captured_at: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface CreateContentPostRequest {
+  url: string;
+  platform?: ContentPlatform;
+  notes?: string;
+}
+
+// A daily engagement snapshot for one content post. Same shape as
+// SocialPostSnapshot so the dashboard's charting helpers can be reused.
+export interface ContentPostSnapshot {
+  snapshot_date: string;
+  metrics: Record<string, number>;
+  captured_at: string | null;
+  recorded_at: string;
+}
+
+export interface ContentPostSnapshotsResponse {
+  campaign_id: string;
+  post_id: string;
+  snapshots: ContentPostSnapshot[];
+}
+
 export interface CampaignDetailResponse {
   campaign: Campaign;
   links: CampaignLink[];
   social_posts: SocialPost[];
+  content_posts: ContentPost[];
   brief: CampaignBrief | null;
   draft: CampaignDraft | null;
 }

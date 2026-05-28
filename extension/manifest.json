@@ -8,7 +8,10 @@
     "https://x.com/*",
     "https://twitter.com/*",
     "https://www.linkedin.com/*",
-    "https://www.instagram.com/*"
+    "https://www.instagram.com/*",
+    "https://medium.com/*",
+    "https://*.medium.com/*",
+    "https://dev.to/*"
   ],
   "optional_host_permissions": ["https://*/*"],
   "background": {
@@ -25,7 +28,10 @@
         "https://x.com/*",
         "https://twitter.com/*",
         "https://www.linkedin.com/*",
-        "https://www.instagram.com/*"
+        "https://www.instagram.com/*",
+        "https://medium.com/*",
+        "https://*.medium.com/*",
+        "https://dev.to/*"
       ],
       "js": ["src/content/inject.js"],
       "run_at": "document_start",
@@ -37,7 +43,10 @@
         "https://x.com/*",
         "https://twitter.com/*",
         "https://www.linkedin.com/*",
-        "https://www.instagram.com/*"
+        "https://www.instagram.com/*",
+        "https://medium.com/*",
+        "https://*.medium.com/*",
+        "https://dev.to/*"
       ],
       "js": ["src/content/content.js"],
       "run_at": "document_start",
