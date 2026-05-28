@@ -102,6 +102,21 @@ describe("domain/campaign", () => {
       mockSend.mockResolvedValue({ Items: [] });
       await expect(getCampaignWithLinks("C1")).rejects.toThrow(/Campaign C1 not found/);
     });
+
+    test("excludes SocialPostSnapshot rows from socialPosts", async () => {
+      mockSend.mockResolvedValue({
+        Items: [
+          { pk: "CAMPAIGN#C1", sk: "METADATA", campaignId: "C1", name: "x", status: "monitoring", createdAt: "2026-01-01" },
+          { pk: "CAMPAIGN#C1", sk: "SOCIALPOST#P1", entity: "SocialPost", postId: "P1", createdAt: "2026-05-01T00:00:00.000Z" },
+          { pk: "CAMPAIGN#C1", sk: "SOCIALPOST#P1#SNAPSHOT#2026-05-27", entity: "SocialPostSnapshot", postId: "P1", snapshotDate: "2026-05-27" },
+          { pk: "CAMPAIGN#C1", sk: "SOCIALPOST#P1#SNAPSHOT#2026-05-28", entity: "SocialPostSnapshot", postId: "P1", snapshotDate: "2026-05-28" },
+        ],
+      });
+      const { socialPosts } = await getCampaignWithLinks("C1");
+      expect(socialPosts.length).toBe(1);
+      expect(socialPosts[0].postId).toBe("P1");
+      expect(socialPosts[0].entity).toBe("SocialPost");
+    });
   });
 
   describe("updateCampaignFields", () => {

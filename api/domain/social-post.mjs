@@ -66,12 +66,18 @@ export async function createSocialPost(campaignId, fields) {
 }
 
 export async function listSocialPosts(campaignId) {
+  // begins_with(sk, "SOCIALPOST#") also matches per-day snapshot rows
+  // (sk = SOCIALPOST#{postId}#SNAPSHOT#{date}), so filter to the post
+  // entity to keep snapshots out of post listings.
   const result = await ddb.send(new QueryCommand({
     TableName: TABLE_NAME,
     KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+    FilterExpression: "#entity = :entity",
+    ExpressionAttributeNames: { "#entity": "entity" },
     ExpressionAttributeValues: {
       ":pk": `CAMPAIGN#${campaignId}`,
       ":prefix": "SOCIALPOST#",
+      ":entity": "SocialPost",
     },
   }));
   return result.Items ?? [];
