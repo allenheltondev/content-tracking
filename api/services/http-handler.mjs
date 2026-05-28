@@ -80,11 +80,18 @@ export function jsonResponse(statusCode, body) {
   };
 }
 
+// HTTP statuses that the Fetch `Response` spec forbids from carrying a
+// body. The Powertools Router builds a `new Response(body, { status })`
+// from our return value, and undici throws "invalid response status
+// code" if a non-null body (even "") is paired with one of these. So we
+// must omit the body entirely for them.
+const NULL_BODY_STATUSES = new Set([204, 205, 304]);
+
 export function emptyResponse(statusCode = 204) {
   return {
     statusCode,
     headers: CORS_HEADERS,
-    body: "",
+    body: NULL_BODY_STATUSES.has(statusCode) ? null : "",
   };
 }
 
