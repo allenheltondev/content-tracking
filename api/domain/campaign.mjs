@@ -111,7 +111,9 @@ export async function getCampaignWithLinks(campaignId) {
     throw new NotFoundError("Campaign", campaignId);
   }
   const links = items.filter((it) => typeof it.sk === "string" && it.sk.startsWith("LINK#"));
-  const socialPosts = items.filter((it) => typeof it.sk === "string" && it.sk.startsWith("SOCIALPOST#"));
+  // SocialPost daily snapshots also live under sk = SOCIALPOST#{postId}#SNAPSHOT#{date},
+  // so a startsWith filter would sweep them in. Match on entity instead.
+  const socialPosts = items.filter((it) => it.entity === "SocialPost");
   const brief = items.find((it) => it.sk === "BRIEF") ?? null;
   const draft = items.find((it) => it.sk === "DRAFT") ?? null;
   return { metadata, links, socialPosts, brief, draft };

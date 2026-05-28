@@ -72,13 +72,18 @@ describe("domain/social-post", () => {
   });
 
   describe("listSocialPosts", () => {
-    test("queries the campaign partition with the SOCIALPOST prefix", async () => {
+    test("queries the campaign partition with the SOCIALPOST prefix, filtering out snapshots", async () => {
       mockSend.mockResolvedValueOnce({ Items: [{ postId: "P1" }] });
       const items = await listSocialPosts("C1");
       expect(items).toHaveLength(1);
       const input = mockSend.mock.calls[0][0].input;
       expect(input.ExpressionAttributeValues[":pk"]).toBe("CAMPAIGN#C1");
       expect(input.ExpressionAttributeValues[":prefix"]).toBe("SOCIALPOST#");
+      // Snapshot rows share the SOCIALPOST# sk prefix; filter on entity so
+      // they never come back as posts.
+      expect(input.FilterExpression).toBe("#entity = :entity");
+      expect(input.ExpressionAttributeNames["#entity"]).toBe("entity");
+      expect(input.ExpressionAttributeValues[":entity"]).toBe("SocialPost");
     });
   });
 
