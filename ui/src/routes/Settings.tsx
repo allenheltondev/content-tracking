@@ -295,10 +295,50 @@ function ExtensionTab(): ReactElement {
   return (
     <div className="space-y-6">
       <p className="text-sm text-muted-foreground">
-        Pair the Booked Chrome extension by generating a code below and pasting it into the
-        extension's Options page. Each code grants the extension access to your Booked account
-        until you revoke it.
+        The Booked Chrome extension reads engagement numbers off X, LinkedIn, and Instagram as
+        you browse your tracked social posts and writes them back to Booked.
       </p>
+
+      <div className="card card-body space-y-4">
+        <h2 className="text-lg font-semibold text-foreground">Install the extension</h2>
+        <div>
+          <a
+            href="/booked-extension.zip"
+            download="booked-extension.zip"
+            className="btn-primary inline-flex"
+          >
+            Download extension (.zip)
+          </a>
+        </div>
+        <ol className="list-decimal list-inside space-y-2 text-sm text-foreground">
+          <li>Unzip the download anywhere on your machine.</li>
+          <li>
+            Open{' '}
+            <code className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">
+              chrome://extensions
+            </code>{' '}
+            in Chrome and turn on Developer mode (top right).
+          </li>
+          <li>
+            Click <span className="font-medium">Load unpacked</span> and select the{' '}
+            <code className="font-mono text-xs">booked-extension</code> folder you just
+            unzipped.
+          </li>
+          <li>
+            Generate a pairing code below and copy it from the dialog.
+          </li>
+          <li>
+            Open the extension popup, paste the code into the{' '}
+            <span className="font-medium">Pairing code</span> field, and click{' '}
+            <span className="font-medium">Pair extension</span>. Your tracked posts show up
+            in the popup once the pairing finishes.
+          </li>
+        </ol>
+        <p className="text-sm text-muted-foreground">
+          The pairing code grants the extension access to your Booked account. Revoke it any
+          time from the Paired devices list below.
+        </p>
+      </div>
 
       <div className="card card-body space-y-4">
         <h2 className="text-lg font-semibold text-foreground">Generate a new code</h2>
