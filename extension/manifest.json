@@ -68,6 +68,13 @@
       "run_at": "document_idle",
       "world": "ISOLATED",
       "all_frames": false
+    },
+    {
+      "matches": ["https://booked.readysetcloud.io/*"],
+      "js": ["src/content/dashboard.js"],
+      "run_at": "document_idle",
+      "world": "ISOLATED",
+      "all_frames": false
     }
   ]
 }

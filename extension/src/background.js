@@ -111,7 +111,12 @@ async function handleCaptured({ platform, body, pageUrl }) {
   for (const { nativeId, metrics } of extracted) {
     let post = nativeId != null ? byNativeId.get(String(nativeId)) : null;
     if (!post && nativeId == null) post = pagePost;
-    if (post) await maybeSync(post, metrics);
+    if (post) {
+      await maybeSync(post, metrics);
+      // Close the tab if this capture came from a refresh we initiated.
+      // Safe to call unconditionally — it's a no-op for tabs we didn't open.
+      void closeBackgroundScrapeTab(post.post_id);
+    }
   }
 }
 
@@ -251,11 +256,13 @@ async function handleScraped({ platform, nativeId, metrics }) {
       });
   }
 
-  if (matched) await maybeSync(matched, metrics);
-  // If this scrape was driven by an auto-opened background tab, clean it
-  // up once we've got the data. Skip if the user has since clicked into
-  // the tab (active=true) — they presumably want to keep reading.
-  if (platform === "linkedin") closeBackgroundScrapeTab(String(nativeId));
+  if (matched) {
+    await maybeSync(matched, metrics);
+    // If this scrape was driven by an auto-opened background tab, clean
+    // it up. closeBackgroundScrapeTab no-ops if the post isn't tracked
+    // in ACTIVE_SCRAPE_TABS, so user-opened tabs are untouched.
+    void closeBackgroundScrapeTab(matched.post_id);
+  }
 }
 
 async function handleResolvedPost({ url, activityId }) {
@@ -276,10 +283,31 @@ async function handleResolvedPost({ url, activityId }) {
 // fires there, sync the data, then close the tab. The user stays on the
 // page they actually wanted to read.
 
-const RECENT_AUTO_SCRAPES = new Map(); // activityId -> timestamp
-const ACTIVE_SCRAPE_TABS = new Map(); // activityId -> { tabId, timeoutHandle }
+const RECENT_AUTO_SCRAPES = new Map(); // post_id -> timestamp
+const ACTIVE_SCRAPE_TABS = new Map(); // post_id -> { tabId, timeoutHandle }
 const AUTO_SCRAPE_TTL_MS = 5 * 60 * 1000; // don't re-open within 5 min
 const AUTO_SCRAPE_MAX_LIFETIME_MS = 60 * 1000; // hard cap on tab lifetime
+
+// Open a background tab for the given tracked post and register it so the
+// scrape-and-close pipeline can clean it up once metrics land. No-op if a
+// scrape tab is already in flight for this post.
+async function openScrapeTab(post, url) {
+  if (ACTIVE_SCRAPE_TABS.has(post.post_id)) return;
+  let newTab;
+  try {
+    newTab = await chrome.tabs.create({ url, active: false });
+  } catch (err) {
+    console.warn("[booked] scrape tab open failed:", err);
+    return;
+  }
+  const timeoutHandle = setTimeout(() => {
+    // Fallback: nothing reported back (page errored, user wasn't logged
+    // in, platform changed its DOM/API shape, etc.). Close the orphan.
+    ACTIVE_SCRAPE_TABS.delete(post.post_id);
+    chrome.tabs.remove(newTab.id).catch(() => {});
+  }, AUTO_SCRAPE_MAX_LIFETIME_MS);
+  ACTIVE_SCRAPE_TABS.set(post.post_id, { tabId: newTab.id, timeoutHandle });
+}
 
 async function maybeAutoScrape(tabUrl) {
   if (!tabUrl || !tabUrl.includes("linkedin.com")) return;
@@ -302,36 +330,82 @@ async function maybeAutoScrape(tabUrl) {
 
   // Dedupe: skip if we synced this post in the last few minutes or there's
   // already an in-flight scrape tab for it.
-  const recent = RECENT_AUTO_SCRAPES.get(activityId);
+  const recent = RECENT_AUTO_SCRAPES.get(tracked.post_id);
   if (recent && Date.now() - recent < AUTO_SCRAPE_TTL_MS) return;
-  if (ACTIVE_SCRAPE_TABS.has(activityId)) return;
-  RECENT_AUTO_SCRAPES.set(activityId, Date.now());
+  if (ACTIVE_SCRAPE_TABS.has(tracked.post_id)) return;
+  RECENT_AUTO_SCRAPES.set(tracked.post_id, Date.now());
 
-  let newTab;
-  try {
-    newTab = await chrome.tabs.create({
-      url: `https://www.linkedin.com/analytics/post-summary/urn:li:activity:${activityId}/`,
-      active: false,
-    });
-  } catch (err) {
-    console.warn("[booked] auto-scrape tab open failed:", err);
-    return;
-  }
-
-  const timeoutHandle = setTimeout(() => {
-    // Fallback: scraper never reported (SDUI didn't hydrate, page errored,
-    // user isn't logged in for analytics, etc.). Close the orphan.
-    ACTIVE_SCRAPE_TABS.delete(activityId);
-    chrome.tabs.remove(newTab.id).catch(() => {});
-  }, AUTO_SCRAPE_MAX_LIFETIME_MS);
-
-  ACTIVE_SCRAPE_TABS.set(activityId, { tabId: newTab.id, timeoutHandle });
+  await openScrapeTab(
+    tracked,
+    `https://www.linkedin.com/analytics/post-summary/urn:li:activity:${activityId}/`,
+  );
 }
 
-async function closeBackgroundScrapeTab(activityId) {
-  const info = ACTIVE_SCRAPE_TABS.get(activityId);
+// Build the URL to open in a background tab for a given tracked post so
+// the right capture path fires. LinkedIn needs the analytics post-summary
+// page (DOM scrape); Twitter/Instagram just need the post URL — their
+// MAIN-world interceptor catches the platform's own API responses.
+async function scrapeUrlForPost(post, urnMap) {
+  if (post.platform === "linkedin") {
+    let activityId = /urn:li:activity:(\d+)/.exec(post.url)?.[1] || null;
+    if (!activityId) activityId = urnMap[stripUrlQuery(post.url)] || null;
+    if (!activityId) return null;
+    return `https://www.linkedin.com/analytics/post-summary/urn:li:activity:${activityId}/`;
+  }
+  if (post.platform === "twitter" || post.platform === "instagram") {
+    return post.url;
+  }
+  return null;
+}
+
+// Dashboard "Refresh stale" button entry point. For every tracked post in
+// the campaign whose analytics weren't synced today, open a background
+// tab on the URL that triggers a capture. The scrape-and-close pipeline
+// (handleScraped / handleCaptured) closes each tab once its post syncs.
+async function refreshStaleForCampaign(campaignId) {
+  if (!campaignId) return { triggered: 0 };
+  await ensureFeed();
+  if (!feed?.length) return { triggered: 0 };
+
+  const today = new Date().toISOString().slice(0, 10);
+  const stale = feed.filter((p) => {
+    if (p.campaign_id !== campaignId) return false;
+    if (!p.last_fetched) return true;
+    return String(p.last_fetched).slice(0, 10) !== today;
+  });
+
+  const urnMap = await getLinkedInUrnMap();
+  let triggered = 0;
+  for (const post of stale) {
+    // If a previous scrape tab for this post is still being tracked but
+    // the tab itself is gone, drop the stale entry; otherwise skip and
+    // let the in-flight one finish.
+    const existing = ACTIVE_SCRAPE_TABS.get(post.post_id);
+    if (existing) {
+      try {
+        await chrome.tabs.get(existing.tabId);
+        continue;
+      } catch {
+        clearTimeout(existing.timeoutHandle);
+        ACTIVE_SCRAPE_TABS.delete(post.post_id);
+      }
+    }
+    // Bypass the 5-min recent-scrape guard so on-demand refresh always runs.
+    RECENT_AUTO_SCRAPES.delete(post.post_id);
+
+    const url = await scrapeUrlForPost(post, urnMap);
+    if (!url) continue;
+    await openScrapeTab(post, url);
+    triggered += 1;
+  }
+
+  return { triggered };
+}
+
+async function closeBackgroundScrapeTab(postId) {
+  const info = ACTIVE_SCRAPE_TABS.get(postId);
   if (!info) return;
-  ACTIVE_SCRAPE_TABS.delete(activityId);
+  ACTIVE_SCRAPE_TABS.delete(postId);
   clearTimeout(info.timeoutHandle);
   try {
     const t = await chrome.tabs.get(info.tabId);
@@ -361,6 +435,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return false;
     case "booked:status":
       buildStatus().then(sendResponse);
+      return true;
+    case "booked:refreshStale":
+      refreshStaleForCampaign(msg.campaignId)
+        .then(sendResponse)
+        .catch((err) => sendResponse({ error: String(err?.message || err) }));
       return true;
     case "booked:refreshFeed":
       ensureFeed(true)

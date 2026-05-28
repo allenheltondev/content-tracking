@@ -481,7 +481,10 @@ export default function CampaignDetail(): ReactElement {
                   recent capture.
                 </p>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div
+                className="flex items-center gap-2 shrink-0"
+                data-booked-slot="social-posts-actions"
+              >
                 <button
                   type="button"
                   className="btn-secondary py-1 px-2 text-sm"

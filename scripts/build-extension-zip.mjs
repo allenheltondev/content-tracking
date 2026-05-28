@@ -23,9 +23,13 @@ const outPath = path.join(outDir, 'booked-extension.zip');
 // produce a working zip; the extension's popup flags the missing URL
 // instead of silently calling the wrong host.
 const apiBaseUrl = process.env.VITE_API_BASE_URL || '';
-// Dashboard URL is baked in so the popup's "Settings → Extension" hint
-// can deep-link the user back into the dashboard. Optional — a zip
-// without it just shows the destination as plain text.
+// Dashboard URL is baked in for two reasons: the popup uses it to
+// deep-link the user back to Settings → Extension when they haven't
+// paired yet, and the dashboard content_script's match is rewritten
+// to this origin so the Refresh-stale button injects on whichever
+// origin the dashboard was deployed to. Optional — a zip without it
+// keeps the popup text plain and leaves the source manifest's
+// default match in place.
 const dashboardBaseUrl = process.env.BOOKED_DASHBOARD_URL || '';
 
 await mkdir(outDir, { recursive: true });
@@ -36,15 +40,21 @@ const configWithUrl = configTemplate
   .replace('__BOOKED_API_BASE_URL__', apiBaseUrl)
   .replace('__BOOKED_DASHBOARD_URL__', dashboardBaseUrl);
 
-// Append the API origin to manifest host_permissions so installs from
-// the packaged zip can hit the API cross-origin from the service
-// worker without a runtime prompt. The source manifest stays clean
-// (just the social-site origins) so load-unpacked from extension/
-// still works for dev; the popup falls back to chrome.permissions
-// .request for that path.
+// Apply packaging-time rewrites to the manifest:
+//   1. Append the API origin to host_permissions so the service worker
+//      can call cross-origin without a runtime prompt.
+//   2. Rewrite the dashboard content_script entry's match so the
+//      Refresh-stale button injects on whichever origin the dashboard
+//      was deployed to.
+// The source manifest stays clean (prod defaults) so load-unpacked
+// from extension/ still works for dev; the popup falls back to
+// chrome.permissions.request for the host_permissions path.
 const manifestPath = path.join(extensionDir, 'manifest.json');
 const manifestText = await readFile(manifestPath, 'utf8');
-const manifestForZip = withApiHostPermission(manifestText, apiBaseUrl);
+const manifestForZip = rewriteManifestForZip(manifestText, {
+  apiBaseUrl,
+  dashboardBaseUrl,
+});
 
 await mkdir(outDir, { recursive: true });
 
@@ -80,19 +90,47 @@ await new Promise((resolve, reject) => {
   archive.finalize();
 });
 
-function withApiHostPermission(manifestText, baseUrl) {
-  if (!baseUrl) return manifestText;
-  let origin;
+function rewriteManifestForZip(manifestText, { apiBaseUrl, dashboardBaseUrl }) {
+  let manifest;
   try {
-    origin = new URL(baseUrl).origin;
-  } catch {
-    console.warn(`[build-extension-zip] VITE_API_BASE_URL=${baseUrl} is not a valid URL; skipping host_permissions injection.`);
+    manifest = JSON.parse(manifestText);
+  } catch (err) {
+    console.warn('[build-extension-zip] manifest parse failed; skipping rewrites:', err);
     return manifestText;
   }
-  const manifest = JSON.parse(manifestText);
+  applyApiHostPermission(manifest, apiBaseUrl);
+  applyDashboardMatch(manifest, dashboardBaseUrl);
+  return `${JSON.stringify(manifest, null, 2)}\n`;
+}
+
+function applyApiHostPermission(manifest, baseUrl) {
+  const origin = parseOrigin(baseUrl, 'VITE_API_BASE_URL');
+  if (!origin) return;
   const pattern = `${origin}/*`;
   if (!manifest.host_permissions?.includes(pattern)) {
     manifest.host_permissions = [...(manifest.host_permissions ?? []), pattern];
   }
-  return `${JSON.stringify(manifest, null, 2)}\n`;
+}
+
+function applyDashboardMatch(manifest, dashUrl) {
+  const origin = parseOrigin(dashUrl, 'BOOKED_DASHBOARD_URL');
+  if (!origin) return;
+  const entry = (manifest.content_scripts || []).find(
+    (cs) => Array.isArray(cs.js) && cs.js.includes('src/content/dashboard.js'),
+  );
+  if (!entry) {
+    console.warn('[build-extension-zip] no dashboard content_script entry found; skipping match rewrite.');
+    return;
+  }
+  entry.matches = [`${origin}/*`];
+}
+
+function parseOrigin(url, label) {
+  if (!url) return null;
+  try {
+    return new URL(url).origin;
+  } catch {
+    console.warn(`[build-extension-zip] ${label}=${url} is not a valid URL; skipping.`);
+    return null;
+  }
 }
