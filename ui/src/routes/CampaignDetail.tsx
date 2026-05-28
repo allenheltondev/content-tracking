@@ -277,7 +277,7 @@ export default function CampaignDetail(): ReactElement {
             />
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <Link
             to={`/campaigns/${campaign.campaign_id}/report`}
             target="_blank"
@@ -286,7 +286,11 @@ export default function CampaignDetail(): ReactElement {
           >
             Sponsor report
           </Link>
-          <span className={`status-pill status-${campaign.status}`}>{campaign.status}</span>
+          <StatusChipEditor
+            apiFetch={apiFetch}
+            campaign={campaign}
+            onCampaignChange={onCampaignChange}
+          />
         </div>
       </header>
 
@@ -319,51 +323,45 @@ export default function CampaignDetail(): ReactElement {
       </nav>
 
       {activeTab === 'overview' && (
-        <div className="space-y-6">
+        <div className="space-y-8">
           <ExecutiveSummary
             campaign={campaign}
             analytics={analytics}
             webAnalytics={webAnalytics}
           />
-          <div className="card divide-y divide-border">
-            <FormRow label="Status">
-              <StatusField
-                apiFetch={apiFetch}
-                campaign={campaign}
-                onCampaignChange={onCampaignChange}
-              />
-            </FormRow>
-            <FormRow label="Dates">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5">
+            <FieldGroup label="Dates">
               <DateRangeField
                 apiFetch={apiFetch}
                 campaign={campaign}
                 onCampaignChange={onCampaignChange}
               />
-            </FormRow>
-            <FormRow label="Payout">
+            </FieldGroup>
+            <FieldGroup label="Payout">
               <PayoutField
                 apiFetch={apiFetch}
                 campaign={campaign}
                 onCampaignChange={onCampaignChange}
               />
-            </FormRow>
-            <FormRow label="Blog post">
+            </FieldGroup>
+            <FieldGroup label="Blog post" className="md:col-span-2">
               <BlogUrlField
                 apiFetch={apiFetch}
                 campaign={campaign}
                 onCampaignChange={onCampaignChange}
               />
-            </FormRow>
-            <FormRow
+            </FieldGroup>
+            <FieldGroup
               label="Link tracking ID"
               hint="Tags every short link minted for this campaign so analytics can roll up by campaign. Links minted before this is set won't be retroactively tagged."
+              className="md:col-span-2"
             >
               <LinkTrackingIdField
                 apiFetch={apiFetch}
                 campaign={campaign}
                 onCampaignChange={onCampaignChange}
               />
-            </FormRow>
+            </FieldGroup>
           </div>
         </div>
       )}
@@ -1190,7 +1188,11 @@ function SaveIndicator({ state }: { state: AutoSaveState }): ReactElement | null
   return null;
 }
 
-function StatusField({ apiFetch, campaign, onCampaignChange }: FieldEditorProps): ReactElement {
+function StatusChipEditor({
+  apiFetch,
+  campaign,
+  onCampaignChange,
+}: FieldEditorProps): ReactElement {
   const { state, run } = useAutoSave();
 
   const handleChange = (next: CampaignStatus): void => {
@@ -1202,21 +1204,46 @@ function StatusField({ apiFetch, campaign, onCampaignChange }: FieldEditorProps)
   };
 
   return (
-    <div className="flex items-center gap-3">
-      <select
-        className="input w-44 py-1.5 text-sm"
-        value={campaign.status}
-        onChange={(e) => handleChange(e.target.value as CampaignStatus)}
-        disabled={state.saving}
-        aria-label="Campaign status"
+    <div className="inline-flex items-center gap-2">
+      <span
+        className={`relative inline-flex items-center gap-1 status-pill status-${campaign.status} cursor-pointer hover:opacity-80 focus-within:ring-2 focus-within:ring-primary-500 focus-within:ring-offset-1 ${
+          state.saving ? 'opacity-60' : ''
+        }`}
       >
-        <option value="draft">draft</option>
-        <option value="active">active</option>
-        <option value="monitoring">monitoring</option>
-        <option value="completed">completed</option>
-      </select>
+        <span>{campaign.status}</span>
+        <ChevronDownIcon />
+        <select
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          value={campaign.status}
+          onChange={(e) => handleChange(e.target.value as CampaignStatus)}
+          disabled={state.saving}
+          aria-label="Change campaign status"
+        >
+          <option value="draft">draft</option>
+          <option value="active">active</option>
+          <option value="monitoring">monitoring</option>
+          <option value="completed">completed</option>
+        </select>
+      </span>
       <SaveIndicator state={state} />
     </div>
+  );
+}
+
+function ChevronDownIcon(): ReactElement {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      className="w-3 h-3 opacity-60"
+      aria-hidden="true"
+    >
+      <path
+        fillRule="evenodd"
+        d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+        clipRule="evenodd"
+      />
+    </svg>
   );
 }
 
@@ -1506,22 +1533,22 @@ function PencilIcon({ className = 'w-3.5 h-3.5' }: { className?: string }): Reac
   );
 }
 
-function FormRow({
+function FieldGroup({
   label,
   hint,
+  className,
   children,
 }: {
   label: string;
   hint?: string;
+  className?: string;
   children: ReactElement;
 }): ReactElement {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-[200px,1fr] gap-x-6 gap-y-2 items-start px-6 py-4">
-      <p className="text-sm font-medium text-foreground sm:pt-2">{label}</p>
-      <div className="min-w-0 space-y-1.5">
-        <div className="text-sm text-foreground">{children}</div>
-        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
-      </div>
+    <div className={`space-y-2 ${className ?? ''}`}>
+      <p className="text-xs uppercase tracking-wide text-muted-foreground font-medium">{label}</p>
+      <div className="text-sm text-foreground">{children}</div>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
@@ -1654,7 +1681,7 @@ function Sparkline({ byDay }: { byDay: Record<string, number> }): ReactElement |
 }
 
 function computeTimeline(campaign: Campaign): { primary: string; secondary: string | null } {
-  const { startDate, endDate, status, created_at: createdAt } = campaign;
+  const { startDate, endDate, status } = campaign;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -1664,10 +1691,7 @@ function computeTimeline(campaign: Campaign): { primary: string; secondary: stri
   const dayMs = 86_400_000;
 
   if (status === 'completed') {
-    return {
-      primary: 'Completed',
-      secondary: range !== '-' ? range : `Created ${createdAt.slice(0, 10)}`,
-    };
+    return { primary: 'Completed', secondary: range !== '-' ? range : null };
   }
 
   if (start && end) {
@@ -1701,7 +1725,7 @@ function computeTimeline(campaign: Campaign): { primary: string; secondary: stri
     return { primary: `${days}d left`, secondary: `Until ${endDate}` };
   }
 
-  return { primary: 'Not scheduled', secondary: `Created ${createdAt.slice(0, 10)}` };
+  return { primary: 'Not scheduled', secondary: null };
 }
 
 function formatPayoutShort(payout: Campaign['payout']): string {
