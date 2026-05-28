@@ -365,7 +365,7 @@ export default function CampaignDetail(): ReactElement {
                 onCampaignChange={onCampaignChange}
               />
             </FieldGroup>
-            <FieldGroup label="Blog post" className="md:col-span-2">
+            <FieldGroup label="Deliverable" className="md:col-span-2">
               <BlogUrlField
                 apiFetch={apiFetch}
                 campaign={campaign}
@@ -390,6 +390,15 @@ export default function CampaignDetail(): ReactElement {
       {activeTab === 'promotion' && (
         <>
           <section className="space-y-3">
+            <h2 className="text-lg font-semibold text-foreground">Deliverable</h2>
+            <BlogUrlField
+              apiFetch={apiFetch}
+              campaign={campaign}
+              onCampaignChange={onCampaignChange}
+            />
+          </section>
+
+          <section className="space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-lg font-semibold text-foreground">Links</h2>
               {!showLinkForm && (
@@ -409,7 +418,6 @@ export default function CampaignDetail(): ReactElement {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Role</th>
                     <th>Platform</th>
                     <th>Short URL</th>
                     <th>Destination</th>
@@ -422,7 +430,6 @@ export default function CampaignDetail(): ReactElement {
                     const linkAnalytics = analytics?.links.find((l) => l.link_id === link.link_id);
                     return (
                       <tr key={link.link_id}>
-                        <td>{link.role}</td>
                         <td>{link.platform}</td>
                         <td>
                           <CopyableShortUrl url={link.short_url} />

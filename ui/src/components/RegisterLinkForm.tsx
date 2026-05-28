@@ -2,8 +2,6 @@ import type { ReactElement } from 'react';
 import { useState } from 'react';
 import type { CampaignLink, CreateLinkRequest } from '../api/types';
 
-type Role = 'main' | 'cross_post' | 'social_promo';
-
 interface Props {
   busy: boolean;
   serverError: string | null;
@@ -19,7 +17,6 @@ export default function RegisterLinkForm({
   onSubmit,
   onCancel,
 }: Props): ReactElement {
-  const [role, setRole] = useState<Role>('main');
   const [platform, setPlatform] = useState('');
   const [url, setUrl] = useState('');
   const [src, setSrc] = useState('');
@@ -38,7 +35,7 @@ export default function RegisterLinkForm({
       setValidationError('URL must start with http:// or https://.');
       return;
     }
-    const payload: CreateLinkRequest = { role, platform: trimmedPlatform, url: trimmedUrl };
+    const payload: CreateLinkRequest = { role: 'cross_post', platform: trimmedPlatform, url: trimmedUrl };
     if (src.trim().length > 0) payload.src = src.trim();
     onSubmit(payload);
   };
@@ -55,20 +52,7 @@ export default function RegisterLinkForm({
     <fieldset className="border border-border rounded-lg px-4 py-3 space-y-3 mt-4">
       <legend className="px-1 text-sm font-medium text-foreground">Register a link</legend>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <label className="block">
-          <span className="field-label">Role</span>
-          <select
-            className="input"
-            value={role}
-            onChange={(e) => setRole(e.target.value as Role)}
-            disabled={busy}
-          >
-            <option value="main">main</option>
-            <option value="cross_post">cross_post</option>
-            <option value="social_promo">social_promo</option>
-          </select>
-        </label>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <label className="block">
           <span className="field-label">Platform</span>
           <input
@@ -76,7 +60,7 @@ export default function RegisterLinkForm({
             className="input"
             value={platform}
             onChange={(e) => setPlatform(e.target.value)}
-            placeholder="instagram, medium, ..."
+            placeholder="medium, dev.to, ..."
             disabled={busy}
           />
         </label>
