@@ -71,15 +71,16 @@
   }
 
   // LinkedIn's post pages are server-rendered SDUI with no clean JSON
-  // API to capture, but the per-post analytics page exposes the same
-  // counts in the DOM where the analytics-linkedin content script can
-  // scrape them. Deep-link there for LinkedIn posts so a single menu
-  // click both opens the analytics view and triggers a fresh sync.
+  // API to capture; the per-post analytics page exposes the counts in
+  // the DOM instead. Only deep-link there when the stored URL contains
+  // an explicit activity URN — slug URLs (linkedin.com/posts/...) embed
+  // share/ugcPost ids whose mapping to the activity URN we can't derive
+  // without scraping the post page first. For those, send the user to
+  // the post URL as-is; posts-linkedin.js resolves the activity URN on
+  // arrival and background opens an analytics scrape tab from there.
   function destinationUrl(post) {
     if (post.platform !== "linkedin") return post.url;
-    const m =
-      /urn:li:(?:activity|ugcPost|share):(\d+)/.exec(post.url) ||
-      /-(\d{17,20})(?:[/?#-]|$)/.exec(post.url);
+    const m = /urn:li:activity:(\d+)/.exec(post.url);
     if (!m) return post.url;
     return `https://www.linkedin.com/analytics/post-summary/urn:li:activity:${m[1]}/`;
   }

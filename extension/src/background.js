@@ -17,6 +17,11 @@ import {
 const FEED_KEY = "booked_feed";
 const SENT_KEY = "booked_sent";
 const FEED_ALARM = "booked:feed-refresh";
+// Maps LinkedIn slug URLs (linkedin.com/posts/<slug>) to the activity
+// URN id discovered on that page. Slug URLs embed share/ugcPost ids
+// that don't translate to activity ids, so we resolve and cache the
+// mapping the first time the user visits any tracked post.
+const LINKEDIN_URN_MAP_KEY = "booked_linkedin_urn_map";
 
 let feed = null;
 let crossPostLinks = [];
@@ -188,23 +193,78 @@ async function buildStatus() {
   };
 }
 
+async function getLinkedInUrnMap() {
+  const data = await chrome.storage.local.get(LINKEDIN_URN_MAP_KEY);
+  return data[LINKEDIN_URN_MAP_KEY] || {};
+}
+
+async function setLinkedInUrnMapping(slugUrl, activityId) {
+  if (!slugUrl || !activityId) return;
+  const map = await getLinkedInUrnMap();
+  const key = stripUrlQuery(slugUrl);
+  if (map[key] === String(activityId)) return;
+  map[key] = String(activityId);
+  await chrome.storage.local.set({ [LINKEDIN_URN_MAP_KEY]: map });
+}
+
+function stripUrlQuery(url) {
+  if (!url) return url;
+  try {
+    const u = new URL(url);
+    return u.origin + u.pathname;
+  } catch {
+    const i = url.indexOf("?");
+    return i > -1 ? url.slice(0, i) : url;
+  }
+}
+
+// Match a tracked LinkedIn post by activity id. The stored URL may
+// embed the activity URN directly (feed/update form) or a share/ugcPost
+// id whose mapping we discovered via posts-linkedin.js — try both.
+function findLinkedInPostByActivityId(posts, activityId, urnMap) {
+  const wanted = String(activityId);
+  return posts.find((p) => {
+    if (p.platform !== "linkedin") return false;
+    if (p.url.includes(`urn:li:activity:${wanted}`)) return true;
+    if (urnMap[stripUrlQuery(p.url)] === wanted) return true;
+    return false;
+  });
+}
+
 async function handleScraped({ platform, nativeId, metrics }) {
   if (!metrics || !Object.keys(metrics).length) return;
   await ensureFeed();
   if (!feed?.length) return;
-  const adapter = adapters[platform];
-  if (!adapter) return;
-  const matched = feed
-    .filter((p) => p.platform === platform)
-    .find((p) => {
-      const id = adapter.parsePostId(p.url);
-      return id && String(id) === String(nativeId);
-    });
+
+  let matched;
+  if (platform === "linkedin") {
+    const urnMap = await getLinkedInUrnMap();
+    matched = findLinkedInPostByActivityId(feed, nativeId, urnMap);
+  } else {
+    const adapter = adapters[platform];
+    if (!adapter) return;
+    matched = feed
+      .filter((p) => p.platform === platform)
+      .find((p) => {
+        const id = adapter.parsePostId(p.url);
+        return id && String(id) === String(nativeId);
+      });
+  }
+
   if (matched) await maybeSync(matched, metrics);
   // If this scrape was driven by an auto-opened background tab, clean it
   // up once we've got the data. Skip if the user has since clicked into
   // the tab (active=true) — they presumably want to keep reading.
   if (platform === "linkedin") closeBackgroundScrapeTab(String(nativeId));
+}
+
+async function handleResolvedPost({ url, activityId }) {
+  if (!url || !activityId) return;
+  await setLinkedInUrnMapping(url, activityId);
+  // The tabs.onUpdated handler may have already tried (and failed)
+  // auto-scrape for this URL before the mapping existed — re-run with
+  // the resolved id so the analytics tab opens immediately.
+  await maybeAutoScrape(url);
 }
 
 // ---- automatic background-tab scrape -------------------------------------
@@ -221,27 +281,23 @@ const ACTIVE_SCRAPE_TABS = new Map(); // activityId -> { tabId, timeoutHandle }
 const AUTO_SCRAPE_TTL_MS = 5 * 60 * 1000; // don't re-open within 5 min
 const AUTO_SCRAPE_MAX_LIFETIME_MS = 60 * 1000; // hard cap on tab lifetime
 
-function linkedInActivityIdFromUrl(url) {
-  if (!url) return null;
-  const m =
-    /urn:li:(?:activity|ugcPost|share):(\d+)/.exec(url) ||
-    /-(\d{17,20})(?:[/?#-]|$)/.exec(url);
-  return m ? m[1] : null;
-}
-
 async function maybeAutoScrape(tabUrl) {
   if (!tabUrl || !tabUrl.includes("linkedin.com")) return;
   // Don't recurse on tabs we opened ourselves.
   if (tabUrl.includes("/analytics/post-summary/")) return;
 
-  const activityId = linkedInActivityIdFromUrl(tabUrl);
+  // Activity id may be embedded directly in the URL (feed/update form)
+  // or only available via the slug→activity cache populated by
+  // posts-linkedin.js. If neither resolves, we'll get another shot when
+  // the content script reports back via booked:resolvedPost.
+  let activityId = /urn:li:activity:(\d+)/.exec(tabUrl)?.[1] || null;
+  const urnMap = await getLinkedInUrnMap();
+  if (!activityId) activityId = urnMap[stripUrlQuery(tabUrl)] || null;
   if (!activityId) return;
 
   await ensureFeed();
   if (!feed?.length) return;
-  const tracked = feed.find(
-    (p) => p.platform === "linkedin" && linkedInActivityIdFromUrl(p.url) === activityId,
-  );
+  const tracked = findLinkedInPostByActivityId(feed, activityId, urnMap);
   if (!tracked) return;
 
   // Dedupe: skip if we synced this post in the last few minutes or there's
@@ -299,6 +355,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return false;
     case "booked:scraped":
       handleScraped(msg).catch((err) => console.warn("[booked]", err));
+      return false;
+    case "booked:resolvedPost":
+      handleResolvedPost(msg).catch((err) => console.warn("[booked]", err));
       return false;
     case "booked:status":
       buildStatus().then(sendResponse);
