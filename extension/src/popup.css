@@ -146,6 +146,16 @@ button.link:hover {
   max-width: 200px;
 }
 
+.muted a {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.muted a:hover {
+  text-decoration: underline;
+}
+
 .posts .meta {
   color: var(--muted);
   font-size: 11px;

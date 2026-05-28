@@ -51,14 +51,15 @@ export default function InstallExtensionModal({ open, onClose }: Props): ReactEl
           <li>
             Open{' '}
             <Link
-              to="/settings"
+              to="/settings?tab=extension"
               className="text-primary-600 hover:underline"
               onClick={onClose}
             >
               Settings → Extension
             </Link>{' '}
-            and click <span className="font-medium">Generate pairing code</span>. Copy the
-            code from the dialog.
+            and click <span className="font-medium">+</span> next to{' '}
+            <span className="font-medium">Paired devices</span> to generate a code. Copy it
+            from the dialog.
           </li>
           <li>
             Open the extension popup, paste the code into the{' '}

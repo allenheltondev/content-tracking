@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useApiFetch, ApiError } from '../auth/useApiFetch';
 import { getProfile, updateProfile } from '../api/profile';
 import {
@@ -17,8 +18,27 @@ import Modal from '../components/Modal';
 
 type SettingsTab = 'integrations' | 'extension';
 
+const TAB_PARAM = 'tab';
+
+function parseTab(value: string | null): SettingsTab {
+  return value === 'extension' ? 'extension' : 'integrations';
+}
+
 export default function Settings(): ReactElement {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('integrations');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = parseTab(searchParams.get(TAB_PARAM));
+
+  const selectTab = (tab: SettingsTab): void => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (tab === 'integrations') next.delete(TAB_PARAM);
+        else next.set(TAB_PARAM, tab);
+        return next;
+      },
+      { replace: true },
+    );
+  };
 
   return (
     <section className="space-y-6 max-w-3xl">
@@ -30,12 +50,12 @@ export default function Settings(): ReactElement {
         <TabButton
           label="Integrations"
           active={activeTab === 'integrations'}
-          onClick={() => setActiveTab('integrations')}
+          onClick={() => selectTab('integrations')}
         />
         <TabButton
           label="Extension"
           active={activeTab === 'extension'}
-          onClick={() => setActiveTab('extension')}
+          onClick={() => selectTab('extension')}
         />
       </nav>
 
@@ -237,9 +257,7 @@ function ExtensionTab(): ReactElement {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [label, setLabel] = useState('');
-  const [generating, setGenerating] = useState(false);
-  const [generateError, setGenerateError] = useState<string | null>(null);
+  const [generateOpen, setGenerateOpen] = useState(false);
   const [justMinted, setJustMinted] = useState<CreateExtensionPairingResponse | null>(null);
 
   const [revoking, setRevoking] = useState<string | null>(null);
@@ -262,21 +280,10 @@ function ExtensionTab(): ReactElement {
     void load();
   }, [load]);
 
-  const generate = async (): Promise<void> => {
-    setGenerateError(null);
-    setGenerating(true);
-    try {
-      const res = await createExtensionPairing(apiFetch, {
-        label: label.trim() || undefined,
-      });
-      setJustMinted(res);
-      setLabel('');
-      setPairings((prev) => [...prev, res.pairing]);
-    } catch (err) {
-      setGenerateError(err instanceof ApiError ? err.message : (err as Error).message);
-    } finally {
-      setGenerating(false);
-    }
+  const onGenerated = (res: CreateExtensionPairingResponse): void => {
+    setPairings((prev) => [...prev, res.pairing]);
+    setGenerateOpen(false);
+    setJustMinted(res);
   };
 
   const revoke = async (jti: string): Promise<void> => {
@@ -325,7 +332,9 @@ function ExtensionTab(): ReactElement {
             unzipped.
           </li>
           <li>
-            Generate a pairing code below and copy it from the dialog.
+            Under <span className="font-medium">Paired devices</span> below, click the{' '}
+            <span className="font-medium">+</span> button to generate a pairing code and copy
+            it from the dialog.
           </li>
           <li>
             Open the extension popup, paste the code into the{' '}
@@ -334,44 +343,27 @@ function ExtensionTab(): ReactElement {
             in the popup once the pairing finishes.
           </li>
         </ol>
-        <p className="text-sm text-muted-foreground">
-          The pairing code grants the extension access to your Booked account. Revoke it any
-          time from the Paired devices list below.
-        </p>
-      </div>
-
-      <div className="card card-body space-y-4">
-        <h2 className="text-lg font-semibold text-foreground">Generate a new code</h2>
-        <label className="block">
-          <span className="field-label">Label (optional)</span>
-          <input
-            type="text"
-            className="input"
-            placeholder="e.g. Allen's laptop"
-            value={label}
-            maxLength={60}
-            onChange={(e) => setLabel(e.target.value)}
-            disabled={generating}
-          />
-          <span className="field-hint">
-            Used only on this page so you can tell devices apart when revoking.
-          </span>
-        </label>
-        {generateError && <p className="form-error">{generateError}</p>}
-        <div className="flex justify-end">
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={() => void generate()}
-            disabled={generating}
-          >
-            {generating ? 'Generating...' : 'Generate pairing code'}
-          </button>
-        </div>
       </div>
 
       <div className="space-y-3">
-        <h2 className="text-lg font-semibold text-foreground">Paired devices</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-foreground">Paired devices</h2>
+          <button
+            type="button"
+            className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary-600 text-white hover:bg-primary-700 text-xl leading-none"
+            onClick={() => setGenerateOpen(true)}
+            aria-label="Generate a new pairing code"
+            title="Generate a new pairing code"
+          >
+            +
+          </button>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Each browser running the Booked extension shows up here as a paired device. Generate
+          a pairing code with <span className="font-medium">+</span> for each new browser, and
+          revoke a row to cut that browser off — the pairing code is the only credential the
+          extension holds for your account.
+        </p>
         {loadError && <p className="form-error">Could not load pairings: {loadError}</p>}
         {revokeError && <p className="form-error">{revokeError}</p>}
         {loading ? (
@@ -413,11 +405,103 @@ function ExtensionTab(): ReactElement {
         )}
       </div>
 
+      <GeneratePairingDialog
+        open={generateOpen}
+        onClose={() => setGenerateOpen(false)}
+        onGenerated={onGenerated}
+      />
+
       <NewPairingDialog
         result={justMinted}
         onClose={() => setJustMinted(null)}
       />
     </div>
+  );
+}
+
+function GeneratePairingDialog({
+  open,
+  onClose,
+  onGenerated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onGenerated: (res: CreateExtensionPairingResponse) => void;
+}): ReactElement | null {
+  const apiFetch = useApiFetch();
+  const [label, setLabel] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setLabel('');
+      setError(null);
+      setGenerating(false);
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  const submit = async (): Promise<void> => {
+    setError(null);
+    setGenerating(true);
+    try {
+      const res = await createExtensionPairing(apiFetch, {
+        label: label.trim() || undefined,
+      });
+      onGenerated(res);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <Modal open title="Generate a new pairing code" onClose={onClose}>
+      <div className="space-y-4 text-sm text-foreground">
+        <p className="text-muted-foreground">
+          A pairing code lets one browser's Booked extension talk to your account. Give it a
+          label so you can tell devices apart later when you revoke one.
+        </p>
+        <label className="block">
+          <span className="field-label">Label (optional)</span>
+          <input
+            type="text"
+            className="input"
+            placeholder="e.g. Allen's laptop"
+            value={label}
+            maxLength={60}
+            onChange={(e) => setLabel(e.target.value)}
+            disabled={generating}
+            autoFocus
+          />
+          <span className="field-hint">
+            Shown only on this page so you can identify the device when revoking.
+          </span>
+        </label>
+        {error && <p className="form-error">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={onClose}
+            disabled={generating}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => void submit()}
+            disabled={generating}
+          >
+            {generating ? 'Generating...' : 'Generate pairing code'}
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
