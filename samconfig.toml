@@ -1,8 +1,11 @@
 version = 0.1
 
-# Secret parameter NewsletterMintApiKey is NOT defined here.
-# Provide it via samconfig.local.toml (gitignored) or
-# `sam deploy --parameter-overrides "NewsletterMintApiKey=..."`.
+# Secret parameters NewsletterMintApiKey and ExtensionTokenSigningKey
+# are NOT defined here. Provide them via samconfig.local.toml
+# (gitignored) or `sam deploy --parameter-overrides
+# "NewsletterMintApiKey=..." "ExtensionTokenSigningKey=..."`. Generate
+# a fresh signing key with
+# `node scripts/generate-extension-signing-key.mjs`.
 #
 # UserPoolId + UserPoolClientId are also not defined here. They feed
 # the Lambda authorizer's Cognito JWT verification; provide them in

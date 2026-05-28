@@ -59,7 +59,7 @@ export function verifyToken(token, secret) {
     header = JSON.parse(base64urlDecode(encodedHeader));
     payload = JSON.parse(base64urlDecode(encodedPayload));
   } catch (err) {
-    throw new Error(`Token JSON parse failed: ${err.message}`);
+    throw new Error(`Token JSON parse failed: ${err.message}`, { cause: err });
   }
 
   if (header.alg !== "HS256") {

@@ -53,7 +53,7 @@ export async function handler(event) {
     // anything else becomes a 500. Convert all auth failures into the
     // canonical message but log details for ops.
     logger.info("Authorizer: rejecting token", { reason: err?.message });
-    throw new Error("Unauthorized");
+    throw new Error("Unauthorized", { cause: err });
   }
 }
 
@@ -67,7 +67,7 @@ async function authorizeCognitoToken(token, methodArn) {
 }
 
 async function authorizeExtensionToken(token, methodArn) {
-  const secret = await getExtensionSigningSecret();
+  const secret = getExtensionSigningSecret();
   const { sub, jti } = verifyToken(token, secret);
 
   // Revocation check + last_used_at bump in a single conditional update.

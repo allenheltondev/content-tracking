@@ -94,7 +94,8 @@ jobs:
               "Environment=${{ env.ENVIRONMENT }}" \
               "NewsletterMintApiKey=${{ secrets.NEWSLETTER_MINT_API_KEY }}" \
               "UserPoolId=${{ vars.USER_POOL_ID }}" \
-              "UserPoolClientId=${{ vars.USER_POOL_CLIENT_ID }}"
+              "UserPoolClientId=${{ vars.USER_POOL_CLIENT_ID }}" \
+              "ExtensionTokenSigningKey=${{ secrets.EXTENSION_TOKEN_SIGNING_KEY }}"
 
       - name: Diagnose failed deploy
         if: ${{ failure() }}

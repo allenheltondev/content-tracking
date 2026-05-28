@@ -24,7 +24,7 @@ export function registerExtensionPairingRoutes(app) {
     const sub = requireCognitoSub(event);
     const label = parseLabel(event);
 
-    const secret = await getExtensionSigningSecret();
+    const secret = getExtensionSigningSecret();
     const { pairing, token } = await mintPairing({ sub, label, signingSecret: secret });
 
     logger.info("Extension pairing minted", { sub, jti: pairing.jti, label: pairing.label });
