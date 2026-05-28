@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { Line, LineChart, ResponsiveContainer } from 'recharts';
 import { useApiFetch, ApiError, type ApiFetch } from '../auth/useApiFetch';
 import {
   createLink,
@@ -318,51 +319,52 @@ export default function CampaignDetail(): ReactElement {
       </nav>
 
       {activeTab === 'overview' && (
-        <div className="card divide-y divide-border">
-          <FormRow label="Status" hint="Current lifecycle stage of the campaign.">
-            <StatusEditor
-              apiFetch={apiFetch}
-              campaign={campaign}
-              onCampaignChange={onCampaignChange}
-            />
-          </FormRow>
-          <FormRow label="Dates" hint="Campaign window. Leave blank if open-ended.">
-            <DateRangeEditor
-              apiFetch={apiFetch}
-              campaign={campaign}
-              onCampaignChange={onCampaignChange}
-            />
-          </FormRow>
-          <FormRow label="Created">
-            <span className="text-foreground">{campaign.created_at.slice(0, 10)}</span>
-          </FormRow>
-          <FormRow label="Payout" hint="Amount, currency, and whether the sponsor has paid.">
-            <PayoutEditor
-              apiFetch={apiFetch}
-              campaign={campaign}
-              onCampaignChange={onCampaignChange}
-            />
-          </FormRow>
-          <FormRow
-            label="Blog post"
-            hint="URL of the post promoting this campaign. Powers GA4 traffic and Core Web Vitals on the Analytics tab."
-          >
-            <BlogUrlEditor
-              apiFetch={apiFetch}
-              campaign={campaign}
-              onCampaignChange={onCampaignChange}
-            />
-          </FormRow>
-          <FormRow
-            label="Link tracking ID"
-            hint="Tags every short link minted for this campaign so the newsletter service can group analytics by campaign. Existing links minted before this is set won't be retroactively tagged."
-          >
-            <LinkTrackingIdEditor
-              apiFetch={apiFetch}
-              campaign={campaign}
-              onCampaignChange={onCampaignChange}
-            />
-          </FormRow>
+        <div className="space-y-6">
+          <ExecutiveSummary
+            campaign={campaign}
+            analytics={analytics}
+            webAnalytics={webAnalytics}
+          />
+          <div className="card divide-y divide-border">
+            <FormRow label="Status">
+              <StatusField
+                apiFetch={apiFetch}
+                campaign={campaign}
+                onCampaignChange={onCampaignChange}
+              />
+            </FormRow>
+            <FormRow label="Dates">
+              <DateRangeField
+                apiFetch={apiFetch}
+                campaign={campaign}
+                onCampaignChange={onCampaignChange}
+              />
+            </FormRow>
+            <FormRow label="Payout">
+              <PayoutField
+                apiFetch={apiFetch}
+                campaign={campaign}
+                onCampaignChange={onCampaignChange}
+              />
+            </FormRow>
+            <FormRow label="Blog post">
+              <BlogUrlField
+                apiFetch={apiFetch}
+                campaign={campaign}
+                onCampaignChange={onCampaignChange}
+              />
+            </FormRow>
+            <FormRow
+              label="Link tracking ID"
+              hint="Tags every short link minted for this campaign so analytics can roll up by campaign. Links minted before this is set won't be retroactively tagged."
+            >
+              <LinkTrackingIdField
+                apiFetch={apiFetch}
+                campaign={campaign}
+                onCampaignChange={onCampaignChange}
+              />
+            </FormRow>
+          </div>
         </div>
       )}
 
@@ -1141,313 +1143,71 @@ function VendorEditor({ apiFetch, campaign, onCampaignChange }: FieldEditorProps
   );
 }
 
-function DateRangeEditor({ apiFetch, campaign, onCampaignChange }: FieldEditorProps): ReactElement {
-  const [editing, setEditing] = useState(false);
-  const [start, setStart] = useState(campaign.startDate ?? '');
-  const [end, setEnd] = useState(campaign.endDate ?? '');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const begin = (): void => {
-    setStart(campaign.startDate ?? '');
-    setEnd(campaign.endDate ?? '');
-    setError(null);
-    setEditing(true);
-  };
-  const cancel = (): void => {
-    setEditing(false);
-    setError(null);
-  };
-  const save = async (): Promise<void> => {
-    const sameStart = start === (campaign.startDate ?? '');
-    const sameEnd = end === (campaign.endDate ?? '');
-    if (sameStart && sameEnd) {
-      setEditing(false);
-      return;
-    }
-    if (start && end && end < start) {
-      setError('End date must be on or after start date.');
-      return;
-    }
-    const payload: { startDate?: string; endDate?: string } = {};
-    if (start) payload.startDate = start;
-    if (end) payload.endDate = end;
-    setBusy(true);
-    setError(null);
-    try {
-      const updated = await updateCampaign(apiFetch, campaign.campaign_id, payload);
-      onCampaignChange(updated);
-      setEditing(false);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : (err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const hasDates = Boolean(campaign.startDate || campaign.endDate);
-  return (
-    <EditScaffold
-      editing={editing}
-      busy={busy}
-      error={error}
-      hasValue={hasDates}
-      emptyLabel="No dates"
-      onStart={begin}
-      onCancel={cancel}
-      onSave={() => void save()}
-      display={
-        <span className="text-foreground">
-          {formatDateRange(campaign.startDate, campaign.endDate)}
-        </span>
-      }
-      form={
-        <div className="flex items-center gap-2 flex-wrap">
-          <input
-            type="date"
-            className="input py-1 text-sm w-auto"
-            value={start}
-            onChange={(e) => setStart(e.target.value)}
-            disabled={busy}
-            aria-label="Start date"
-          />
-          <span className="text-muted-foreground">→</span>
-          <input
-            type="date"
-            className="input py-1 text-sm w-auto"
-            value={end}
-            onChange={(e) => setEnd(e.target.value)}
-            disabled={busy}
-            aria-label="End date"
-          />
-        </div>
-      }
-    />
-  );
+interface AutoSaveState {
+  saving: boolean;
+  saved: boolean;
+  error: string | null;
 }
 
-function BlogUrlEditor({ apiFetch, campaign, onCampaignChange }: FieldEditorProps): ReactElement {
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(campaign.blog_url ?? '');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+function useAutoSave(): {
+  state: AutoSaveState;
+  run: (action: () => Promise<void>) => Promise<void>;
+  setError: (message: string | null) => void;
+} {
+  const [state, setState] = useState<AutoSaveState>({ saving: false, saved: false, error: null });
 
-  const start = (): void => {
-    setValue(campaign.blog_url ?? '');
-    setError(null);
-    setEditing(true);
-  };
-  const cancel = (): void => {
-    setEditing(false);
-    setError(null);
-  };
-  const save = async (): Promise<void> => {
-    const trimmed = value.trim();
-    if (trimmed === (campaign.blog_url ?? '')) {
-      setEditing(false);
-      return;
-    }
-    if (trimmed.length === 0) {
-      setError('Enter a URL, or cancel to leave the field unchanged.');
-      return;
-    }
-    if (!/^https?:\/\//i.test(trimmed)) {
-      setError('URL must start with http:// or https://');
-      return;
-    }
-    setBusy(true);
-    setError(null);
+  const run = useCallback(async (action: () => Promise<void>): Promise<void> => {
+    setState({ saving: true, saved: false, error: null });
     try {
-      const updated = await updateCampaign(apiFetch, campaign.campaign_id, { blog_url: trimmed });
-      onCampaignChange(updated);
-      setEditing(false);
+      await action();
+      setState({ saving: false, saved: true, error: null });
+      setTimeout(() => {
+        setState((prev) => (prev.saved ? { ...prev, saved: false } : prev));
+      }, 1500);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : (err as Error).message);
-    } finally {
-      setBusy(false);
+      const message = err instanceof ApiError ? err.message : (err as Error).message;
+      setState({ saving: false, saved: false, error: message });
     }
-  };
+  }, []);
 
-  return (
-    <EditScaffold
-      editing={editing}
-      busy={busy}
-      error={error}
-      hasValue={Boolean(campaign.blog_url)}
-      emptyLabel="No blog post linked"
-      onStart={start}
-      onCancel={cancel}
-      onSave={() => void save()}
-      display={
-        <a
-          href={campaign.blog_url ?? '#'}
-          target="_blank"
-          rel="noreferrer"
-          className="text-primary-600 hover:underline break-all"
-        >
-          {campaign.blog_url ? truncate(campaign.blog_url, 70) : ''}
-        </a>
-      }
-      form={
-        <input
-          type="url"
-          className="input"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="https://blog.example.com/my-post"
-          disabled={busy}
-          autoFocus
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void save();
-            if (e.key === 'Escape') cancel();
-          }}
-        />
-      }
-    />
-  );
+  const setError = useCallback((message: string | null): void => {
+    setState({ saving: false, saved: false, error: message });
+  }, []);
+
+  return { state, run, setError };
 }
 
-function PayoutEditor({ apiFetch, campaign, onCampaignChange }: FieldEditorProps): ReactElement {
-  const [editing, setEditing] = useState(false);
-  const [amount, setAmount] = useState(
-    campaign.payout?.amount !== undefined ? String(campaign.payout.amount) : '',
-  );
-  const [currency, setCurrency] = useState(campaign.payout?.currency ?? 'USD');
-  const [paid, setPaid] = useState(campaign.payout?.paid ?? false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const start = (): void => {
-    setAmount(campaign.payout?.amount !== undefined ? String(campaign.payout.amount) : '');
-    setCurrency(campaign.payout?.currency ?? 'USD');
-    setPaid(campaign.payout?.paid ?? false);
-    setError(null);
-    setEditing(true);
-  };
-  const cancel = (): void => {
-    setEditing(false);
-    setError(null);
-  };
-  const save = async (): Promise<void> => {
-    const trimmedAmount = amount.trim();
-    if (trimmedAmount.length === 0) {
-      setError('Enter a payout amount.');
-      return;
-    }
-    const num = Number(trimmedAmount);
-    if (!Number.isFinite(num) || num < 0) {
-      setError('Amount must be a non-negative number.');
-      return;
-    }
-    const trimmedCurrency = currency.toUpperCase().trim();
-    if (!/^[A-Z]{3}$/.test(trimmedCurrency)) {
-      setError('Currency must be a 3-letter ISO 4217 code (e.g., USD).');
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const updated = await updateCampaign(apiFetch, campaign.campaign_id, {
-        payout: { amount: num, currency: trimmedCurrency, paid },
-      });
-      onCampaignChange(updated);
-      setEditing(false);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : (err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <EditScaffold
-      editing={editing}
-      busy={busy}
-      error={error}
-      hasValue={Boolean(campaign.payout)}
-      emptyLabel="No payout"
-      onStart={start}
-      onCancel={cancel}
-      onSave={() => void save()}
-      display={
-        <span className="text-foreground">
-          {campaign.payout?.amount} {campaign.payout?.currency}
-          {campaign.payout?.paid ? ' (paid)' : ' (unpaid)'}
-        </span>
-      }
-      form={
-        <div className="grid grid-cols-3 gap-2">
-          <input
-            type="number"
-            min={0}
-            step="0.01"
-            className="input py-1 text-sm"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="Amount"
-            disabled={busy}
-            autoFocus
-            aria-label="Payout amount"
-          />
-          <input
-            type="text"
-            maxLength={3}
-            className="input py-1 text-sm uppercase"
-            value={currency}
-            onChange={(e) => setCurrency(e.target.value)}
-            placeholder="USD"
-            disabled={busy}
-            aria-label="Payout currency"
-          />
-          <label className="inline-flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="rounded border-border text-primary-600 focus:ring-primary-500"
-              checked={paid}
-              onChange={(e) => setPaid(e.target.checked)}
-              disabled={busy}
-            />
-            Paid
-          </label>
-        </div>
-      }
-    />
-  );
+function SaveIndicator({ state }: { state: AutoSaveState }): ReactElement | null {
+  if (state.saving) {
+    return <span className="text-xs text-muted-foreground shrink-0">Saving…</span>;
+  }
+  if (state.saved) {
+    return <span className="text-xs text-success-700 shrink-0">Saved</span>;
+  }
+  if (state.error) {
+    return <span className="text-xs text-error-600 shrink-0">{state.error}</span>;
+  }
+  return null;
 }
 
-function StatusEditor({
-  apiFetch,
-  campaign,
-  onCampaignChange,
-}: {
-  apiFetch: ApiFetch;
-  campaign: Campaign;
-  onCampaignChange: (campaign: Campaign) => void;
-}): ReactElement {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+function StatusField({ apiFetch, campaign, onCampaignChange }: FieldEditorProps): ReactElement {
+  const { state, run } = useAutoSave();
 
-  const save = async (next: CampaignStatus): Promise<void> => {
+  const handleChange = (next: CampaignStatus): void => {
     if (next === campaign.status) return;
-    setBusy(true);
-    setError(null);
-    try {
+    void run(async () => {
       const updated = await updateCampaign(apiFetch, campaign.campaign_id, { status: next });
       onCampaignChange(updated);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : (err as Error).message);
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   return (
-    <div className="space-y-1">
+    <div className="flex items-center gap-3">
       <select
-        className="input w-40 py-1 text-sm"
+        className="input w-44 py-1.5 text-sm"
         value={campaign.status}
-        onChange={(e) => void save(e.target.value as CampaignStatus)}
-        disabled={busy}
+        onChange={(e) => handleChange(e.target.value as CampaignStatus)}
+        disabled={state.saving}
         aria-label="Campaign status"
       >
         <option value="draft">draft</option>
@@ -1455,103 +1215,246 @@ function StatusEditor({
         <option value="monitoring">monitoring</option>
         <option value="completed">completed</option>
       </select>
-      {error && <p className="form-error">{error}</p>}
+      <SaveIndicator state={state} />
     </div>
   );
 }
 
-function LinkTrackingIdEditor({
+function DateRangeField({ apiFetch, campaign, onCampaignChange }: FieldEditorProps): ReactElement {
+  const [start, setStart] = useState(campaign.startDate ?? '');
+  const [end, setEnd] = useState(campaign.endDate ?? '');
+  const { state, run, setError } = useAutoSave();
+
+  useEffect(() => {
+    setStart(campaign.startDate ?? '');
+    setEnd(campaign.endDate ?? '');
+  }, [campaign.startDate, campaign.endDate]);
+
+  const commit = (nextStart: string, nextEnd: string): void => {
+    const sameStart = nextStart === (campaign.startDate ?? '');
+    const sameEnd = nextEnd === (campaign.endDate ?? '');
+    if (sameStart && sameEnd) return;
+    if (nextStart && nextEnd && nextEnd < nextStart) {
+      setError('End date must be on or after start date.');
+      return;
+    }
+    const payload: { startDate?: string; endDate?: string } = {};
+    if (nextStart) payload.startDate = nextStart;
+    if (nextEnd) payload.endDate = nextEnd;
+    void run(async () => {
+      const updated = await updateCampaign(apiFetch, campaign.campaign_id, payload);
+      onCampaignChange(updated);
+    });
+  };
+
+  return (
+    <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-2">
+        <input
+          type="date"
+          className="input py-1.5 text-sm w-auto"
+          value={start}
+          onChange={(e) => setStart(e.target.value)}
+          onBlur={() => commit(start, end)}
+          disabled={state.saving}
+          aria-label="Start date"
+        />
+        <span className="text-muted-foreground">→</span>
+        <input
+          type="date"
+          className="input py-1.5 text-sm w-auto"
+          value={end}
+          onChange={(e) => setEnd(e.target.value)}
+          onBlur={() => commit(start, end)}
+          disabled={state.saving}
+          aria-label="End date"
+        />
+      </div>
+      <SaveIndicator state={state} />
+    </div>
+  );
+}
+
+function PayoutField({ apiFetch, campaign, onCampaignChange }: FieldEditorProps): ReactElement {
+  const [amount, setAmount] = useState(
+    campaign.payout?.amount !== undefined ? String(campaign.payout.amount) : '',
+  );
+  const [currency, setCurrency] = useState(campaign.payout?.currency ?? 'USD');
+  const paid = campaign.payout?.paid ?? false;
+  const { state, run, setError } = useAutoSave();
+
+  useEffect(() => {
+    setAmount(campaign.payout?.amount !== undefined ? String(campaign.payout.amount) : '');
+    setCurrency(campaign.payout?.currency ?? 'USD');
+  }, [campaign.payout?.amount, campaign.payout?.currency]);
+
+  const commit = (nextAmount: string, nextCurrency: string, nextPaid: boolean): void => {
+    const trimmedAmount = nextAmount.trim();
+    const trimmedCurrency = nextCurrency.toUpperCase().trim();
+    const same =
+      trimmedAmount === (campaign.payout?.amount !== undefined ? String(campaign.payout.amount) : '') &&
+      trimmedCurrency === (campaign.payout?.currency ?? 'USD') &&
+      nextPaid === paid;
+    if (same) return;
+    if (trimmedAmount.length === 0) {
+      // No amount yet — don't save partial payout. Silent: it's just empty.
+      return;
+    }
+    const num = Number(trimmedAmount);
+    if (!Number.isFinite(num) || num < 0) {
+      setError('Amount must be a non-negative number.');
+      return;
+    }
+    if (!/^[A-Z]{3}$/.test(trimmedCurrency)) {
+      setError('Currency must be a 3-letter ISO 4217 code (e.g., USD).');
+      return;
+    }
+    void run(async () => {
+      const updated = await updateCampaign(apiFetch, campaign.campaign_id, {
+        payout: { amount: num, currency: trimmedCurrency, paid: nextPaid },
+      });
+      onCampaignChange(updated);
+    });
+  };
+
+  return (
+    <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min={0}
+          step="0.01"
+          className="input py-1.5 text-sm w-32"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          onBlur={() => commit(amount, currency, paid)}
+          placeholder="Amount"
+          disabled={state.saving}
+          aria-label="Payout amount"
+        />
+        <input
+          type="text"
+          maxLength={3}
+          className="input py-1.5 text-sm uppercase w-20"
+          value={currency}
+          onChange={(e) => setCurrency(e.target.value)}
+          onBlur={() => commit(amount, currency, paid)}
+          placeholder="USD"
+          disabled={state.saving}
+          aria-label="Payout currency"
+        />
+        <label className="inline-flex items-center gap-2 text-sm select-none">
+          <input
+            type="checkbox"
+            className="rounded border-border text-primary-600 focus:ring-primary-500"
+            checked={paid}
+            onChange={(e) => commit(amount, currency, e.target.checked)}
+            disabled={state.saving}
+          />
+          Paid
+        </label>
+      </div>
+      <SaveIndicator state={state} />
+    </div>
+  );
+}
+
+function BlogUrlField({ apiFetch, campaign, onCampaignChange }: FieldEditorProps): ReactElement {
+  const [value, setValue] = useState(campaign.blog_url ?? '');
+  const { state, run, setError } = useAutoSave();
+
+  useEffect(() => {
+    setValue(campaign.blog_url ?? '');
+  }, [campaign.blog_url]);
+
+  const commit = (): void => {
+    const trimmed = value.trim();
+    if (trimmed === (campaign.blog_url ?? '')) return;
+    if (trimmed.length === 0) {
+      // Don't fire an update; clearing isn't supported by the API.
+      setValue(campaign.blog_url ?? '');
+      return;
+    }
+    if (!/^https?:\/\//i.test(trimmed)) {
+      setError('URL must start with http:// or https://');
+      return;
+    }
+    void run(async () => {
+      const updated = await updateCampaign(apiFetch, campaign.campaign_id, { blog_url: trimmed });
+      onCampaignChange(updated);
+    });
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      <input
+        type="url"
+        className="input py-1.5 text-sm flex-1 min-w-0"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
+          if (e.key === 'Escape') {
+            setValue(campaign.blog_url ?? '');
+            (e.currentTarget as HTMLInputElement).blur();
+          }
+        }}
+        placeholder="https://blog.example.com/my-post"
+        disabled={state.saving}
+      />
+      <SaveIndicator state={state} />
+    </div>
+  );
+}
+
+function LinkTrackingIdField({
   apiFetch,
   campaign,
   onCampaignChange,
-}: {
-  apiFetch: ApiFetch;
-  campaign: Campaign;
-  onCampaignChange: (campaign: Campaign) => void;
-}): ReactElement {
-  const [editing, setEditing] = useState(false);
+}: FieldEditorProps): ReactElement {
   const [value, setValue] = useState(campaign.link_tracking_id ?? '');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { state, run } = useAutoSave();
 
-  const startEdit = (): void => {
+  useEffect(() => {
     setValue(campaign.link_tracking_id ?? '');
-    setError(null);
-    setEditing(true);
-  };
+  }, [campaign.link_tracking_id]);
 
-  const cancel = (): void => {
-    setEditing(false);
-    setError(null);
-  };
-
-  const save = async (): Promise<void> => {
+  const commit = (): void => {
     const trimmed = value.trim();
-    if (trimmed === (campaign.link_tracking_id ?? '')) {
-      setEditing(false);
-      return;
-    }
+    if (trimmed === (campaign.link_tracking_id ?? '')) return;
     if (trimmed.length === 0) {
-      setError('Enter a value, or cancel to keep the field empty.');
+      // Clearing isn't supported by the API; revert.
+      setValue(campaign.link_tracking_id ?? '');
       return;
     }
-    setBusy(true);
-    setError(null);
-    try {
+    void run(async () => {
       const updated = await updateCampaign(apiFetch, campaign.campaign_id, {
         link_tracking_id: trimmed,
       });
       onCampaignChange(updated);
-      setEditing(false);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : (err as Error).message);
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
-  if (!editing) {
-    return (
-      <span className="inline-flex items-center gap-2">
-        {campaign.link_tracking_id ? (
-          <code className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">
-            {campaign.link_tracking_id}
-          </code>
-        ) : (
-          <span className="text-muted-foreground italic">Not set</span>
-        )}
-        <EditIconButton
-          onClick={startEdit}
-          label={campaign.link_tracking_id ? 'Edit' : 'Add'}
-        />
-      </span>
-    );
-  }
-
   return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-2">
-        <input
-          type="text"
-          className="input w-64 py-1 text-sm font-mono"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="acme-q2-launch"
-          disabled={busy}
-          autoFocus
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void save();
-            if (e.key === 'Escape') cancel();
-          }}
-        />
-        <button type="button" className="btn-primary py-1 text-sm" onClick={() => void save()} disabled={busy}>
-          {busy ? 'Saving...' : 'Save'}
-        </button>
-        <button type="button" className="btn-secondary py-1 text-sm" onClick={cancel} disabled={busy}>
-          Cancel
-        </button>
-      </div>
-      {error && <p className="form-error">{error}</p>}
+    <div className="flex items-center gap-3">
+      <input
+        type="text"
+        className="input py-1.5 text-sm font-mono w-64 max-w-full"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
+          if (e.key === 'Escape') {
+            setValue(campaign.link_tracking_id ?? '');
+            (e.currentTarget as HTMLInputElement).blur();
+          }
+        }}
+        placeholder="acme-q2-launch"
+        disabled={state.saving}
+      />
+      <SaveIndicator state={state} />
     </div>
   );
 }
@@ -1614,11 +1517,195 @@ function FormRow({
 }): ReactElement {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-[200px,1fr] gap-x-6 gap-y-2 items-start px-6 py-4">
-      <p className="text-sm font-medium text-foreground sm:pt-1.5">{label}</p>
+      <p className="text-sm font-medium text-foreground sm:pt-2">{label}</p>
       <div className="min-w-0 space-y-1.5">
         <div className="text-sm text-foreground">{children}</div>
         {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       </div>
     </div>
   );
+}
+
+function ExecutiveSummary({
+  campaign,
+  analytics,
+  webAnalytics,
+}: {
+  campaign: Campaign;
+  analytics: CampaignAnalyticsResponse | null;
+  webAnalytics: WebAnalyticsResponse | null;
+}): ReactElement {
+  const timeline = computeTimeline(campaign);
+  const totalClicks = analytics?.total_clicks ?? null;
+  const clicksByDay = analytics?.by_day ?? null;
+  const pageviews = webAnalytics?.ga4?.totals?.pageviews ?? null;
+  const ga4Configured = webAnalytics?.ga4?.configured ?? false;
+
+  let pageviewsSub: string;
+  if (!campaign.blog_url) pageviewsSub = 'No blog URL';
+  else if (!ga4Configured) pageviewsSub = 'GA4 not connected';
+  else pageviewsSub = 'GA4';
+
+  return (
+    <section
+      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3"
+      aria-label="Campaign summary"
+    >
+      <SummaryTile label="Timeline" value={timeline.primary} sublabel={timeline.secondary} />
+      <SummaryTile
+        label="Clicks"
+        value={totalClicks !== null ? totalClicks.toLocaleString() : '—'}
+        sublabel={
+          totalClicks === null
+            ? 'Loading…'
+            : `${analytics?.link_count ?? 0} link${analytics?.link_count === 1 ? '' : 's'}`
+        }
+        sparkline={clicksByDay && totalClicks ? <Sparkline byDay={clicksByDay} /> : null}
+      />
+      <SummaryTile
+        label="Pageviews"
+        value={pageviews !== null ? pageviews.toLocaleString() : '—'}
+        sublabel={pageviewsSub}
+      />
+      <SummaryTile
+        label="Payout"
+        value={formatPayoutShort(campaign.payout)}
+        sublabel={campaign.payout ? null : 'No payout set'}
+        pill={
+          campaign.payout ? (
+            <span
+              className={`status-pill ${
+                campaign.payout.paid
+                  ? 'bg-success-100 text-success-800'
+                  : 'bg-warning-100 text-warning-800'
+              }`}
+            >
+              {campaign.payout.paid ? 'Paid' : 'Unpaid'}
+            </span>
+          ) : null
+        }
+      />
+    </section>
+  );
+}
+
+function SummaryTile({
+  label,
+  value,
+  sublabel,
+  pill,
+  sparkline,
+}: {
+  label: string;
+  value: string;
+  sublabel?: string | null;
+  pill?: ReactElement | null;
+  sparkline?: ReactElement | null;
+}): ReactElement {
+  return (
+    <div className="card card-body !px-4 !py-3 flex flex-col gap-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs uppercase tracking-wide text-muted-foreground font-medium">
+          {label}
+        </span>
+        {pill}
+      </div>
+      <div className="flex items-end justify-between gap-3">
+        <span className="text-2xl font-semibold text-foreground leading-none">{value}</span>
+        {sparkline && <div className="w-24 h-8 shrink-0">{sparkline}</div>}
+      </div>
+      {sublabel && <span className="text-xs text-muted-foreground truncate">{sublabel}</span>}
+    </div>
+  );
+}
+
+function Sparkline({ byDay }: { byDay: Record<string, number> }): ReactElement | null {
+  const data = useMemo(() => {
+    const entries = Object.entries(byDay).sort((a, b) => a[0].localeCompare(b[0]));
+    if (entries.length === 0) return [];
+    if (entries.length === 1) return entries.map(([date, clicks]) => ({ date, clicks }));
+    const first = new Date(entries[0][0] + 'T00:00:00Z');
+    const last = new Date(entries[entries.length - 1][0] + 'T00:00:00Z');
+    const map = new Map(entries);
+    const dense: { date: string; clicks: number }[] = [];
+    for (let d = new Date(first); d <= last; d.setUTCDate(d.getUTCDate() + 1)) {
+      const iso = d.toISOString().slice(0, 10);
+      dense.push({ date: iso, clicks: map.get(iso) ?? 0 });
+    }
+    return dense;
+  }, [byDay]);
+
+  if (data.length < 2) return null;
+
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <LineChart data={data} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+        <Line
+          type="monotone"
+          dataKey="clicks"
+          stroke="rgb(var(--primary-600))"
+          strokeWidth={1.5}
+          dot={false}
+          isAnimationActive={false}
+        />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+function computeTimeline(campaign: Campaign): { primary: string; secondary: string | null } {
+  const { startDate, endDate, status, created_at: createdAt } = campaign;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const start = startDate ? new Date(startDate + 'T00:00:00') : null;
+  const end = endDate ? new Date(endDate + 'T00:00:00') : null;
+  const range = formatDateRange(startDate, endDate);
+  const dayMs = 86_400_000;
+
+  if (status === 'completed') {
+    return {
+      primary: 'Completed',
+      secondary: range !== '-' ? range : `Created ${createdAt.slice(0, 10)}`,
+    };
+  }
+
+  if (start && end) {
+    if (today < start) {
+      const days = Math.ceil((start.getTime() - today.getTime()) / dayMs);
+      return { primary: `Starts in ${days}d`, secondary: range };
+    }
+    if (today > end) {
+      const days = Math.ceil((today.getTime() - end.getTime()) / dayMs);
+      return { primary: `Ended ${days}d ago`, secondary: range };
+    }
+    const days = Math.ceil((end.getTime() - today.getTime()) / dayMs);
+    return { primary: `${days}d left`, secondary: range };
+  }
+
+  if (start) {
+    if (today < start) {
+      const days = Math.ceil((start.getTime() - today.getTime()) / dayMs);
+      return { primary: `Starts in ${days}d`, secondary: `From ${startDate}` };
+    }
+    const days = Math.ceil((today.getTime() - start.getTime()) / dayMs) + 1;
+    return { primary: `Day ${days}`, secondary: `From ${startDate}` };
+  }
+
+  if (end) {
+    if (today > end) {
+      const days = Math.ceil((today.getTime() - end.getTime()) / dayMs);
+      return { primary: `Ended ${days}d ago`, secondary: `Until ${endDate}` };
+    }
+    const days = Math.ceil((end.getTime() - today.getTime()) / dayMs);
+    return { primary: `${days}d left`, secondary: `Until ${endDate}` };
+  }
+
+  return { primary: 'Not scheduled', secondary: `Created ${createdAt.slice(0, 10)}` };
+}
+
+function formatPayoutShort(payout: Campaign['payout']): string {
+  if (!payout) return '—';
+  const amount = payout.amount.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return `${amount} ${payout.currency}`;
 }
