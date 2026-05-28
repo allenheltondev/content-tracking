@@ -1,20 +1,14 @@
 // MAIN-world interceptor. Runs in the page's own JS context (so it can see
 // the site's fetch/XHR), wraps both, and forwards the response bodies of
 // requests that look like analytics endpoints to the ISOLATED content
-// script. It must be self-contained — MAIN-world content scripts can't
-// import modules — so the capture patterns are duplicated from
-// src/adapters.js (CAPTURE_PATTERNS) by design.
+// script via window.postMessage. It must be self-contained — MAIN-world
+// content scripts can't import modules — so the capture patterns are
+// duplicated from src/adapters.js (CAPTURE_PATTERNS) by design.
 //
 // Stealth: wrappers are Proxy(originalFn, { apply }), which transparently
 // mirror the target's name, length, prototype shape, and toString output.
 // No global Function.prototype.toString patch is needed (and avoiding it
 // removes one of the surfaces LinkedIn's sensorCollect fingerprints on).
-//
-// IPC to the ISOLATED content script uses a CustomEvent dispatched on
-// document with a stringified detail, rather than window.postMessage —
-// sites can listen for unknown postMessage tags as an extension signal
-// and respond with anti-extension probes, which produced a constant
-// 2-3/sec stream of chrome-extension://invalid/ requests on LinkedIn.
 (function () {
   const CAPTURE = [
     "/graphql",
@@ -25,7 +19,6 @@
     "/graphql/query",
     "/api/graphql",
   ];
-  const CAPTURE_EVENT = "__booked_capture_v1";
 
   function shouldCapture(url) {
     return typeof url === "string" && CAPTURE.some((p) => url.includes(p));
@@ -34,14 +27,7 @@
   function forward(url, body) {
     if (!body || body.length > 5_000_000) return; // skip absurd payloads
     try {
-      // JSON-stringify the detail: simple strings cross the MAIN/ISOLATED
-      // world boundary cleanly; raw objects can get wrapped by Xray vision
-      // and lose properties.
-      document.dispatchEvent(
-        new CustomEvent(CAPTURE_EVENT, {
-          detail: JSON.stringify({ url, body }),
-        }),
-      );
+      window.postMessage({ __booked: true, kind: "response", url, body }, "*");
     } catch {
       /* ignore */
     }
