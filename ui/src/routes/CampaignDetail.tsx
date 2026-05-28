@@ -621,13 +621,14 @@ export default function CampaignDetail(): ReactElement {
                     failed. Totals below exclude those.
                   </p>
                 )}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <Tile label="Total clicks" value={analytics.total_clicks.toLocaleString()} />
-                  <Tile label="Links" value={String(analytics.link_count)} />
-                </div>
+                <ClickSummaryTiles analytics={analytics} />
 
                 <h3 className="text-sm font-medium text-foreground mt-2">Clicks per day</h3>
                 <ClicksChart byDay={analytics.by_day} />
+
+                <ClickBreakdowns analytics={analytics} />
+
+                <ClickLinkTable analytics={analytics} />
               </>
             )}
           </section>
@@ -745,13 +746,295 @@ function AnalyticsDiagnostic({
   );
 }
 
-function Tile({ label, value }: { label: string; value: string }): ReactElement {
+function Tile({
+  label,
+  value,
+  sublabel,
+}: {
+  label: string;
+  value: string;
+  sublabel?: string | null;
+}): ReactElement {
   return (
     <div className="card card-body !py-3">
       <span className="text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
       <span className="text-2xl font-semibold text-foreground mt-1 block">{value}</span>
+      {sublabel && (
+        <span className="text-xs text-muted-foreground mt-0.5 block truncate">{sublabel}</span>
+      )}
     </div>
   );
+}
+
+function ClickSummaryTiles({
+  analytics,
+}: {
+  analytics: CampaignAnalyticsResponse;
+}): ReactElement {
+  const first = pickEarliest(analytics.links.map((l) => l.first_click_at));
+  const last = pickLatest(analytics.links.map((l) => l.last_click_at));
+  const topPlatform = pickTopEntry(analytics.by_platform);
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <Tile label="Total clicks" value={analytics.total_clicks.toLocaleString()} />
+      <Tile
+        label="Links"
+        value={String(analytics.link_count)}
+        sublabel={
+          analytics.upstream_failures > 0
+            ? `${analytics.upstream_failures} failed upstream`
+            : null
+        }
+      />
+      <Tile
+        label="First click"
+        value={first ? formatRelative(first) : '—'}
+        sublabel={first ? formatDate(first) : null}
+      />
+      <Tile
+        label="Last click"
+        value={last ? formatRelative(last) : '—'}
+        sublabel={
+          topPlatform
+            ? `Top platform: ${topPlatform[0]} (${topPlatform[1].toLocaleString()})`
+            : null
+        }
+      />
+    </div>
+  );
+}
+
+function ClickBreakdowns({
+  analytics,
+}: {
+  analytics: CampaignAnalyticsResponse;
+}): ReactElement | null {
+  const hasAny =
+    Object.keys(analytics.by_platform).length > 0 ||
+    Object.keys(analytics.by_role).length > 0 ||
+    Object.keys(analytics.by_src).length > 0;
+  if (!hasAny) return null;
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <Breakdown
+        title="By platform"
+        counts={analytics.by_platform}
+        total={analytics.total_clicks}
+      />
+      <Breakdown
+        title="By role"
+        counts={analytics.by_role}
+        total={analytics.total_clicks}
+        formatKey={formatRole}
+      />
+      <Breakdown
+        title="By source"
+        counts={analytics.by_src}
+        total={analytics.total_clicks}
+        emptyLabel="No tagged sources"
+      />
+    </div>
+  );
+}
+
+function Breakdown({
+  title,
+  counts,
+  total,
+  formatKey,
+  emptyLabel = 'No data',
+}: {
+  title: string;
+  counts: Record<string, number>;
+  total: number;
+  formatKey?: (key: string) => string;
+  emptyLabel?: string;
+}): ReactElement {
+  const rows = Object.entries(counts)
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1]);
+  return (
+    <div className="card card-body !py-3 space-y-2">
+      <h4 className="text-xs uppercase tracking-wide text-muted-foreground font-medium">
+        {title}
+      </h4>
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {rows.map(([key, n]) => {
+            const pct = total > 0 ? n / total : 0;
+            return (
+              <li key={key} className="space-y-0.5">
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <span className="text-foreground truncate">
+                    {formatKey ? formatKey(key) : key}
+                  </span>
+                  <span className="text-muted-foreground shrink-0">
+                    {n.toLocaleString()}
+                    <span className="ml-1 text-xs">({formatPercent(pct)})</span>
+                  </span>
+                </div>
+                <div className="h-1.5 rounded bg-muted overflow-hidden">
+                  <div
+                    className="h-full bg-primary-600"
+                    style={{ width: `${Math.max(2, Math.round(pct * 100))}%` }}
+                  />
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ClickLinkTable({
+  analytics,
+}: {
+  analytics: CampaignAnalyticsResponse;
+}): ReactElement | null {
+  if (analytics.links.length === 0) return null;
+  const rows = [...analytics.links].sort(
+    (a, b) => (b.total_clicks ?? 0) - (a.total_clicks ?? 0),
+  );
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-medium text-foreground mt-2">Per-link clicks</h3>
+      <div className="overflow-x-auto">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Platform</th>
+              <th>Role</th>
+              <th>Short URL</th>
+              <th>Destination</th>
+              <th className="text-right">Clicks</th>
+              <th>First clicked</th>
+              <th>Last clicked</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((l) => (
+              <tr key={l.code}>
+                <td>{l.platform ?? <span className="text-muted-foreground">—</span>}</td>
+                <td>
+                  {l.role ? (
+                    formatRole(l.role)
+                  ) : (
+                    <span className="text-muted-foreground italic">unlinked</span>
+                  )}
+                </td>
+                <td>
+                  {l.short_url ? (
+                    <code className="bg-muted text-foreground rounded px-1.5 py-0.5 text-xs font-mono">
+                      {l.short_url}
+                    </code>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </td>
+                <td>
+                  {l.url ? (
+                    <a
+                      href={l.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-primary-600 hover:underline"
+                    >
+                      {truncate(l.url, 50)}
+                    </a>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </td>
+                <td className="text-right tabular-nums">
+                  {l.error ? (
+                    <span className="text-error-600" title={l.error}>
+                      error
+                    </span>
+                  ) : (
+                    l.total_clicks.toLocaleString()
+                  )}
+                </td>
+                <td className="text-muted-foreground" title={l.first_click_at ?? ''}>
+                  {l.first_click_at ? formatDate(l.first_click_at) : '—'}
+                </td>
+                <td className="text-muted-foreground" title={l.last_click_at ?? ''}>
+                  {l.last_click_at ? formatRelative(l.last_click_at) : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function pickEarliest(values: (string | null)[]): string | null {
+  let best: string | null = null;
+  for (const v of values) {
+    if (!v) continue;
+    if (!best || v < best) best = v;
+  }
+  return best;
+}
+
+function pickLatest(values: (string | null)[]): string | null {
+  let best: string | null = null;
+  for (const v of values) {
+    if (!v) continue;
+    if (!best || v > best) best = v;
+  }
+  return best;
+}
+
+function pickTopEntry(counts: Record<string, number>): [string, number] | null {
+  let best: [string, number] | null = null;
+  for (const [k, n] of Object.entries(counts)) {
+    if (best === null || n > best[1]) best = [k, n];
+  }
+  return best && best[1] > 0 ? best : null;
+}
+
+function formatRole(role: string): string {
+  switch (role) {
+    case 'main':
+      return 'Main';
+    case 'cross_post':
+      return 'Cross-post';
+    case 'social_promo':
+      return 'Social promo';
+    default:
+      return role;
+  }
+}
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString();
+}
+
+function formatRelative(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const diffMs = Date.now() - d.getTime();
+  const future = diffMs < 0;
+  const abs = Math.abs(diffMs);
+  const sec = Math.round(abs / 1000);
+  const min = Math.round(sec / 60);
+  const hr = Math.round(min / 60);
+  const day = Math.round(hr / 24);
+  let phrase: string;
+  if (sec < 60) phrase = `${sec}s`;
+  else if (min < 60) phrase = `${min}m`;
+  else if (hr < 48) phrase = `${hr}h`;
+  else if (day < 30) phrase = `${day}d`;
+  else return d.toLocaleDateString();
+  return future ? `in ${phrase}` : `${phrase} ago`;
 }
 
 function WebAnalyticsSection({

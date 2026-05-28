@@ -233,12 +233,16 @@ export interface SaveDraftRequest {
 }
 
 export interface CampaignAnalyticsLink {
-  link_id: string;
+  link_id: string | null;
   code: string;
-  role: string;
-  platform: string;
-  url: string;
+  short_url: string | null;
+  role: string | null;
+  platform: string | null;
+  url: string | null;
+  src: string | null;
   total_clicks: number;
+  by_day: Record<string, number>;
+  by_src: Record<string, number>;
   first_click_at: string | null;
   last_click_at: string | null;
   error: string | null;
@@ -251,6 +255,7 @@ export interface CampaignAnalyticsResponse {
   by_role: Record<string, number>;
   by_platform: Record<string, number>;
   by_day: Record<string, number>;
+  by_src: Record<string, number>;
   upstream_failures: number;
   links: CampaignAnalyticsLink[];
 }

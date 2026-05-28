@@ -64,6 +64,7 @@ export function registerAnalyticsRoutes(app) {
         by_role: {},
         by_platform: {},
         by_day: {},
+        by_src: {},
         upstream_failures: 0,
         links: [],
       });
@@ -97,10 +98,14 @@ export function registerAnalyticsRoutes(app) {
       links: perLink.map(({ link, analytics, error }) => ({
         link_id: link.linkId,
         code: link.code,
+        short_url: link.shortUrl ?? null,
         role: link.role,
         platform: link.platform,
         url: link.url,
+        src: link.src ?? null,
         total_clicks: analytics?.total_clicks ?? 0,
+        by_day: analytics?.by_day ?? {},
+        by_src: analytics?.by_src ?? {},
         first_click_at: analytics?.first_click_at ?? null,
         last_click_at: analytics?.last_click_at ?? null,
         error,
@@ -127,6 +132,7 @@ async function analyticsViaCampaignId(campaignId, linkTrackingId, localLinks) {
         by_role: {},
         by_platform: {},
         by_day: {},
+        by_src: {},
         upstream_failures: 1,
         links: [],
       };
@@ -140,32 +146,47 @@ async function analyticsViaCampaignId(campaignId, linkTrackingId, localLinks) {
   const byRole = {};
   const byPlatform = {};
   const byDay = {};
+  const bySrc = {};
   let totalClicks = 0;
   const outLinks = [];
 
   for (const u of upstreamLinks) {
+    // newsletter-service nests per-link click stats under `analytics`. The
+    // outer fields (url, src, expires_at) describe the link record itself.
+    const stats = u.analytics ?? {};
     const local = localByCode.get(u.code);
-    const clicks = u.total_clicks ?? 0;
+    const clicks = stats.total_clicks ?? 0;
     totalClicks += clicks;
     if (local) {
       byRole[local.role] = (byRole[local.role] || 0) + clicks;
       byPlatform[local.platform] = (byPlatform[local.platform] || 0) + clicks;
     }
-    if (u.by_day && typeof u.by_day === "object") {
-      for (const [day, count] of Object.entries(u.by_day)) {
+    if (stats.by_day && typeof stats.by_day === "object") {
+      for (const [day, count] of Object.entries(stats.by_day)) {
         const n = typeof count === "number" ? count : 0;
         byDay[day] = (byDay[day] || 0) + n;
+      }
+    }
+    if (stats.by_src && typeof stats.by_src === "object") {
+      for (const [src, count] of Object.entries(stats.by_src)) {
+        const n = typeof count === "number" ? count : 0;
+        const key = src ?? "unknown";
+        bySrc[key] = (bySrc[key] || 0) + n;
       }
     }
     outLinks.push({
       link_id: local?.linkId ?? null,
       code: u.code,
+      short_url: u.short_url ?? local?.shortUrl ?? null,
       role: local?.role ?? null,
       platform: local?.platform ?? null,
       url: local?.url ?? u.url ?? null,
+      src: u.src ?? local?.src ?? null,
       total_clicks: clicks,
-      first_click_at: u.first_click_at ?? null,
-      last_click_at: u.last_click_at ?? null,
+      by_day: stats.by_day ?? {},
+      by_src: stats.by_src ?? {},
+      first_click_at: stats.first_click_at ?? null,
+      last_click_at: stats.last_click_at ?? null,
       error: null,
     });
   }
@@ -177,6 +198,7 @@ async function analyticsViaCampaignId(campaignId, linkTrackingId, localLinks) {
     by_role: byRole,
     by_platform: byPlatform,
     by_day: byDay,
+    by_src: bySrc,
     upstream_failures: 0,
     links: outLinks,
   };
@@ -187,6 +209,7 @@ function aggregate(perLink) {
   const byRole = {};
   const byPlatform = {};
   const byDay = {};
+  const bySrc = {};
   for (const { link, analytics } of perLink) {
     if (!analytics) continue;
     const clicks = analytics.total_clicks ?? 0;
@@ -199,8 +222,21 @@ function aggregate(perLink) {
         byDay[day] = (byDay[day] || 0) + n;
       }
     }
+    if (analytics.by_src && typeof analytics.by_src === "object") {
+      for (const [src, count] of Object.entries(analytics.by_src)) {
+        const n = typeof count === "number" ? count : 0;
+        const key = src ?? "unknown";
+        bySrc[key] = (bySrc[key] || 0) + n;
+      }
+    }
   }
-  return { total_clicks: totalClicks, by_role: byRole, by_platform: byPlatform, by_day: byDay };
+  return {
+    total_clicks: totalClicks,
+    by_role: byRole,
+    by_platform: byPlatform,
+    by_day: byDay,
+    by_src: bySrc,
+  };
 }
 
 async function runInBatches(ops, batchSize) {

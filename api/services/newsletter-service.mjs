@@ -82,7 +82,13 @@ export async function fetchLinkAnalytics(code) {
 
 // One-shot analytics for every link tagged with a given campaignId.
 // Returned shape (from newsletter-service):
-//   { campaign_id, total_clicks, by_day, links: [{ code, url, src?, total_clicks, by_day, by_src, first_click_at, last_click_at }] }
+//   {
+//     campaign_id, total_links, total_clicks,
+//     links: [{
+//       code, short_url, url, src, campaign_id, created_at, updated_at, expires_at,
+//       analytics: { code, total_clicks, by_day, by_src, first_click_at, last_click_at }
+//     }]
+//   }
 // Caller joins on `code` to recover content-tracking's role/platform.
 export async function fetchCampaignLinksAnalytics(campaignId) {
   const fetchUrl = await buildUrl(`/campaigns/${encodeURIComponent(campaignId)}/links/analytics`);
