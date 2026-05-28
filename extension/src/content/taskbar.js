@@ -112,7 +112,10 @@
           "gap:20px",
           "padding:12px",
           "margin:4px 0",
-          "font:inherit",
+          // X's nav font isn't set on the <nav>, so `font:inherit` falls
+          // through to the browser default (serif on most setups). Pin
+          // Chirp explicitly with X's full system fallback chain.
+          'font-family:TwitterChirp,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif',
           "font-size:20px",
           "color:inherit",
           "text-decoration:none",
