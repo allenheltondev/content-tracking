@@ -188,10 +188,117 @@ async function buildStatus() {
   };
 }
 
+async function handleScraped({ platform, nativeId, metrics }) {
+  if (!metrics || !Object.keys(metrics).length) return;
+  await ensureFeed();
+  if (!feed?.length) return;
+  const adapter = adapters[platform];
+  if (!adapter) return;
+  const matched = feed
+    .filter((p) => p.platform === platform)
+    .find((p) => {
+      const id = adapter.parsePostId(p.url);
+      return id && String(id) === String(nativeId);
+    });
+  if (matched) await maybeSync(matched, metrics);
+  // If this scrape was driven by an auto-opened background tab, clean it
+  // up once we've got the data. Skip if the user has since clicked into
+  // the tab (active=true) — they presumably want to keep reading.
+  if (platform === "linkedin") closeBackgroundScrapeTab(String(nativeId));
+}
+
+// ---- automatic background-tab scrape -------------------------------------
+//
+// When the user lands on a tracked LinkedIn post via LinkedIn's own UI (a
+// feed click, a notification, a saved permalink), our scraper can't run on
+// that page — the counts live on the post-summary analytics page, not the
+// feed page. Open the analytics URL in a background tab so the scraper
+// fires there, sync the data, then close the tab. The user stays on the
+// page they actually wanted to read.
+
+const RECENT_AUTO_SCRAPES = new Map(); // activityId -> timestamp
+const ACTIVE_SCRAPE_TABS = new Map(); // activityId -> { tabId, timeoutHandle }
+const AUTO_SCRAPE_TTL_MS = 5 * 60 * 1000; // don't re-open within 5 min
+const AUTO_SCRAPE_MAX_LIFETIME_MS = 60 * 1000; // hard cap on tab lifetime
+
+function linkedInActivityIdFromUrl(url) {
+  if (!url) return null;
+  const m =
+    /urn:li:(?:activity|ugcPost|share):(\d+)/.exec(url) ||
+    /-(\d{17,20})(?:[/?#-]|$)/.exec(url);
+  return m ? m[1] : null;
+}
+
+async function maybeAutoScrape(tabUrl) {
+  if (!tabUrl || !tabUrl.includes("linkedin.com")) return;
+  // Don't recurse on tabs we opened ourselves.
+  if (tabUrl.includes("/analytics/post-summary/")) return;
+
+  const activityId = linkedInActivityIdFromUrl(tabUrl);
+  if (!activityId) return;
+
+  await ensureFeed();
+  if (!feed?.length) return;
+  const tracked = feed.find(
+    (p) => p.platform === "linkedin" && linkedInActivityIdFromUrl(p.url) === activityId,
+  );
+  if (!tracked) return;
+
+  // Dedupe: skip if we synced this post in the last few minutes or there's
+  // already an in-flight scrape tab for it.
+  const recent = RECENT_AUTO_SCRAPES.get(activityId);
+  if (recent && Date.now() - recent < AUTO_SCRAPE_TTL_MS) return;
+  if (ACTIVE_SCRAPE_TABS.has(activityId)) return;
+  RECENT_AUTO_SCRAPES.set(activityId, Date.now());
+
+  let newTab;
+  try {
+    newTab = await chrome.tabs.create({
+      url: `https://www.linkedin.com/analytics/post-summary/urn:li:activity:${activityId}/`,
+      active: false,
+    });
+  } catch (err) {
+    console.warn("[booked] auto-scrape tab open failed:", err);
+    return;
+  }
+
+  const timeoutHandle = setTimeout(() => {
+    // Fallback: scraper never reported (SDUI didn't hydrate, page errored,
+    // user isn't logged in for analytics, etc.). Close the orphan.
+    ACTIVE_SCRAPE_TABS.delete(activityId);
+    chrome.tabs.remove(newTab.id).catch(() => {});
+  }, AUTO_SCRAPE_MAX_LIFETIME_MS);
+
+  ACTIVE_SCRAPE_TABS.set(activityId, { tabId: newTab.id, timeoutHandle });
+}
+
+async function closeBackgroundScrapeTab(activityId) {
+  const info = ACTIVE_SCRAPE_TABS.get(activityId);
+  if (!info) return;
+  ACTIVE_SCRAPE_TABS.delete(activityId);
+  clearTimeout(info.timeoutHandle);
+  try {
+    const t = await chrome.tabs.get(info.tabId);
+    // If the user clicked into the tab while we were scraping, leave it
+    // open — they likely want to read the analytics view themselves.
+    if (!t.active) chrome.tabs.remove(info.tabId).catch(() => {});
+  } catch {
+    /* tab already closed */
+  }
+}
+
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+  if (changeInfo.status !== "complete") return;
+  void maybeAutoScrape(tab?.url);
+});
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   switch (msg?.type) {
     case "booked:captured":
       handleCaptured(msg).catch((err) => console.warn("[booked]", err));
+      return false;
+    case "booked:scraped":
+      handleScraped(msg).catch((err) => console.warn("[booked]", err));
       return false;
     case "booked:status":
       buildStatus().then(sendResponse);
