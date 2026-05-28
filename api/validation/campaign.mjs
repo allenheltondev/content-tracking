@@ -3,7 +3,7 @@ import { validatePayoutPayload } from "./payout.mjs";
 import { VENDOR_ID_RE } from "./vendor.mjs";
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const VALID_STATUSES = new Set(["draft", "active", "completed"]);
+const VALID_STATUSES = new Set(["draft", "active", "monitoring", "completed"]);
 const NAME_MAX = 200;
 const SPONSOR_MAX = 200;
 const BLOG_URL_MAX = 2048;
@@ -117,10 +117,10 @@ export function validateCampaignCreate(body) {
 
 // Validates the fields a user accepts from a brief's suggestions and
 // applies to an existing campaign (PATCH /campaigns/{id}). Every field is
-// optional — only the ones present are updated. Vendor linkage isn't
-// editable here (it's set at campaign creation); the brief's vendor hint
-// flows through the free-text `sponsor` instead. `payout` is normalized to
-// a full object and replaces the campaign's payout wholesale.
+// optional — only the ones present are updated. `vendor_id` re-links the
+// campaign to a vendor record (the detail-page vendor picker); the domain
+// layer keeps the vendor's campaign list in sync. `payout` is normalized
+// to a full object and replaces the campaign's payout wholesale.
 export function validateCampaignUpdate(body) {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     throw new BadRequestError("request body must be a JSON object");
@@ -129,6 +129,7 @@ export function validateCampaignUpdate(body) {
   const {
     name,
     sponsor,
+    vendor_id,
     startDate,
     endDate,
     status,
@@ -154,6 +155,15 @@ export function validateCampaignUpdate(body) {
       throw new BadRequestError(`sponsor must be a string up to ${SPONSOR_MAX} chars`);
     }
     out.sponsor = sponsor;
+  }
+
+  if (vendor_id !== undefined && vendor_id !== null) {
+    if (typeof vendor_id !== "string" || !VENDOR_ID_RE.test(vendor_id)) {
+      throw new BadRequestError(
+        "vendor_id must be 1-80 characters of letters, digits, underscores, or hyphens",
+      );
+    }
+    out.vendorId = vendor_id;
   }
 
   if (status !== undefined) {

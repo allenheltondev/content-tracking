@@ -9,6 +9,7 @@ interface Props {
   serverError: string | null;
   lastCreated: CampaignLink | null;
   onSubmit: (payload: CreateLinkRequest) => void;
+  onCancel?: () => void;
 }
 
 export default function RegisterLinkForm({
@@ -16,6 +17,7 @@ export default function RegisterLinkForm({
   serverError,
   lastCreated,
   onSubmit,
+  onCancel,
 }: Props): ReactElement {
   const [role, setRole] = useState<Role>('main');
   const [platform, setPlatform] = useState('');
@@ -106,9 +108,16 @@ export default function RegisterLinkForm({
       {validationError && <p className="form-error">{validationError}</p>}
       {serverError && <p className="form-error">{serverError}</p>}
 
-      <button type="button" className="btn-primary" onClick={submit} disabled={busy}>
-        {busy ? 'Registering...' : 'Register link'}
-      </button>
+      <div className="flex items-center gap-2">
+        <button type="button" className="btn-primary" onClick={submit} disabled={busy}>
+          {busy ? 'Registering...' : 'Register link'}
+        </button>
+        {onCancel && (
+          <button type="button" className="btn-secondary" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+        )}
+      </div>
 
       {lastCreated && (
         <div className="flex items-center gap-2 rounded-md border border-primary-200 bg-primary-50 px-3 py-2 text-sm">

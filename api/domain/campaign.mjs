@@ -35,12 +35,20 @@ export async function createCampaign(fields) {
   // transaction. A TransactionCanceledException out of the transaction
   // wouldn't tell us which item's condition failed; the explicit pre-check
   // lets us return a clean 404 referencing the vendor.
+  let vendor = null;
   if (fields.vendorId) {
-    const vendor = await findVendor(fields.vendorId);
+    vendor = await findVendor(fields.vendorId);
     if (!vendor) {
       throw new NotFoundError("Vendor", fields.vendorId);
     }
   }
+
+  // Snapshot the vendor name into `sponsor` when the caller picked a
+  // vendor but didn't type a separate sponsor string. Keeps the display
+  // working without a second read on the detail page, and gives the user
+  // a starting value to edit if the vendor is later renamed.
+  const sponsoredFields =
+    vendor && !fields.sponsor ? { ...fields, sponsor: vendor.name } : fields;
 
   const campaignId = ulid();
   const now = new Date().toISOString();
@@ -48,7 +56,7 @@ export async function createCampaign(fields) {
     ...campaignKey(campaignId),
     entity: "Campaign",
     campaignId,
-    ...fields,
+    ...sponsoredFields,
     gsi1pk: CAMPAIGNS_PARTITION,
     gsi1sk: `${now}#${campaignId}`,
     createdAt: now,
@@ -145,10 +153,9 @@ export async function listCampaigns({ limit, exclusiveStartKey, status }) {
   };
 }
 
-// All active campaigns. Backs the social-post feed the Chrome extension
-// polls. Pages the GSI1 "CAMPAIGNS" partition with a status filter; the
-// data set is personal-scale so we fully consume it.
-export async function listActiveCampaigns() {
+// Campaigns at a given status. Pages the GSI1 "CAMPAIGNS" partition with a
+// status filter; the data set is personal-scale so we fully consume it.
+export async function listCampaignsByStatus(status) {
   const items = [];
   let exclusiveStartKey;
   do {
@@ -160,7 +167,7 @@ export async function listActiveCampaigns() {
       ExpressionAttributeNames: { "#status": "status" },
       ExpressionAttributeValues: {
         ":pk": CAMPAIGNS_PARTITION,
-        ":status": "active",
+        ":status": status,
       },
       ExclusiveStartKey: exclusiveStartKey,
     }));
@@ -168,6 +175,11 @@ export async function listActiveCampaigns() {
     exclusiveStartKey = result.LastEvaluatedKey;
   } while (exclusiveStartKey);
   return items;
+}
+
+// Back-compat shim — older call sites still ask for "active" campaigns.
+export function listActiveCampaigns() {
+  return listCampaignsByStatus("active");
 }
 
 // Used by the /revenue rollup. Queries all campaigns whose createdAt
@@ -219,6 +231,14 @@ export async function updateCampaignFields(campaignId, fields) {
     return existing;
   }
 
+  const oldVendorId = existing.vendorId ?? null;
+  const vendorChanging =
+    Object.prototype.hasOwnProperty.call(fields, "vendorId") &&
+    (fields.vendorId ?? null) !== oldVendorId;
+  if (vendorChanging) {
+    return reassignVendorAndUpdate(campaignId, existing, fields);
+  }
+
   const { expression, names, values } = buildSetExpression(entries);
 
   // No vendor companion row to keep in sync: a single conditional Update
@@ -264,6 +284,69 @@ export async function updateCampaignFields(campaignId, fields) {
 
   await ddb.send(new TransactWriteCommand({ TransactItems: transactItems }));
   return { ...existing, ...fields };
+}
+
+// Re-links a campaign to a different vendor (or links one for the first
+// time) while applying any other edited fields in the same transaction.
+// Keeps the VENDOR#{v}/CAMPAIGN#{c} companion rows accurate: the old
+// vendor's row is removed and the new vendor's row is (over)written so
+// each vendor's campaign list stays in sync. The chosen vendor's name is
+// snapshotted into `sponsor` unless the caller supplied one, mirroring
+// createCampaign so the display name survives without an extra read.
+async function reassignVendorAndUpdate(campaignId, existing, fields) {
+  const newVendorId = fields.vendorId;
+  const oldVendorId = existing.vendorId ?? null;
+
+  const vendor = await findVendor(newVendorId);
+  if (!vendor) {
+    throw new NotFoundError("Vendor", newVendorId);
+  }
+
+  const effectiveFields =
+    fields.sponsor === undefined ? { ...fields, sponsor: vendor.name } : fields;
+  const merged = { ...existing, ...effectiveFields };
+  const { expression, names, values } = buildSetExpression(Object.entries(effectiveFields));
+
+  const transactItems = [{
+    Update: {
+      TableName: TABLE_NAME,
+      Key: campaignKey(campaignId),
+      UpdateExpression: expression,
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: values,
+      ConditionExpression: "attribute_exists(pk)",
+    },
+  }];
+
+  if (oldVendorId) {
+    transactItems.push({
+      Delete: {
+        TableName: TABLE_NAME,
+        Key: { pk: `VENDOR#${oldVendorId}`, sk: `CAMPAIGN#${campaignId}` },
+      },
+    });
+  }
+
+  transactItems.push({
+    Put: {
+      TableName: TABLE_NAME,
+      Item: {
+        pk: `VENDOR#${newVendorId}`,
+        sk: `CAMPAIGN#${campaignId}`,
+        entity: "CampaignByVendor",
+        campaignId,
+        vendorId: newVendorId,
+        name: merged.name,
+        status: merged.status,
+        startDate: merged.startDate,
+        endDate: merged.endDate,
+        createdAt: existing.createdAt,
+      },
+    },
+  });
+
+  await ddb.send(new TransactWriteCommand({ TransactItems: transactItems }));
+  return merged;
 }
 
 function buildSetExpression(entries) {

@@ -3,6 +3,8 @@ import {
   DeleteCommand,
   GetCommand,
   PutCommand,
+  QueryCommand,
+  TransactWriteCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ulid } from "ulid";
@@ -55,6 +57,36 @@ export async function createLink(campaignId, fields) {
   if (fields.src) item.src = fields.src;
   if (fields.notes) item.notes = fields.notes;
 
+  // Registering a "main" role link is how users mark their primary
+  // published URL. Adopt it as the campaign's blog_url when the campaign
+  // doesn't have one yet, so the Overview, GA4 lookup, and Core Web
+  // Vitals fetch all start working off that link without a second edit.
+  const shouldAdoptBlogUrl = fields.role === "main" && !campaign.blogUrl;
+  if (shouldAdoptBlogUrl) {
+    await ddb.send(new TransactWriteCommand({
+      TransactItems: [
+        {
+          Put: {
+            TableName: TABLE_NAME,
+            Item: item,
+            ConditionExpression: "attribute_not_exists(sk)",
+          },
+        },
+        {
+          Update: {
+            TableName: TABLE_NAME,
+            Key: { pk: `CAMPAIGN#${campaignId}`, sk: "METADATA" },
+            UpdateExpression: "SET #blogUrl = :blogUrl",
+            ExpressionAttributeNames: { "#blogUrl": "blogUrl" },
+            ExpressionAttributeValues: { ":blogUrl": fields.url },
+            ConditionExpression: "attribute_exists(pk) AND attribute_not_exists(#blogUrl)",
+          },
+        },
+      ],
+    }));
+    return item;
+  }
+
   await ddb.send(new PutCommand({
     TableName: TABLE_NAME,
     Item: item,
@@ -62,6 +94,20 @@ export async function createLink(campaignId, fields) {
   }));
 
   return item;
+}
+
+// Returns every Link under a campaign (any role). Callers filter by role
+// as needed — e.g. the monitoring working set only wants cross-post links.
+export async function listCampaignLinks(campaignId) {
+  const result = await ddb.send(new QueryCommand({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+    ExpressionAttributeValues: {
+      ":pk": `CAMPAIGN#${campaignId}`,
+      ":prefix": "LINK#",
+    },
+  }));
+  return result.Items ?? [];
 }
 
 export async function getLink(campaignId, linkId) {

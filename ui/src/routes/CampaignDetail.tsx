@@ -23,14 +23,19 @@ import type {
   CreateSocialPostRequest,
   Ga4Section,
   SocialPost,
+  VendorPayload,
   WebAnalyticsResponse,
 } from '../api/types';
+import { createVendor } from '../api/vendors';
 import ClicksChart from '../components/ClicksChart';
 import RegisterLinkForm from '../components/RegisterLinkForm';
 import RegisterSocialPostForm from '../components/RegisterSocialPostForm';
 import CampaignBriefSection from '../components/CampaignBriefSection';
 import CampaignDraftTab from '../components/CampaignDraftTab';
 import InstallExtensionModal from '../components/InstallExtensionModal';
+import Modal from '../components/Modal';
+import VendorForm from '../components/VendorForm';
+import VendorSelect from '../components/VendorSelect';
 
 type CampaignTab = 'overview' | 'brief' | 'draft' | 'promotion' | 'analytics';
 
@@ -48,6 +53,8 @@ export default function CampaignDetail(): ReactElement {
 
   const [bundle, setBundle] = useState<CampaignBundle | null>(null);
   const [analytics, setAnalytics] = useState<CampaignAnalyticsResponse | null>(null);
+  const [analyticsFetchedAt, setAnalyticsFetchedAt] = useState<Date | null>(null);
+  const [analyticsRefreshing, setAnalyticsRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
 
@@ -61,6 +68,9 @@ export default function CampaignDetail(): ReactElement {
 
   const [postBusy, setPostBusy] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
+
+  const [showLinkForm, setShowLinkForm] = useState(false);
+  const [showPostForm, setShowPostForm] = useState(false);
 
   const [activeTab, setActiveTab] = useState<CampaignTab>('overview');
   const [extensionModalOpen, setExtensionModalOpen] = useState(false);
@@ -94,7 +104,10 @@ export default function CampaignDetail(): ReactElement {
     setAnalyticsError(null);
     getCampaignAnalytics(apiFetch, campaignId)
       .then((res) => {
-        if (!cancelled) setAnalytics(res);
+        if (!cancelled) {
+          setAnalytics(res);
+          setAnalyticsFetchedAt(new Date());
+        }
       })
       .catch((err: Error) => {
         if (!cancelled) setAnalyticsError(err.message);
@@ -103,6 +116,21 @@ export default function CampaignDetail(): ReactElement {
       cancelled = true;
     };
   }, [apiFetch, campaignId, campaignLoaded, linkTrackingId]);
+
+  const refreshAnalytics = useCallback(async (): Promise<void> => {
+    if (!campaignId) return;
+    setAnalyticsRefreshing(true);
+    setAnalyticsError(null);
+    try {
+      const res = await getCampaignAnalytics(apiFetch, campaignId);
+      setAnalytics(res);
+      setAnalyticsFetchedAt(new Date());
+    } catch (err) {
+      setAnalyticsError((err as Error).message);
+    } finally {
+      setAnalyticsRefreshing(false);
+    }
+  }, [apiFetch, campaignId]);
 
   // Web analytics (GA4 + Core Web Vitals) only make sense once we know the
   // campaign's blog URL, and the call is slow (it hits Google), so it runs
@@ -135,9 +163,20 @@ export default function CampaignDetail(): ReactElement {
   // new link has zero clicks so the chart won't change, but link count and
   // tables should reflect it immediately. Shared by the Links form and the
   // brief's per-deliverable short-link creator.
+  //
+  // The server adopts a "main" role link's destination URL as the
+  // campaign's blog_url when blog_url is unset, so mirror that here so
+  // the Overview tab updates without a refetch.
   const appendLinkAndRefresh = useCallback(
     (link: CampaignLink): void => {
-      setBundle((prev) => (prev ? { ...prev, links: [...prev.links, link] } : prev));
+      setBundle((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, links: [...prev.links, link] };
+        if (link.role === 'main' && !prev.campaign.blog_url) {
+          next.campaign = { ...prev.campaign, blog_url: link.url };
+        }
+        return next;
+      });
       if (!campaignId) return;
       getCampaignAnalytics(apiFetch, campaignId)
         .then((res) => setAnalytics(res))
@@ -154,6 +193,7 @@ export default function CampaignDetail(): ReactElement {
       const link = await createLink(apiFetch, campaignId, payload);
       setLastCreated(link);
       appendLinkAndRefresh(link);
+      setShowLinkForm(false);
     } catch (err) {
       setLinkError(err instanceof ApiError ? err.message : (err as Error).message);
     } finally {
@@ -170,6 +210,7 @@ export default function CampaignDetail(): ReactElement {
       setBundle((prev) =>
         prev ? { ...prev, social_posts: [...prev.social_posts, post] } : prev,
       );
+      setShowPostForm(false);
     } catch (err) {
       setPostError(err instanceof ApiError ? err.message : (err as Error).message);
     } finally {
@@ -223,7 +264,7 @@ export default function CampaignDetail(): ReactElement {
       <header className="flex items-start justify-between gap-4">
         <div className="space-y-1 flex-1 min-w-0">
           <NameEditor apiFetch={apiFetch} campaign={campaign} onCampaignChange={onCampaignChange} />
-          <SponsorEditor
+          <VendorEditor
             apiFetch={apiFetch}
             campaign={campaign}
             onCampaignChange={onCampaignChange}
@@ -334,9 +375,21 @@ export default function CampaignDetail(): ReactElement {
       {activeTab === 'promotion' && (
         <>
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold text-foreground">Links</h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold text-foreground">Links</h2>
+              {!showLinkForm && (
+                <button
+                  type="button"
+                  className="btn-secondary py-1 px-2 text-sm"
+                  onClick={() => setShowLinkForm(true)}
+                  aria-label="Register a new link"
+                >
+                  + Add link
+                </button>
+              )}
+            </div>
             {links.length === 0 ? (
-              <p className="text-muted-foreground">No links yet. Register one below.</p>
+              <p className="text-muted-foreground">No links yet. Click + Add link to register one.</p>
             ) : (
               <table className="data-table">
                 <thead>
@@ -381,35 +434,56 @@ export default function CampaignDetail(): ReactElement {
                 </tbody>
               </table>
             )}
-            <RegisterLinkForm
-              busy={linkBusy}
-              serverError={linkError}
-              lastCreated={lastCreated}
-              onSubmit={(p) => void handleRegisterLink(p)}
-            />
+            {showLinkForm && (
+              <RegisterLinkForm
+                busy={linkBusy}
+                serverError={linkError}
+                lastCreated={lastCreated}
+                onCancel={() => {
+                  setShowLinkForm(false);
+                  setLinkError(null);
+                }}
+                onSubmit={(p) => void handleRegisterLink(p)}
+              />
+            )}
           </section>
 
           <section className="space-y-3">
-            <div className="space-y-1">
-              <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div className="flex items-start justify-between gap-2">
+              <div className="space-y-1">
                 <h2 className="text-lg font-semibold text-foreground">Social posts</h2>
+                <p className="text-sm text-muted-foreground">
+                  Engagement is captured automatically by the Booked browser extension when you
+                  visit each post.{' '}
+                  <span className="font-medium text-foreground">Last fetched</span> shows the most
+                  recent capture.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
-                  className="btn-secondary btn-sm"
+                  className="btn-secondary py-1 px-2 text-sm"
                   onClick={() => setExtensionModalOpen(true)}
                 >
-                  Install Chrome extension
+                  Install extension
                 </button>
+                {!showPostForm && (
+                  <button
+                    type="button"
+                    className="btn-secondary py-1 px-2 text-sm"
+                    onClick={() => setShowPostForm(true)}
+                    aria-label="Track a new social post"
+                  >
+                    + Add post
+                  </button>
+                )}
               </div>
-              <p className="text-sm text-muted-foreground">
-                Engagement is captured automatically by the Booked browser extension when you visit
-                each post. <span className="font-medium text-foreground">Last fetched</span> shows the
-                most recent capture.
-              </p>
             </div>
             {postError && <p className="form-error">{postError}</p>}
             {socialPosts.length === 0 ? (
-              <p className="text-muted-foreground">No social posts tracked yet. Add one below.</p>
+              <p className="text-muted-foreground">
+                No social posts tracked yet. Click + Add post to start tracking one.
+              </p>
             ) : (
               <table className="data-table">
                 <thead>
@@ -456,11 +530,17 @@ export default function CampaignDetail(): ReactElement {
                 </tbody>
               </table>
             )}
-            <RegisterSocialPostForm
-              busy={postBusy}
-              serverError={postError}
-              onSubmit={(p) => void handleTrackPost(p)}
-            />
+            {showPostForm && (
+              <RegisterSocialPostForm
+                busy={postBusy}
+                serverError={postError}
+                onCancel={() => {
+                  setShowPostForm(false);
+                  setPostError(null);
+                }}
+                onSubmit={(p) => void handleTrackPost(p)}
+              />
+            )}
           </section>
         </>
       )}
@@ -479,7 +559,24 @@ export default function CampaignDetail(): ReactElement {
       {activeTab === 'analytics' && (
         <>
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold text-foreground">Analytics</h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold text-foreground">Analytics</h2>
+              <div className="flex items-center gap-3">
+                {analyticsFetchedAt && (
+                  <span className="text-xs text-muted-foreground">
+                    Updated {analyticsFetchedAt.toLocaleTimeString()}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="btn-secondary py-1 px-2 text-sm"
+                  onClick={() => void refreshAnalytics()}
+                  disabled={analyticsRefreshing}
+                >
+                  {analyticsRefreshing ? 'Refreshing…' : 'Refresh'}
+                </button>
+              </div>
+            </div>
             {analyticsError && (
               <p className="form-error">Could not load analytics: {analyticsError}</p>
             )}
@@ -488,6 +585,11 @@ export default function CampaignDetail(): ReactElement {
             )}
             {analytics && (
               <>
+                <AnalyticsDiagnostic
+                  campaign={campaign}
+                  localLinkCount={links.length}
+                  analytics={analytics}
+                />
                 {analytics.upstream_failures > 0 && (
                   <p className="rounded-md border border-warning-200 bg-warning-50 text-warning-900 text-sm px-3 py-2">
                     {analytics.upstream_failures} of {analytics.link_count} link analytics calls
@@ -573,6 +675,46 @@ function formatTimestamp(iso: string | null): string {
   if (!iso) return 'never';
   const d = new Date(iso);
   return isNaN(d.getTime()) ? 'never' : d.toLocaleString();
+}
+
+// Surfaces which analytics path the server took and flags the common
+// "minted before the campaign got tagged" trap: setting link_tracking_id
+// on a campaign whose links were already minted means newsletter-service
+// returns nothing for that tag, even if the per-code clicks are real.
+function AnalyticsDiagnostic({
+  campaign,
+  localLinkCount,
+  analytics,
+}: {
+  campaign: Campaign;
+  localLinkCount: number;
+  analytics: CampaignAnalyticsResponse;
+}): ReactElement | null {
+  const hasTrackingId = Boolean(campaign.link_tracking_id);
+  const mode = hasTrackingId ? 'rollup' : 'fan-out';
+  const mintedBeforeTag =
+    hasTrackingId && localLinkCount > 0 && analytics.link_count < localLinkCount;
+
+  if (mintedBeforeTag) {
+    return (
+      <div className="rounded-md border border-warning-200 bg-warning-50 text-warning-900 text-sm px-3 py-2 space-y-1">
+        <p>
+          <strong>Heads up:</strong> {localLinkCount} link
+          {localLinkCount === 1 ? '' : 's'} registered locally, but only{' '}
+          {analytics.link_count} tagged with <code>{campaign.link_tracking_id}</code> upstream.
+        </p>
+        <p>
+          Links minted before the campaign got a tracking ID aren't retagged. Re-register them, or
+          clear the tracking ID to fall back to per-link click lookups.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <p className="text-xs text-muted-foreground">
+      Source: {mode} ({analytics.link_count} link{analytics.link_count === 1 ? '' : 's'})
+    </p>
+  );
 }
 
 function Tile({ label, value }: { label: string; value: string }): ReactElement {
@@ -893,31 +1035,30 @@ function NameEditor({ apiFetch, campaign, onCampaignChange }: FieldEditorProps):
   );
 }
 
-function SponsorEditor({ apiFetch, campaign, onCampaignChange }: FieldEditorProps): ReactElement {
+// Links the campaign to a vendor record. Picking from the dropdown saves
+// immediately; "+ Create new vendor…" opens an inline modal and links the
+// freshly created vendor on save. Campaigns predating a vendor record may
+// still carry a free-text `sponsor` — we show it until a vendor is linked.
+function VendorEditor({ apiFetch, campaign, onCampaignChange }: FieldEditorProps): ReactElement {
   const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(campaign.sponsor ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [refreshSignal, setRefreshSignal] = useState(0);
 
-  const start = (): void => {
-    setValue(campaign.sponsor ?? '');
-    setError(null);
-    setEditing(true);
-  };
-  const cancel = (): void => {
-    setEditing(false);
-    setError(null);
-  };
-  const save = async (): Promise<void> => {
-    const trimmed = value.trim();
-    if (trimmed === (campaign.sponsor ?? '')) {
+  const save = async (vendorId: string): Promise<void> => {
+    if (!vendorId || vendorId === campaign.vendor_id) {
       setEditing(false);
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      const updated = await updateCampaign(apiFetch, campaign.campaign_id, { sponsor: trimmed });
+      const updated = await updateCampaign(apiFetch, campaign.campaign_id, {
+        vendor_id: vendorId,
+      });
       onCampaignChange(updated);
       setEditing(false);
     } catch (err) {
@@ -927,34 +1068,101 @@ function SponsorEditor({ apiFetch, campaign, onCampaignChange }: FieldEditorProp
     }
   };
 
-  const hasSponsor = Boolean(campaign.sponsor);
+  const handleCreate = async (payload: VendorPayload): Promise<void> => {
+    setCreateBusy(true);
+    setCreateError(null);
+    try {
+      const vendor = await createVendor(apiFetch, payload);
+      setRefreshSignal((n) => n + 1);
+      setModalOpen(false);
+      await save(vendor.vendor_id);
+    } catch (err) {
+      setCreateError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setCreateBusy(false);
+    }
+  };
+
+  const hasVendor = Boolean(campaign.vendor_id);
+
   return (
-    <EditScaffold
-      editing={editing}
-      busy={busy}
-      error={error}
-      hasValue={hasSponsor}
-      emptyLabel="No sponsor"
-      onStart={start}
-      onCancel={cancel}
-      onSave={() => void save()}
-      display={<span className="text-muted-foreground">{campaign.sponsor}</span>}
-      form={
-        <input
-          type="text"
-          className="input"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="Vendor / brand name"
-          disabled={busy}
-          autoFocus
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void save();
-            if (e.key === 'Escape') cancel();
+    <>
+      {!editing ? (
+        <span className="inline-flex items-center gap-2 flex-wrap">
+          {hasVendor ? (
+            <Link
+              to={`/vendors/${campaign.vendor_id}`}
+              className="text-primary-600 hover:underline"
+            >
+              {campaign.sponsor ?? campaign.vendor_id}
+            </Link>
+          ) : campaign.sponsor ? (
+            <span className="text-muted-foreground">{campaign.sponsor}</span>
+          ) : (
+            <span className="text-muted-foreground italic">No vendor</span>
+          )}
+          <button
+            type="button"
+            className="btn-link"
+            onClick={() => {
+              setError(null);
+              setEditing(true);
+            }}
+          >
+            {hasVendor ? 'Change' : campaign.sponsor ? 'Link vendor' : 'Add'}
+          </button>
+        </span>
+      ) : (
+        <div className="space-y-2 max-w-sm">
+          <VendorSelect
+            value={campaign.vendor_id ?? ''}
+            onChange={(id) => void save(id)}
+            onCreateNew={() => setModalOpen(true)}
+            disabled={busy}
+            refreshSignal={refreshSignal}
+            autoFocus
+            ariaLabel="Select vendor"
+          />
+          <div className="flex items-center gap-2">
+            {busy && <span className="text-xs text-muted-foreground">Saving…</span>}
+            <button
+              type="button"
+              className="btn-link"
+              onClick={() => {
+                setEditing(false);
+                setError(null);
+              }}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+          </div>
+          {error && <p className="form-error">{error}</p>}
+        </div>
+      )}
+
+      <Modal
+        open={modalOpen}
+        title="Create vendor"
+        onClose={() => {
+          if (!createBusy) {
+            setModalOpen(false);
+            setCreateError(null);
+          }
+        }}
+      >
+        <VendorForm
+          busy={createBusy}
+          serverError={createError}
+          submitLabel="Create vendor"
+          onSubmit={(p) => void handleCreate(p)}
+          onCancel={() => {
+            setModalOpen(false);
+            setCreateError(null);
           }}
         />
-      }
-    />
+      </Modal>
+    </>
   );
 }
 
@@ -1269,6 +1477,7 @@ function StatusEditor({
       >
         <option value="draft">draft</option>
         <option value="active">active</option>
+        <option value="monitoring">monitoring</option>
         <option value="completed">completed</option>
       </select>
       {error && <p className="form-error">{error}</p>}

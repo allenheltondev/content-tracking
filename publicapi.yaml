@@ -1055,7 +1055,7 @@ components:
           format: date
         status:
           type: string
-          enum: [draft, active, completed]
+          enum: [draft, active, monitoring, completed]
           default: active
         targetMetrics:
           type: object
@@ -1110,7 +1110,7 @@ components:
           nullable: true
         status:
           type: string
-          enum: [draft, active, completed]
+          enum: [draft, active, monitoring, completed]
         targetMetrics:
           type: object
           nullable: true
@@ -1187,10 +1187,12 @@ components:
       type: object
       description: |
         Partial update of a campaign, used when applying a brief's suggested
-        fields. Every property is optional; only those present are changed.
-        Vendor linkage is not editable here (set at creation); the brief's
-        vendor hint flows through `sponsor`. `payout` replaces the campaign's
-        payout wholesale.
+        fields or re-linking the campaign's vendor. Every property is
+        optional; only those present are changed. Setting `vendor_id` links
+        (or re-links) the campaign to a vendor record and keeps the
+        campaign-by-vendor index in sync; the vendor's name is snapshotted
+        into `sponsor` unless a `sponsor` is also supplied. `payout` replaces
+        the campaign's payout wholesale.
       properties:
         name:
           type: string
@@ -1199,6 +1201,12 @@ components:
         sponsor:
           type: string
           maxLength: 200
+        vendor_id:
+          type: string
+          pattern: '^[a-zA-Z0-9_-]{1,80}$'
+          description: |
+            Links the campaign to an existing vendor record. Must reference a
+            vendor that exists (404 otherwise).
         startDate:
           type: string
           format: date
@@ -1207,7 +1215,7 @@ components:
           format: date
         status:
           type: string
-          enum: [draft, active, completed]
+          enum: [draft, active, monitoring, completed]
         targetMetrics:
           type: object
           additionalProperties: true
@@ -1694,7 +1702,7 @@ components:
           type: string
         status:
           type: string
-          enum: [draft, active, completed]
+          enum: [draft, active, monitoring, completed]
         startDate:
           type: string
           format: date

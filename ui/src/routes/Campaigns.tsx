@@ -68,6 +68,7 @@ export default function Campaigns(): ReactElement {
             <option value="all">All</option>
             <option value="draft">Draft</option>
             <option value="active">Active</option>
+            <option value="monitoring">Monitoring</option>
             <option value="completed">Completed</option>
           </select>
         </label>

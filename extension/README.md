@@ -17,7 +17,7 @@ to Booked — automatically, with no clicking. Every write stamps a
                                                                   ▼
                                   background.js (service worker)
                                     • OAuth/PKCE against Cognito Hosted UI
-                                    • polls GET /social-posts/active
+                                    • polls GET /monitoring/working-set
                                     • matches captured payload → tracked post
                                     • PUT …/social-posts/{id}/analytics
                                                                   │

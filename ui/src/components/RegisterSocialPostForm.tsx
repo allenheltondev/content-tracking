@@ -6,6 +6,7 @@ interface Props {
   busy: boolean;
   serverError: string | null;
   onSubmit: (payload: CreateSocialPostRequest) => void;
+  onCancel?: () => void;
 }
 
 // Infers the platform from a post URL the same way the API does, so the
@@ -24,7 +25,7 @@ function inferPlatform(url: string): SocialPlatform | undefined {
   return undefined;
 }
 
-export default function RegisterSocialPostForm({ busy, serverError, onSubmit }: Props): ReactElement {
+export default function RegisterSocialPostForm({ busy, serverError, onSubmit, onCancel }: Props): ReactElement {
   const [url, setUrl] = useState('');
   const [platform, setPlatform] = useState<SocialPlatform | ''>('');
   const [notes, setNotes] = useState('');
@@ -97,9 +98,16 @@ export default function RegisterSocialPostForm({ busy, serverError, onSubmit }: 
       {validationError && <p className="form-error">{validationError}</p>}
       {serverError && <p className="form-error">{serverError}</p>}
 
-      <button type="button" className="btn-primary" onClick={submit} disabled={busy}>
-        {busy ? 'Adding…' : 'Track post'}
-      </button>
+      <div className="flex items-center gap-2">
+        <button type="button" className="btn-primary" onClick={submit} disabled={busy}>
+          {busy ? 'Adding…' : 'Track post'}
+        </button>
+        {onCancel && (
+          <button type="button" className="btn-secondary" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+        )}
+      </div>
     </fieldset>
   );
 }
