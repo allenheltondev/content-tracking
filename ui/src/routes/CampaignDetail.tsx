@@ -32,6 +32,7 @@ import RegisterLinkForm from '../components/RegisterLinkForm';
 import RegisterSocialPostForm from '../components/RegisterSocialPostForm';
 import CampaignBriefSection from '../components/CampaignBriefSection';
 import CampaignDraftTab from '../components/CampaignDraftTab';
+import InstallExtensionModal from '../components/InstallExtensionModal';
 import Modal from '../components/Modal';
 import VendorForm from '../components/VendorForm';
 import VendorSelect from '../components/VendorSelect';
@@ -72,6 +73,7 @@ export default function CampaignDetail(): ReactElement {
   const [showPostForm, setShowPostForm] = useState(false);
 
   const [activeTab, setActiveTab] = useState<CampaignTab>('overview');
+  const [extensionModalOpen, setExtensionModalOpen] = useState(false);
 
   // Campaign metadata + links. Cheap; fires on mount.
   useEffect(() => {
@@ -457,16 +459,25 @@ export default function CampaignDetail(): ReactElement {
                   recent capture.
                 </p>
               </div>
-              {!showPostForm && (
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
-                  className="btn-secondary py-1 px-2 text-sm shrink-0"
-                  onClick={() => setShowPostForm(true)}
-                  aria-label="Track a new social post"
+                  className="btn-secondary py-1 px-2 text-sm"
+                  onClick={() => setExtensionModalOpen(true)}
                 >
-                  + Add post
+                  Install extension
                 </button>
-              )}
+                {!showPostForm && (
+                  <button
+                    type="button"
+                    className="btn-secondary py-1 px-2 text-sm"
+                    onClick={() => setShowPostForm(true)}
+                    aria-label="Track a new social post"
+                  >
+                    + Add post
+                  </button>
+                )}
+              </div>
             </div>
             {postError && <p className="form-error">{postError}</p>}
             {socialPosts.length === 0 ? (
@@ -619,6 +630,11 @@ export default function CampaignDetail(): ReactElement {
           onDraftChange={(draft) => setBundle((prev) => (prev ? { ...prev, draft } : prev))}
         />
       )}
+
+      <InstallExtensionModal
+        open={extensionModalOpen}
+        onClose={() => setExtensionModalOpen(false)}
+      />
     </section>
   );
 }
