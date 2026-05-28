@@ -2,7 +2,6 @@ import type { ReactElement } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { User } from '../auth/authContextValue';
-import { useTheme } from '../theme/useTheme';
 
 interface Props {
   user: User;
@@ -26,7 +25,6 @@ function initialsFor(user: User): string {
 export default function UserMenu({ user, onSignOut }: Props): ReactElement {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const { theme, toggleTheme } = useTheme();
   const initials = initialsFor(user);
   const displayName = [user.firstName, user.lastName].filter(Boolean).join(' ');
 
@@ -79,20 +77,6 @@ export default function UserMenu({ user, onSignOut }: Props): ReactElement {
           >
             Settings
           </Link>
-          <button
-            type="button"
-            role="menuitem"
-            className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center justify-between border-t border-border"
-            onClick={() => {
-              toggleTheme();
-              setOpen(false);
-            }}
-          >
-            <span>Switch to {theme === 'dark' ? 'light' : 'dark'} mode</span>
-            <span aria-hidden className="text-muted-foreground">
-              {theme === 'dark' ? '☀' : '☾'}
-            </span>
-          </button>
           <button
             type="button"
             role="menuitem"
