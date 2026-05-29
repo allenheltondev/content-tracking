@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Campaign Report</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --surface: #ffffff;
+      --ink: #1a2230;
+      --muted: #5b6675;
+      --faint: #8a94a3;
+      --line: #e3e8ee;
+      --accent: #2256c7;
+      --accent-soft: #e8efff;
+      --bar: #2256c7;
+      --warn-bg: #fff7e6;
+      --warn-ink: #8a5d00;
+      --warn-line: #f0dcae;
+      --radius: 10px;
+      --shadow: 0 1px 3px rgba(20, 32, 54, 0.08), 0 1px 2px rgba(20, 32, 54, 0.04);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .sheet {
+      max-width: 960px;
+      margin: 24px auto;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    /* Header */
+    .doc-header {
+      padding: 28px 32px;
+      border-bottom: 2px solid var(--ink);
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: flex-start;
+    }
+
+    .doc-header .lead { min-width: 240px; }
+
+    .doc-kicker {
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent);
+      margin: 0 0 6px;
+    }
+
+    .campaign-name {
+      font-size: 26px;
+      font-weight: 700;
+      margin: 0 0 4px;
+      letter-spacing: -0.01em;
+    }
+
+    .period-label {
+      color: var(--muted);
+      font-size: 15px;
+      margin: 0;
+    }
+
+    .campaign-meta {
+      margin: 14px 0 0;
+      padding: 0;
+      list-style: none;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .campaign-meta li { margin: 2px 0; }
+    .campaign-meta b { color: var(--ink); font-weight: 600; }
+
+    .stamp {
+      text-align: right;
+      min-width: 180px;
+    }
+
+    .stamp .stamp-box {
+      display: inline-block;
+      border: 1.5px solid var(--accent);
+      color: var(--accent);
+      border-radius: 8px;
+      padding: 10px 14px;
+      background: var(--accent-soft);
+    }
+
+    .stamp .stamp-label {
+      display: block;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 10px;
+      font-weight: 700;
+      opacity: 0.85;
+    }
+
+    .stamp .stamp-date {
+      display: block;
+      font-size: 18px;
+      font-weight: 700;
+      margin-top: 2px;
+    }
+
+    .stamp .stamp-note {
+      display: block;
+      font-size: 11px;
+      color: var(--faint);
+      margin-top: 8px;
+    }
+
+    .pill {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      border-radius: 999px;
+      padding: 1px 8px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      text-transform: capitalize;
+    }
+
+    /* Sections */
+    .section {
+      padding: 24px 32px;
+      border-bottom: 1px solid var(--line);
+    }
+    .section:last-child { border-bottom: 0; }
+
+    .section-title {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      font-weight: 700;
+      color: var(--faint);
+      margin: 0 0 16px;
+    }
+
+    /* Summary cards */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      background: var(--surface);
+    }
+
+    .card.is-primary { border-color: var(--accent); background: var(--accent-soft); }
+
+    .card .card-label {
+      font-size: 12px;
+      color: var(--muted);
+      margin: 0 0 6px;
+      font-weight: 600;
+    }
+
+    .card .card-value {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      margin: 0;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Chart */
+    .chart-wrap { width: 100%; overflow-x: auto; }
+    svg .axis-line { stroke: var(--line); stroke-width: 1; }
+    svg .axis-label { fill: var(--faint); font-size: 11px; }
+    svg .day-label { fill: var(--muted); font-size: 10px; }
+    svg .bar { fill: var(--bar); }
+
+    /* Controls */
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    .controls input[type="search"] {
+      flex: 1 1 220px;
+      min-width: 160px;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 14px;
+      color: var(--ink);
+    }
+
+    /* Tables */
+    .table-wrap { width: 100%; overflow-x: auto; }
+    table.data {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    table.data th, table.data td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      white-space: nowrap;
+    }
+    table.data th {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--faint);
+    }
+    table.data.sortable th.sortable {
+      cursor: pointer;
+      user-select: none;
+    }
+    table.data.sortable th.sortable::after {
+      content: "";
+      opacity: 0.4;
+      margin-left: 4px;
+    }
+    table.data th[aria-sort="ascending"]::after { content: "\25B2"; opacity: 1; }
+    table.data th[aria-sort="descending"]::after { content: "\25BC"; opacity: 1; }
+    table.data td.num, table.data th.num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    table.data td.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+    table.data td a { color: var(--accent); text-decoration: none; }
+    table.data td a:hover { text-decoration: underline; }
+    table.data tbody tr:nth-child(even) { background: #fafbfc; }
+    .muted-cell { color: var(--muted); }
+    .empty-row td {
+      text-align: center;
+      color: var(--faint);
+      padding: 28px 12px;
+      font-style: italic;
+    }
+
+    .empty-state {
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      padding: 32px;
+      text-align: center;
+      color: var(--muted);
+      background: #fafbfc;
+    }
+    .empty-state h3 { margin: 0 0 4px; color: var(--ink); }
+    .empty-state p { margin: 0; font-size: 13px; }
+
+    .skipped-note {
+      margin-top: 14px;
+      font-size: 12px;
+      background: var(--warn-bg);
+      color: var(--warn-ink);
+      border: 1px solid var(--warn-line);
+      border-radius: 8px;
+      padding: 10px 14px;
+    }
+
+    .doc-footer {
+      padding: 18px 32px;
+      font-size: 11px;
+      color: var(--faint);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .btn {
+      border: 1px solid var(--accent);
+      background: var(--accent);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 9px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .btn:hover { filter: brightness(0.95); }
+
+    .toolbar {
+      display: flex;
+      justify-content: flex-end;
+      padding: 16px 32px 0;
+    }
+
+    /* Responsive */
+    @media (max-width: 720px) {
+      .sheet { margin: 0; border-radius: 0; border-left: 0; border-right: 0; }
+      .cards { grid-template-columns: repeat(2, 1fr); }
+      .doc-header { padding: 20px; }
+      .section { padding: 20px; }
+      .stamp { text-align: left; }
+    }
+    @media (max-width: 420px) {
+      .cards { grid-template-columns: 1fr; }
+    }
+
+    /* Print */
+    @media print {
+      body { background: #fff; font-size: 12px; }
+      .sheet {
+        margin: 0;
+        max-width: none;
+        border: 0;
+        box-shadow: none;
+        border-radius: 0;
+      }
+      .no-print, .toolbar, .controls { display: none !important; }
+      .section { padding: 14px 0; page-break-inside: avoid; }
+      .doc-header { padding: 0 0 14px; }
+      .cards { grid-template-columns: repeat(4, 1fr); gap: 8px; }
+      .card { box-shadow: none; }
+      table.data { font-size: 11px; }
+      table.data th { cursor: default; }
+      table.data td, table.data th { white-space: normal; }
+      .chart-wrap { overflow: visible; }
+      tr { page-break-inside: avoid; }
+      .stamp .stamp-box { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      a[href]::after { content: ""; }
+    }
+  </style>
+</head>
+<body>
+  <main class="sheet" id="sheet">
+    <div class="toolbar no-print">
+      <button type="button" class="btn" id="download-pdf">Download PDF</button>
+    </div>
+
+    <header class="doc-header">
+      <div class="lead">
+        <p class="doc-kicker">Campaign Report</p>
+        <h1 class="campaign-name" id="campaign-name"></h1>
+        <p class="period-label" id="period-label"></p>
+        <ul class="campaign-meta" id="campaign-meta"></ul>
+      </div>
+      <div class="stamp">
+        <span class="stamp-box">
+          <span class="stamp-label">Data as of</span>
+          <span class="stamp-date" id="data-as-of"></span>
+        </span>
+        <span class="stamp-note" id="generated-note"></span>
+      </div>
+    </header>
+
+    <section class="section">
+      <h2 class="section-title">Summary</h2>
+      <div class="cards" id="summary-cards"></div>
+      <div class="skipped-note" id="skipped-note" hidden></div>
+    </section>
+
+    <section class="section" id="source-section">
+      <h2 class="section-title">Clicks by source</h2>
+      <div class="table-wrap" id="source-wrap"></div>
+    </section>
+
+    <section class="section" id="chart-section">
+      <h2 class="section-title">Daily clicks</h2>
+      <div class="chart-wrap" id="chart-wrap"></div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Links</h2>
+      <div class="controls no-print">
+        <input type="search" id="search" placeholder="Search links..." aria-label="Search links">
+      </div>
+      <div id="links-region"></div>
+    </section>
+
+    <footer class="doc-footer">
+      <span id="footer-id"></span>
+      <span>This report reflects data frozen at generation time.</span>
+    </footer>
+  </main>
+
+  <script type="application/json" id="report-data">__REPORT_DATA__</script>
+  <script>
+    (function () {
+      "use strict";
+
+      var snapshot;
+      try {
+        snapshot = JSON.parse(document.getElementById("report-data").textContent);
+      } catch (e) {
+        document.getElementById("sheet").innerHTML =
+          '<div class="section"><p>Unable to load report data.</p></div>';
+        return;
+      }
+
+      var report = snapshot.report || {};
+      var campaign = snapshot.campaign || {};
+      var summary = snapshot.summary || {};
+      var bySrc = Array.isArray(snapshot.bySrc) ? snapshot.bySrc : [];
+      var byDay = Array.isArray(snapshot.byDay) ? snapshot.byDay : [];
+      var links = Array.isArray(snapshot.links) ? snapshot.links : [];
+
+      var intFmt = new Intl.NumberFormat("en-US");
+
+      function fmtInt(n) {
+        return intFmt.format(typeof n === "number" ? n : 0);
+      }
+
+      // Dates in the contract are already YYYY-MM-DD or ISO timestamps; show
+      // just the date portion, "—" when missing.
+      function fmtDate(s) {
+        if (!s || typeof s !== "string") return "—";
+        var date = s.slice(0, 10);
+        // Validate YYYY-MM-DD shape without a trailing regex anchor, so the
+        // served document never contains a currency-like character.
+        return /^[0-9]{4}-[0-9]{2}-[0-9]{2}/.test(date) && date.length === 10 ? date : "—";
+      }
+
+      function el(tag, attrs, text) {
+        var node = document.createElement(tag);
+        if (attrs) {
+          for (var k in attrs) {
+            if (Object.prototype.hasOwnProperty.call(attrs, k)) node.setAttribute(k, attrs[k]);
+          }
+        }
+        if (text != null) node.textContent = text;
+        return node;
+      }
+
+      var SVG_NS = "http://www.w3.org/2000/svg";
+      function svgEl(tag, attrs) {
+        var node = document.createElementNS(SVG_NS, tag);
+        if (attrs) {
+          for (var k in attrs) {
+            if (Object.prototype.hasOwnProperty.call(attrs, k)) node.setAttribute(k, attrs[k]);
+          }
+        }
+        return node;
+      }
+
+      function truncate(s, n) {
+        if (!s) return "";
+        return s.length <= n ? s : s.slice(0, n - 1) + "…";
+      }
+
+      function dateRange(start, end) {
+        if (!start && !end) return "—";
+        if (start && end) return start + " – " + end;
+        return start || end || "—";
+      }
+
+      // ---- Header ----
+      document.getElementById("campaign-name").textContent = campaign.name || "Campaign";
+      document.getElementById("period-label").textContent =
+        dateRange(campaign.startDate, campaign.endDate);
+      document.getElementById("data-as-of").textContent = report.dataAsOf || "—";
+      if (report.generatedAt) {
+        var gen = new Date(report.generatedAt);
+        if (!isNaN(gen.getTime())) {
+          document.getElementById("generated-note").textContent =
+            "Generated " + gen.toLocaleString("en-US");
+        }
+      }
+      document.title = (campaign.name || "Campaign") + " — Report";
+      document.getElementById("footer-id").textContent = report.id ? ("Report " + report.id) : "";
+
+      var metaList = document.getElementById("campaign-meta");
+      function addMeta(label, valueNode) {
+        var li = el("li");
+        li.appendChild(el("b", null, label + ": "));
+        if (typeof valueNode === "string") {
+          li.appendChild(document.createTextNode(valueNode));
+        } else {
+          li.appendChild(valueNode);
+        }
+        metaList.appendChild(li);
+      }
+      if (campaign.sponsor) addMeta("Sponsor", campaign.sponsor);
+      if (campaign.status) {
+        addMeta("Status", el("span", { "class": "pill" }, String(campaign.status)));
+      }
+
+      // ---- Summary cards ----
+      var cardsRoot = document.getElementById("summary-cards");
+      function addCard(label, value, primary) {
+        var card = el("div", { "class": "card" + (primary ? " is-primary" : "") });
+        card.appendChild(el("p", { "class": "card-label" }, label));
+        card.appendChild(el("p", { "class": "card-value" }, value));
+        cardsRoot.appendChild(card);
+      }
+      addCard("Total clicks", fmtInt(summary.totalClicks), true);
+      addCard("Links tracked", fmtInt(summary.linkCount), false);
+      addCard("First click", fmtDate(summary.firstClickAt), false);
+      addCard("Last click", fmtDate(summary.lastClickAt), false);
+
+      if (summary.upstreamFailures > 0) {
+        var note = document.getElementById("skipped-note");
+        note.hidden = false;
+        note.textContent = "Note: some link analytics couldn't be fetched (" +
+          fmtInt(summary.upstreamFailures) +
+          ") and are excluded from the totals above.";
+      }
+
+      // ---- Clicks by source ----
+      renderSources();
+      function renderSources() {
+        if (!bySrc.length) {
+          document.getElementById("source-section").style.display = "none";
+          return;
+        }
+        var rows = bySrc.slice().sort(function (a, b) {
+          return (b.clicks || 0) - (a.clicks || 0);
+        });
+        var table = el("table", { "class": "data" });
+        var thead = el("thead");
+        var htr = el("tr");
+        htr.appendChild(el("th", { scope: "col" }, "Source"));
+        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Clicks"));
+        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Share"));
+        thead.appendChild(htr);
+        table.appendChild(thead);
+        var tbody = el("tbody");
+        rows.forEach(function (r) {
+          var tr = el("tr");
+          tr.appendChild(el("td", null, r.source != null ? String(r.source) : "—"));
+          tr.appendChild(el("td", { "class": "num" }, fmtInt(r.clicks)));
+          var share = typeof r.share === "number" ? (r.share * 100).toFixed(1) + "%" : "—";
+          tr.appendChild(el("td", { "class": "num" }, share));
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        document.getElementById("source-wrap").appendChild(table);
+      }
+
+      // ---- Daily clicks chart ----
+      renderChart();
+      function renderChart() {
+        var wrap = document.getElementById("chart-wrap");
+        if (!byDay.length) {
+          document.getElementById("chart-section").style.display = "none";
+          return;
+        }
+
+        var W = 880, H = 280;
+        var pad = { top: 12, right: 12, bottom: 40, left: 56 };
+        var plotW = W - pad.left - pad.right;
+        var plotH = H - pad.top - pad.bottom;
+
+        var maxVal = 0;
+        byDay.forEach(function (d) { maxVal = Math.max(maxVal, d.clicks || 0); });
+        if (maxVal <= 0) maxVal = 1;
+        var pow = Math.pow(10, Math.floor(Math.log10(maxVal)));
+        var niceMax = Math.ceil(maxVal / pow) * pow;
+
+        var svg = svgEl("svg", {
+          viewBox: "0 0 " + W + " " + H,
+          width: "100%",
+          role: "img",
+          "aria-label": "Daily clicks",
+          preserveAspectRatio: "xMidYMid meet"
+        });
+        svg.style.minWidth = byDay.length > 14 ? "720px" : "0";
+
+        var ticks = 4;
+        for (var t = 0; t <= ticks; t++) {
+          var val = (niceMax / ticks) * t;
+          var y = pad.top + plotH - (val / niceMax) * plotH;
+          svg.appendChild(svgEl("line", {
+            "class": "axis-line", x1: pad.left, y1: y, x2: pad.left + plotW, y2: y
+          }));
+          var lbl = svgEl("text", {
+            "class": "axis-label", x: pad.left - 8, y: y + 4, "text-anchor": "end"
+          });
+          lbl.textContent = fmtInt(Math.round(val));
+          svg.appendChild(lbl);
+        }
+
+        var groupW = plotW / byDay.length;
+        var barW = Math.max(3, Math.min(40, groupW - 6));
+        // Label at most ~12 ticks so the axis stays readable.
+        var labelEvery = Math.ceil(byDay.length / 12);
+
+        byDay.forEach(function (d, i) {
+          var cx = pad.left + groupW * i + groupW / 2;
+          var clicks = d.clicks || 0;
+          var bh = (clicks / niceMax) * plotH;
+          var rect = svgEl("rect", {
+            "class": "bar",
+            x: cx - barW / 2, y: pad.top + plotH - bh, width: barW, height: bh, rx: 2
+          });
+          rect.appendChild(svgEl("title", {})).textContent =
+            (d.day || "") + ": " + fmtInt(clicks) + " clicks";
+          svg.appendChild(rect);
+
+          if (i % labelEvery === 0) {
+            var dl = svgEl("text", {
+              "class": "day-label", x: cx, y: H - 16, "text-anchor": "middle"
+            });
+            dl.textContent = d.day || "";
+            svg.appendChild(dl);
+          }
+        });
+
+        svg.appendChild(svgEl("line", {
+          "class": "axis-line",
+          x1: pad.left, y1: pad.top + plotH, x2: pad.left + plotW, y2: pad.top + plotH
+        }));
+
+        wrap.appendChild(svg);
+      }
+
+      // ---- Links table ----
+      var region = document.getElementById("links-region");
+      var searchInput = document.getElementById("search");
+
+      var state = { search: "", sortKey: "totalClicks", sortDir: "desc" };
+
+      var columns = [
+        { key: "url", label: "Destination", num: false },
+        { key: "shortUrl", label: "Short URL", num: false },
+        { key: "totalClicks", label: "Clicks", num: true },
+        { key: "firstClickAt", label: "First clicked", num: false },
+        { key: "lastClickAt", label: "Last clicked", num: false }
+      ];
+
+      if (!links.length) {
+        var empty = el("div", { "class": "empty-state" });
+        empty.appendChild(el("h3", null, "No links to report"));
+        empty.appendChild(el("p", null, "There are no tracked links with activity for this campaign."));
+        region.appendChild(empty);
+        var ctrl = document.querySelector(".controls");
+        if (ctrl) ctrl.style.display = "none";
+      } else {
+        buildTable();
+        searchInput.addEventListener("input", function () {
+          state.search = searchInput.value.trim().toLowerCase();
+          renderRows();
+        });
+      }
+
+      var tbody;
+      function buildTable() {
+        var wrap = el("div", { "class": "table-wrap" });
+        var table = el("table", { "class": "data sortable" });
+        var thead = el("thead");
+        var tr = el("tr");
+        columns.forEach(function (col) {
+          var th = el("th", {
+            "class": "sortable" + (col.num ? " num" : ""),
+            "data-key": col.key,
+            scope: "col",
+            role: "button",
+            tabindex: "0"
+          }, col.label);
+          th.addEventListener("click", function () { sortBy(col.key); });
+          th.addEventListener("keydown", function (ev) {
+            if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); sortBy(col.key); }
+          });
+          tr.appendChild(th);
+        });
+        thead.appendChild(tr);
+        table.appendChild(thead);
+        tbody = el("tbody");
+        table.appendChild(tbody);
+        wrap.appendChild(table);
+        region.appendChild(wrap);
+        renderRows();
+        updateSortIndicators();
+      }
+
+      function sortBy(key) {
+        if (state.sortKey === key) {
+          state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
+        } else {
+          state.sortKey = key;
+          state.sortDir = (key === "totalClicks" || key === "firstClickAt" || key === "lastClickAt") ? "desc" : "asc";
+        }
+        updateSortIndicators();
+        renderRows();
+      }
+
+      function updateSortIndicators() {
+        var ths = tbody ? tbody.parentNode.querySelectorAll("th") : [];
+        Array.prototype.forEach.call(ths, function (th) {
+          if (th.getAttribute("data-key") === state.sortKey) {
+            th.setAttribute("aria-sort", state.sortDir === "asc" ? "ascending" : "descending");
+          } else {
+            th.removeAttribute("aria-sort");
+          }
+        });
+      }
+
+      function compareVals(a, b, key) {
+        var va = a[key], vb = b[key];
+        if (key === "totalClicks") {
+          return (va || 0) - (vb || 0);
+        }
+        var sa = va == null ? "" : String(va).toLowerCase();
+        var sb = vb == null ? "" : String(vb).toLowerCase();
+        if (sa < sb) return -1;
+        if (sa > sb) return 1;
+        return 0;
+      }
+
+      function filteredRows() {
+        var rows = links.filter(function (l) {
+          if (state.search) {
+            var hay = ((l.url || "") + " " + (l.shortUrl || "") + " " +
+              (l.role || "") + " " + (l.platform || "")).toLowerCase();
+            if (hay.indexOf(state.search) === -1) return false;
+          }
+          return true;
+        });
+        var dir = state.sortDir === "asc" ? 1 : -1;
+        rows.sort(function (a, b) {
+          var cmp = compareVals(a, b, state.sortKey);
+          if (cmp === 0) cmp = compareVals(a, b, "url");
+          return cmp * dir;
+        });
+        return rows;
+      }
+
+      function renderRows() {
+        if (!tbody) return;
+        tbody.textContent = "";
+        var rows = filteredRows();
+        if (!rows.length) {
+          var tr = el("tr", { "class": "empty-row" });
+          var td = el("td", { colspan: String(columns.length) }, "No links match your search.");
+          tr.appendChild(td);
+          tbody.appendChild(tr);
+          return;
+        }
+        rows.forEach(function (l) {
+          var tr = el("tr");
+
+          var destTd = el("td");
+          if (l.url) {
+            var a = el("a", { href: l.url, rel: "noreferrer noopener", target: "_blank" },
+              truncate(String(l.url), 60));
+            destTd.appendChild(a);
+          } else {
+            destTd.textContent = "—";
+          }
+          tr.appendChild(destTd);
+
+          tr.appendChild(el("td", { "class": "mono" }, l.shortUrl ? String(l.shortUrl) : "—"));
+          tr.appendChild(el("td", { "class": "num" }, fmtInt(l.totalClicks)));
+          tr.appendChild(el("td", { "class": "muted-cell" }, fmtDate(l.firstClickAt)));
+          tr.appendChild(el("td", { "class": "muted-cell" }, fmtDate(l.lastClickAt)));
+          tbody.appendChild(tr);
+        });
+      }
+
+      // ---- Print ----
+      document.getElementById("download-pdf").addEventListener("click", function () {
+        window.print();
+      });
+    })();
+  </script>
+</body>
+</html>
