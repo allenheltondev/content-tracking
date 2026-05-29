@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useApiFetch, ApiError } from '../auth/useApiFetch';
 import {
   deleteVendor,
+  generateVendorReport,
   getVendor,
   listCampaignsForVendor,
 } from '../api/vendors';
@@ -14,6 +15,7 @@ import type {
   RevenueResponse,
   Vendor,
   VendorCampaignSummary,
+  VendorReportResponse,
 } from '../api/types';
 import DeleteVendorModal from '../components/DeleteVendorModal';
 import Modal from '../components/Modal';
@@ -42,6 +44,10 @@ export default function VendorDetail(): ReactElement {
   const [createCampaignOpen, setCreateCampaignOpen] = useState(false);
   const [createCampaignBusy, setCreateCampaignBusy] = useState(false);
   const [createCampaignError, setCreateCampaignError] = useState<string | null>(null);
+
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [report, setReport] = useState<VendorReportResponse | null>(null);
 
   useEffect(() => {
     if (!vendorId) return;
@@ -89,6 +95,20 @@ export default function VendorDetail(): ReactElement {
       setCreateCampaignError(err instanceof ApiError ? err.message : (err as Error).message);
     } finally {
       setCreateCampaignBusy(false);
+    }
+  };
+
+  const handleGenerateReport = async (): Promise<void> => {
+    if (!vendorId) return;
+    setReportBusy(true);
+    setReportError(null);
+    try {
+      const result = await generateVendorReport(apiFetch, vendorId);
+      setReport(result);
+    } catch (err) {
+      setReportError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setReportBusy(false);
     }
   };
 
@@ -143,6 +163,14 @@ export default function VendorDetail(): ReactElement {
           )}
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={reportBusy}
+            onClick={() => void handleGenerateReport()}
+          >
+            {reportBusy ? 'Generating…' : 'Generate report'}
+          </button>
           <Link to={`/vendors/${vendor.vendor_id}/edit`} className="btn-secondary">
             Edit
           </Link>
@@ -159,6 +187,10 @@ export default function VendorDetail(): ReactElement {
           </button>
         </div>
       </header>
+
+      {reportError && (
+        <p className="form-error">Could not generate report: {reportError}</p>
+      )}
 
       <dl className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
         {vendor.website && (
@@ -314,6 +346,8 @@ export default function VendorDetail(): ReactElement {
         />
       </Modal>
 
+      <ReportLinkDialog report={report} onClose={() => setReport(null)} />
+
       <DeleteVendorModal
         open={deleteOpen}
         vendorName={vendor.name}
@@ -330,6 +364,67 @@ export default function VendorDetail(): ReactElement {
         }}
       />
     </section>
+  );
+}
+
+// Shows the signed share link for a freshly generated report. The link is
+// time-limited (CloudFront signed URL); the dialog surfaces the expiry and
+// the "data as of" date so the user knows what they're sharing.
+function ReportLinkDialog({
+  report,
+  onClose,
+}: {
+  report: VendorReportResponse | null;
+  onClose: () => void;
+}): ReactElement | null {
+  const [copied, setCopied] = useState(false);
+
+  if (!report) return null;
+
+  const copy = (): void => {
+    void navigator.clipboard.writeText(report.url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  return (
+    <Modal open title="Report link" onClose={onClose}>
+      <div className="space-y-4 text-sm text-foreground">
+        <p className="text-muted-foreground">
+          Share this link with the vendor. It opens an interactive report — no
+          login required — and is frozen to the data as of{' '}
+          <span className="text-foreground">{report.dataAsOf}</span> ({report.period.label}).
+        </p>
+        <div className="space-y-2">
+          <code className="block bg-muted rounded p-3 font-mono text-xs break-all">
+            {report.url}
+          </code>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-muted-foreground">
+              Link expires {report.expiresAt.slice(0, 10)}
+            </span>
+            <div className="flex gap-2">
+              <a href={report.url} target="_blank" rel="noreferrer" className="btn-link">
+                Open
+              </a>
+              <button type="button" className="btn-secondary" onClick={copy}>
+                {copied ? 'Copied' : 'Copy link'}
+              </button>
+            </div>
+          </div>
+        </div>
+        <p className="text-muted-foreground">
+          Anyone with this link can view the report until it expires. Generate a
+          new report any time to refresh the data.
+        </p>
+        <div className="flex justify-end">
+          <button type="button" className="btn-primary" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

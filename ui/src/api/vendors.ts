@@ -4,6 +4,8 @@ import type {
   VendorCampaignsResponse,
   VendorListResponse,
   VendorPayload,
+  VendorReportResponse,
+  VendorReportsListResponse,
 } from './types';
 
 export async function listVendors(
@@ -43,4 +45,25 @@ export async function listCampaignsForVendor(
   vendorId: string,
 ): Promise<VendorCampaignsResponse> {
   return apiFetch<VendorCampaignsResponse>(`/vendors/${vendorId}/campaigns`);
+}
+
+// Generates a frozen vendor report and returns a CloudFront signed link to
+// its static HTML. The period defaults server-side to the current calendar
+// year when no year/startDate/endDate is supplied.
+export async function generateVendorReport(
+  apiFetch: ApiFetch,
+  vendorId: string,
+  options: { year?: number; startDate?: string; endDate?: string } = {},
+): Promise<VendorReportResponse> {
+  return apiFetch<VendorReportResponse>(`/vendors/${vendorId}/report`, {
+    method: 'POST',
+    body: options,
+  });
+}
+
+export async function listVendorReports(
+  apiFetch: ApiFetch,
+  vendorId: string,
+): Promise<VendorReportsListResponse> {
+  return apiFetch<VendorReportsListResponse>(`/vendors/${vendorId}/reports`);
 }
