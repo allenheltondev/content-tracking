@@ -723,11 +723,11 @@ Resources:
             Override: true
         CustomHeadersConfig:
           Items:
+            # Referrer-Policy is handled by SecurityHeadersConfig above —
+            # CloudFront rejects it as a custom header. X-Robots-Tag is not a
+            # recognized security header, so it stays here.
             - Header: X-Robots-Tag
               Value: "noindex, nofollow"
-              Override: true
-            - Header: Referrer-Policy
-              Value: no-referrer
               Override: true
 
   VendorReportsDistribution:
