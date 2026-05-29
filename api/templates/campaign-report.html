@@ -160,6 +160,14 @@
       margin: 0 0 16px;
     }
 
+    .section-lead {
+      margin: -8px 0 16px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .section-lead a { color: var(--accent); text-decoration: none; }
+    .section-lead a:hover { text-decoration: underline; }
+
     /* Summary cards */
     .cards {
       display: grid;
@@ -376,6 +384,12 @@
       <div class="skipped-note" id="skipped-note" hidden></div>
     </section>
 
+    <section class="section" id="main-content-section" hidden>
+      <h2 class="section-title">Main content</h2>
+      <p class="section-lead" id="main-content-lead"></p>
+      <div class="cards" id="main-content-cards"></div>
+    </section>
+
     <section class="section" id="source-section">
       <h2 class="section-title">Clicks by source</h2>
       <div class="table-wrap" id="source-wrap"></div>
@@ -392,6 +406,16 @@
         <input type="search" id="search" placeholder="Search links..." aria-label="Search links">
       </div>
       <div id="links-region"></div>
+    </section>
+
+    <section class="section" id="social-posts-section" hidden>
+      <h2 class="section-title">Social posts</h2>
+      <div class="table-wrap" id="social-posts-wrap"></div>
+    </section>
+
+    <section class="section" id="content-posts-section" hidden>
+      <h2 class="section-title">Content posts</h2>
+      <div class="table-wrap" id="content-posts-wrap"></div>
     </section>
 
     <footer class="doc-footer">
@@ -417,9 +441,12 @@
       var report = snapshot.report || {};
       var campaign = snapshot.campaign || {};
       var summary = snapshot.summary || {};
+      var mainContent = snapshot.mainContent || null;
       var bySrc = Array.isArray(snapshot.bySrc) ? snapshot.bySrc : [];
       var byDay = Array.isArray(snapshot.byDay) ? snapshot.byDay : [];
       var links = Array.isArray(snapshot.links) ? snapshot.links : [];
+      var socialPosts = Array.isArray(snapshot.socialPosts) ? snapshot.socialPosts : [];
+      var contentPosts = Array.isArray(snapshot.contentPosts) ? snapshot.contentPosts : [];
 
       var intFmt = new Intl.NumberFormat("en-US");
 
@@ -435,6 +462,19 @@
         // Validate YYYY-MM-DD shape without a trailing regex anchor, so the
         // served document never contains a currency-like character.
         return /^[0-9]{4}-[0-9]{2}-[0-9]{2}/.test(date) && date.length === 10 ? date : "—";
+      }
+
+      function fmtDuration(seconds) {
+        if (typeof seconds !== "number" || !isFinite(seconds) || seconds <= 0) return "—";
+        var s = Math.round(seconds);
+        var m = Math.floor(s / 60);
+        var rem = s - m * 60;
+        return m > 0 ? m + "m " + rem + "s" : rem + "s";
+      }
+
+      function fmtPercent(rate) {
+        if (typeof rate !== "number" || !isFinite(rate)) return "—";
+        return Math.round(rate * 100) + "%";
       }
 
       function el(tag, attrs, text) {
@@ -520,6 +560,44 @@
         note.textContent = "Note: some link analytics couldn't be fetched (" +
           fmtInt(summary.upstreamFailures) +
           ") and are excluded from the totals above.";
+      }
+
+      // ---- Main content (GA4) ----
+      renderMainContent();
+      function renderMainContent() {
+        if (!mainContent) return;
+        var section = document.getElementById("main-content-section");
+        section.hidden = false;
+
+        var lead = document.getElementById("main-content-lead");
+        if (mainContent.blogUrl) {
+          lead.textContent = "Traffic on ";
+          var a = el("a", {
+            href: mainContent.blogUrl,
+            rel: "noreferrer noopener",
+            target: "_blank"
+          }, truncate(String(mainContent.blogUrl), 80));
+          lead.appendChild(a);
+          if (mainContent.range && mainContent.range.startDate && mainContent.range.endDate) {
+            lead.appendChild(document.createTextNode(
+              " over " + mainContent.range.startDate + " – " + mainContent.range.endDate + "."
+            ));
+          } else {
+            lead.appendChild(document.createTextNode("."));
+          }
+        }
+
+        var cards = document.getElementById("main-content-cards");
+        function addContentCard(label, value, primary) {
+          var card = el("div", { "class": "card" + (primary ? " is-primary" : "") });
+          card.appendChild(el("p", { "class": "card-label" }, label));
+          card.appendChild(el("p", { "class": "card-value" }, value));
+          cards.appendChild(card);
+        }
+        addContentCard("Views", fmtInt(mainContent.pageviews), true);
+        addContentCard("Unique visitors", fmtInt(mainContent.users), false);
+        addContentCard("Avg read time", fmtDuration(mainContent.avgSessionDurationSeconds), false);
+        addContentCard("Engagement rate", fmtPercent(mainContent.engagementRate), false);
       }
 
       // ---- Clicks by source ----
@@ -638,10 +716,7 @@
 
       var columns = [
         { key: "url", label: "Destination", num: false },
-        { key: "shortUrl", label: "Short URL", num: false },
-        { key: "totalClicks", label: "Clicks", num: true },
-        { key: "firstClickAt", label: "First clicked", num: false },
-        { key: "lastClickAt", label: "Last clicked", num: false }
+        { key: "totalClicks", label: "Clicks", num: true }
       ];
 
       if (!links.length) {
@@ -694,7 +769,7 @@
           state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
         } else {
           state.sortKey = key;
-          state.sortDir = (key === "totalClicks" || key === "firstClickAt" || key === "lastClickAt") ? "desc" : "asc";
+          state.sortDir = key === "totalClicks" ? "desc" : "asc";
         }
         updateSortIndicators();
         renderRows();
@@ -726,7 +801,7 @@
       function filteredRows() {
         var rows = links.filter(function (l) {
           if (state.search) {
-            var hay = ((l.url || "") + " " + (l.shortUrl || "") + " " +
+            var hay = ((l.url || "") + " " +
               (l.role || "") + " " + (l.platform || "")).toLowerCase();
             if (hay.indexOf(state.search) === -1) return false;
           }
@@ -765,12 +840,57 @@
           }
           tr.appendChild(destTd);
 
-          tr.appendChild(el("td", { "class": "mono" }, l.shortUrl ? String(l.shortUrl) : "—"));
           tr.appendChild(el("td", { "class": "num" }, fmtInt(l.totalClicks)));
-          tr.appendChild(el("td", { "class": "muted-cell" }, fmtDate(l.firstClickAt)));
-          tr.appendChild(el("td", { "class": "muted-cell" }, fmtDate(l.lastClickAt)));
           tbody.appendChild(tr);
         });
+      }
+
+      // ---- Social / content posts ----
+      renderPostTable("social-posts-section", "social-posts-wrap", socialPosts);
+      renderPostTable("content-posts-section", "content-posts-wrap", contentPosts);
+      function renderPostTable(sectionId, wrapId, posts) {
+        if (!posts.length) return;
+        document.getElementById(sectionId).hidden = false;
+
+        var table = el("table", { "class": "data" });
+        var thead = el("thead");
+        var htr = el("tr");
+        htr.appendChild(el("th", { scope: "col" }, "Platform"));
+        htr.appendChild(el("th", { scope: "col" }, "Post"));
+        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Engagement"));
+        htr.appendChild(el("th", { scope: "col" }, "Top metric"));
+        htr.appendChild(el("th", { scope: "col" }, "Last fetched"));
+        thead.appendChild(htr);
+        table.appendChild(thead);
+
+        var tbody = el("tbody");
+        posts.forEach(function (p) {
+          var tr = el("tr");
+          tr.appendChild(el("td", null, p.platform ? String(p.platform) : "—"));
+
+          var urlTd = el("td");
+          if (p.url) {
+            var a = el("a", { href: p.url, rel: "noreferrer noopener", target: "_blank" },
+              truncate(String(p.url), 60));
+            urlTd.appendChild(a);
+          } else {
+            urlTd.textContent = "—";
+          }
+          tr.appendChild(urlTd);
+
+          tr.appendChild(el("td", { "class": "num" }, fmtInt(p.totalEngagement)));
+          tr.appendChild(el(
+            "td",
+            { "class": "muted-cell" },
+            p.topMetric
+              ? p.topMetric + ": " + fmtInt(p.topMetricValue)
+              : "—"
+          ));
+          tr.appendChild(el("td", { "class": "muted-cell" }, fmtDate(p.lastFetched)));
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        document.getElementById(wrapId).appendChild(table);
       }
 
       // ---- Print ----

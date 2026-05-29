@@ -1,18 +1,43 @@
 import { ulid } from "ulid";
 import { BadRequestError } from "../services/errors.mjs";
 import { jsonResponse } from "../services/http-handler.mjs";
+import { logger } from "../services/logger.mjs";
 import { buildCampaignReportSnapshot } from "../domain/campaign-report.mjs";
 import { renderCampaignReportHtml } from "../services/campaign-report-renderer.mjs";
 import { putCampaignReportHtml } from "../services/campaign-report-store.mjs";
 // Signing is generic (keyed off the object key, not the vendor) so we
 // reuse it straight from the vendor report store for campaign reports too.
 import { signReportUrl, SIGNED_URL_TTL_SECONDS } from "../services/vendor-report-store.mjs";
+import { mintShortLink } from "../services/newsletter-service.mjs";
 import {
   saveCampaignReportRecord,
   listCampaignReportRecords,
 } from "../domain/campaign-report-record.mjs";
 // Generic retention helper shared with vendor reports.
 import { reportObjectExpiresAtMs } from "../domain/vendor-report-record.mjs";
+
+// CloudFront signed report URLs are ~500 chars. Wrap them in a
+// newsletter-service short link so the customer share link is one
+// reasonable-length URL. Shortlink TTL matches the signed-URL TTL — past
+// that the destination 403s anyway, so an outliving short link would
+// just hand back a dead URL.
+const REPORT_SHORTLINK_TTL_DAYS = Math.ceil(SIGNED_URL_TTL_SECONDS / 86400);
+
+async function mintReportShortLink(url) {
+  try {
+    const mint = await mintShortLink({
+      url,
+      src: "campaign-report",
+      expiresInDays: REPORT_SHORTLINK_TTL_DAYS,
+    });
+    return mint?.short_url ?? null;
+  } catch (err) {
+    logger.warn("Failed to mint shortlink for campaign report; falling back to signed URL", {
+      error: err?.message,
+    });
+    return null;
+  }
+}
 
 // Campaign ids are ULIDs. validation/campaign.mjs has no exported id regex,
 // so we validate path params locally with the same 1-80 char shape used for
@@ -37,6 +62,7 @@ export function registerCampaignReportRoutes(app) {
     const html = renderCampaignReportHtml(snapshot);
     const key = await putCampaignReportHtml({ campaignId, reportId, html });
     const { url, expiresAt } = signReportUrl(key);
+    const shortUrl = await mintReportShortLink(url);
 
     await saveCampaignReportRecord({
       campaignId,
@@ -50,6 +76,7 @@ export function registerCampaignReportRoutes(app) {
     return jsonResponse(201, {
       reportId,
       url,
+      shortUrl,
       expiresAt,
       dataAsOf: snapshot.report.dataAsOf,
       summary: snapshot.summary,

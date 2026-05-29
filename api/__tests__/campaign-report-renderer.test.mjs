@@ -36,23 +36,20 @@ function sampleSnapshot(overrides = {}) {
     links: [
       {
         url: "https://example.com/landing",
-        shortUrl: "https://bkd.to/abc",
         role: "primary",
         platform: "web",
         totalClicks: 900,
-        firstClickAt: "2026-01-02T08:00:00.000Z",
-        lastClickAt: "2026-05-27T22:00:00.000Z",
       },
       {
         url: "https://example.com/secondary",
-        shortUrl: null,
         role: null,
         platform: null,
         totalClicks: 334,
-        firstClickAt: null,
-        lastClickAt: null,
       },
     ],
+    mainContent: null,
+    socialPosts: [],
+    contentPosts: [],
     ...overrides,
   };
 }
@@ -128,5 +125,60 @@ describe("renderCampaignReportHtml", () => {
     snapshot.campaign.name = "Cost $1 & $$ & $`drop";
     const html = renderCampaignReportHtml(snapshot);
     expect(html).toContain("Cost $1 \\u0026 $$ \\u0026 $`drop");
+  });
+
+  it("drops short URL and first/last clicked from the links table columns", () => {
+    const html = renderCampaignReportHtml(sampleSnapshot());
+    // The customer report intentionally removes these three link columns.
+    // Their user-facing labels should not appear anywhere in the document.
+    expect(html).not.toContain('"Short URL"');
+    expect(html).not.toContain('"First clicked"');
+    expect(html).not.toContain('"Last clicked"');
+    // And the corresponding column-array entries — guarding against a key
+    // surviving in the array while the label was renamed.
+    expect(html).not.toContain('key: "shortUrl"');
+    expect(html).not.toContain('key: "firstClickAt"');
+    expect(html).not.toContain('key: "lastClickAt"');
+  });
+
+  it("embeds main content + post data into the snapshot JSON when present", () => {
+    const snapshot = sampleSnapshot({
+      mainContent: {
+        blogUrl: "https://blog.example.com/post-x",
+        range: { startDate: "2026-05-01", endDate: "2026-05-28" },
+        pageviews: 4200,
+        users: 3100,
+        sessions: 3500,
+        avgSessionDurationSeconds: 95,
+        engagementRate: 0.81,
+      },
+      socialPosts: [
+        {
+          platform: "twitter",
+          url: "https://twitter.com/u/status/1",
+          notes: null,
+          totalEngagement: 42,
+          topMetric: "likes",
+          topMetricValue: 30,
+          lastFetched: "2026-05-28T09:00:00.000Z",
+        },
+      ],
+      contentPosts: [
+        {
+          platform: "medium",
+          url: "https://medium.com/@u/post",
+          notes: null,
+          totalEngagement: 1000,
+          topMetric: "reads",
+          topMetricValue: 700,
+          lastFetched: "2026-05-28T09:00:00.000Z",
+        },
+      ],
+    });
+    const html = renderCampaignReportHtml(snapshot);
+    expect(html).toContain('"pageviews":4200');
+    expect(html).toContain('"avgSessionDurationSeconds":95');
+    expect(html).toContain("https://twitter.com/u/status/1");
+    expect(html).toContain("https://medium.com/@u/post");
   });
 });
