@@ -20,6 +20,7 @@ import {
   type SignUpResult,
   type User,
 } from './authContextValue';
+import LoadingScreen from '../components/LoadingScreen';
 import './config'; // side-effect: Amplify.configure runs on import
 
 async function loadUser(current: AuthUser): Promise<User> {
@@ -151,5 +152,12 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
     getAccessToken,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  // Gate the whole app on the initial session probe so routes never
+  // have to render their own "checking session" placeholder. By the
+  // time children mount, auth state is settled.
+  return (
+    <AuthContext.Provider value={value}>
+      {isLoading ? <LoadingScreen /> : children}
+    </AuthContext.Provider>
+  );
 }

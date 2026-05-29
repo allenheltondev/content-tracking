@@ -7,7 +7,7 @@ import Logo from '../components/Logo';
 type Step = 'signup' | 'confirm';
 
 export default function SignUp(): ReactElement {
-  const { isAuthenticated, isLoading, signUp, confirmSignUp, resendSignUpCode, signIn } = useAuth();
+  const { isAuthenticated, signUp, confirmSignUp, resendSignUpCode, signIn } = useAuth();
   const navigate = useNavigate();
 
   const [step, setStep] = useState<Step>('signup');
@@ -28,14 +28,6 @@ export default function SignUp(): ReactElement {
     const t = setTimeout(() => setResendCooldown((s) => s - 1), 1000);
     return () => clearTimeout(t);
   }, [resendCooldown]);
-
-  if (isLoading) {
-    return (
-      <section className="min-h-screen flex items-center justify-center text-muted-foreground">
-        Checking session...
-      </section>
-    );
-  }
 
   if (isAuthenticated) {
     return <Navigate to="/" replace />;

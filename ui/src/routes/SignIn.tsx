@@ -9,7 +9,7 @@ interface LocationState {
 }
 
 export default function SignIn(): ReactElement {
-  const { isAuthenticated, isLoading, signIn } = useAuth();
+  const { isAuthenticated, signIn } = useAuth();
   const location = useLocation();
   const state = (location.state ?? {}) as LocationState;
   const redirectTo = state.from ?? '/';
@@ -19,14 +19,6 @@ export default function SignIn(): ReactElement {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingStep, setPendingStep] = useState<string | null>(null);
-
-  if (isLoading) {
-    return (
-      <section className="min-h-screen flex items-center justify-center text-muted-foreground">
-        Checking session...
-      </section>
-    );
-  }
 
   if (isAuthenticated) {
     return <Navigate to={redirectTo} replace />;
