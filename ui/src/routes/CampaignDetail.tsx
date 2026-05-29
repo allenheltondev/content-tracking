@@ -5,7 +5,6 @@ import { Line, LineChart, ResponsiveContainer } from 'recharts';
 import { useApiFetch, ApiError, type ApiFetch } from '../auth/useApiFetch';
 import {
   createContentPost,
-  createLink,
   createSocialPost,
   deleteContentPost,
   deleteSocialPost,
@@ -24,7 +23,6 @@ import type {
   ContentPost,
   CoreWebVitalsSection,
   CreateContentPostRequest,
-  CreateLinkRequest,
   CreateSocialPostRequest,
   Ga4Section,
   SocialPost,
@@ -33,7 +31,6 @@ import type {
 } from '../api/types';
 import { createVendor } from '../api/vendors';
 import ClicksChart from '../components/ClicksChart';
-import RegisterLinkForm from '../components/RegisterLinkForm';
 import RegisterSocialPostForm from '../components/RegisterSocialPostForm';
 import RegisterContentPostForm from '../components/RegisterContentPostForm';
 import CampaignBriefSection from '../components/CampaignBriefSection';
@@ -89,14 +86,9 @@ export default function CampaignDetail(): ReactElement {
   const [webAnalyticsError, setWebAnalyticsError] = useState<string | null>(null);
   const [webAnalyticsLoading, setWebAnalyticsLoading] = useState(false);
 
-  const [linkBusy, setLinkBusy] = useState(false);
-  const [linkError, setLinkError] = useState<string | null>(null);
-  const [lastCreated, setLastCreated] = useState<CampaignLink | null>(null);
-
   const [postBusy, setPostBusy] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
 
-  const [showLinkForm, setShowLinkForm] = useState(false);
   const [showPostForm, setShowPostForm] = useState(false);
 
   const [contentBusy, setContentBusy] = useState(false);
@@ -215,22 +207,6 @@ export default function CampaignDetail(): ReactElement {
     },
     [apiFetch, campaignId],
   );
-
-  const handleRegisterLink = async (payload: CreateLinkRequest): Promise<void> => {
-    if (!campaignId) return;
-    setLinkBusy(true);
-    setLinkError(null);
-    try {
-      const link = await createLink(apiFetch, campaignId, payload);
-      setLastCreated(link);
-      appendLinkAndRefresh(link);
-      setShowLinkForm(false);
-    } catch (err) {
-      setLinkError(err instanceof ApiError ? err.message : (err as Error).message);
-    } finally {
-      setLinkBusy(false);
-    }
-  };
 
   const handleTrackPost = async (payload: CreateSocialPostRequest): Promise<void> => {
     if (!campaignId) return;
@@ -439,78 +415,6 @@ export default function CampaignDetail(): ReactElement {
               campaign={campaign}
               onCampaignChange={onCampaignChange}
             />
-          </section>
-
-          <section className="space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-lg font-semibold text-foreground">Links</h2>
-              {!showLinkForm && (
-                <button
-                  type="button"
-                  className="btn-secondary py-1 px-2 text-sm"
-                  onClick={() => setShowLinkForm(true)}
-                  aria-label="Register a new link"
-                >
-                  + Add link
-                </button>
-              )}
-            </div>
-            {links.length === 0 ? (
-              <p className="text-muted-foreground">No links yet. Click + Add link to register one.</p>
-            ) : (
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Platform</th>
-                    <th>Short URL</th>
-                    <th>Destination</th>
-                    <th>Clicks</th>
-                    <th>Last clicked</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {links.map((link) => {
-                    const linkAnalytics = analytics?.links.find((l) => l.link_id === link.link_id);
-                    return (
-                      <tr key={link.link_id}>
-                        <td>{link.platform}</td>
-                        <td>
-                          <CopyableShortUrl url={link.short_url} />
-                        </td>
-                        <td>
-                          <a
-                            href={link.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-primary-600 hover:underline"
-                          >
-                            {truncate(link.url, 60)}
-                          </a>
-                        </td>
-                        <td className="text-muted-foreground">
-                          {linkAnalytics?.total_clicks ?? '-'}
-                        </td>
-                        <td className="text-muted-foreground">
-                          {linkAnalytics?.last_click_at?.slice(0, 10) ?? '-'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-            {showLinkForm && (
-              <RegisterLinkForm
-                busy={linkBusy}
-                serverError={linkError}
-                lastCreated={lastCreated}
-                onCancel={() => {
-                  setShowLinkForm(false);
-                  setLinkError(null);
-                }}
-                onSubmit={(p) => void handleRegisterLink(p)}
-              />
-            )}
           </section>
 
           <section className="space-y-3">
@@ -1246,27 +1150,6 @@ function formatDuration(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = Math.round(seconds % 60);
   return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-}
-
-function CopyableShortUrl({ url }: { url: string }): ReactElement {
-  const [copied, setCopied] = useState(false);
-  return (
-    <span className="inline-flex items-center gap-2">
-      <code className="bg-muted text-foreground rounded px-1.5 py-0.5 text-xs font-mono">{url}</code>
-      <button
-        type="button"
-        className="btn-link"
-        onClick={() => {
-          void navigator.clipboard.writeText(url).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-          });
-        }}
-      >
-        {copied ? 'Copied' : 'Copy'}
-      </button>
-    </span>
-  );
 }
 
 interface EditScaffoldProps {
