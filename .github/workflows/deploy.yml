@@ -85,6 +85,17 @@ jobs:
         # to runtime SSM reads. They were never cleaned out of these
         # workflows, which is why every deploy since #35 has failed
         # the second the SAM build was fixed.
+        env:
+          # The vendor-report signing keys are PEM blocks: they contain
+          # spaces ("BEGIN PUBLIC KEY") and newlines. `sam deploy
+          # --parameter-overrides` re-splits each value on whitespace, so a
+          # raw PEM gets truncated at the first space and CloudFront rejects
+          # it ("empty/invalid RSA Encoded Key"). Pass them through env (so
+          # the multiline value is never spliced into the script text) and
+          # wrap each in single quotes inside the override below so SAM keeps
+          # the whole PEM together as a single parameter value.
+          VR_PUBKEY: ${{ secrets.VENDOR_REPORTS_SIGNING_PUBLIC_KEY }}
+          VR_PRIVKEY: ${{ secrets.VENDOR_REPORTS_SIGNING_PRIVATE_KEY }}
         run: |
           sam deploy \
             --config-env ci \
@@ -96,8 +107,8 @@ jobs:
               "UserPoolId=${{ vars.USER_POOL_ID }}" \
               "UserPoolClientId=${{ vars.USER_POOL_CLIENT_ID }}" \
               "ExtensionTokenSigningKey=${{ secrets.EXTENSION_TOKEN_SIGNING_KEY }}" \
-              "VendorReportsSigningPublicKey=${{ secrets.VENDOR_REPORTS_SIGNING_PUBLIC_KEY }}" \
-              "VendorReportsSigningPrivateKey=${{ secrets.VENDOR_REPORTS_SIGNING_PRIVATE_KEY }}"
+              "VendorReportsSigningPublicKey='${VR_PUBKEY}'" \
+              "VendorReportsSigningPrivateKey='${VR_PRIVKEY}'"
 
       - name: Diagnose failed deploy
         if: ${{ failure() }}
