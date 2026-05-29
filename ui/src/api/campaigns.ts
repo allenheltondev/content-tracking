@@ -6,6 +6,8 @@ import type {
   CampaignDraft,
   CampaignLink,
   CampaignListResponse,
+  CampaignReportResponse,
+  CampaignReportsListResponse,
   CampaignStatus,
   ContentPost,
   ContentPostSnapshotsResponse,
@@ -140,6 +142,26 @@ export async function createContentPost(
     method: 'POST',
     body: payload,
   });
+}
+
+// Generates a frozen campaign performance report and returns a CloudFront
+// signed link to its static HTML. No request body is needed; the server
+// freezes the data as of generation time.
+export async function generateCampaignReport(
+  apiFetch: ApiFetch,
+  campaignId: string,
+): Promise<CampaignReportResponse> {
+  return apiFetch<CampaignReportResponse>(`/campaigns/${campaignId}/report`, {
+    method: 'POST',
+    body: {},
+  });
+}
+
+export async function listCampaignReports(
+  apiFetch: ApiFetch,
+  campaignId: string,
+): Promise<CampaignReportsListResponse> {
+  return apiFetch<CampaignReportsListResponse>(`/campaigns/${campaignId}/reports`);
 }
 
 export async function getContentPostSnapshots(

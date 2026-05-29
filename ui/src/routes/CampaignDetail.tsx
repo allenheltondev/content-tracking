@@ -8,6 +8,7 @@ import {
   createSocialPost,
   deleteContentPost,
   deleteSocialPost,
+  generateCampaignReport,
   getCampaign,
   getCampaignAnalytics,
   getCampaignWebAnalytics,
@@ -21,6 +22,7 @@ import type {
   CampaignLink,
   CampaignStatus,
   ContentPost,
+  CampaignReportResponse,
   CoreWebVitalsSection,
   CreateContentPostRequest,
   CreateSocialPostRequest,
@@ -38,6 +40,7 @@ import CampaignDraftTab from '../components/CampaignDraftTab';
 import ContentEngagementSection from '../components/ContentEngagementSection';
 import InstallExtensionModal from '../components/InstallExtensionModal';
 import Modal from '../components/Modal';
+import ReportLinkDialog from '../components/ReportLinkDialog';
 import SocialEngagementSection from '../components/SocialEngagementSection';
 import VendorForm from '../components/VendorForm';
 import VendorSelect from '../components/VendorSelect';
@@ -97,6 +100,10 @@ export default function CampaignDetail(): ReactElement {
 
   const [activeTab, setActiveTab] = useState<CampaignTab>(initialTab);
   const [extensionModalOpen, setExtensionModalOpen] = useState(false);
+
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [report, setReport] = useState<CampaignReportResponse | null>(null);
 
   // Campaign metadata + links. Cheap; fires on mount.
   useEffect(() => {
@@ -225,6 +232,20 @@ export default function CampaignDetail(): ReactElement {
     }
   };
 
+  const handleGenerateReport = async (): Promise<void> => {
+    if (!campaignId) return;
+    setReportBusy(true);
+    setReportError(null);
+    try {
+      const result = await generateCampaignReport(apiFetch, campaignId);
+      setReport(result);
+    } catch (err) {
+      setReportError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setReportBusy(false);
+    }
+  };
+
   const handleDeletePost = async (postId: string): Promise<void> => {
     if (!campaignId) return;
     setPostError(null);
@@ -318,14 +339,14 @@ export default function CampaignDetail(): ReactElement {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <Link
-            to={`/campaigns/${campaign.campaign_id}/report`}
-            target="_blank"
-            rel="noreferrer"
+          <button
+            type="button"
             className="btn-secondary"
+            disabled={reportBusy}
+            onClick={() => void handleGenerateReport()}
           >
-            Sponsor report
-          </Link>
+            {reportBusy ? 'Generating…' : 'Generate report'}
+          </button>
           <StatusChipEditor
             apiFetch={apiFetch}
             campaign={campaign}
@@ -333,6 +354,24 @@ export default function CampaignDetail(): ReactElement {
           />
         </div>
       </header>
+
+      {reportError && (
+        <p className="form-error">Could not generate report: {reportError}</p>
+      )}
+
+      <ReportLinkDialog
+        report={report}
+        onClose={() => setReport(null)}
+        caption={
+          report && (
+            <>
+              Share this link. It opens an interactive performance report — no
+              login required — frozen to the data as of{' '}
+              <span className="text-foreground">{report.dataAsOf}</span>.
+            </>
+          )
+        }
+      />
 
       <nav className="border-b border-border flex gap-1" aria-label="Campaign sections">
         <TabButton

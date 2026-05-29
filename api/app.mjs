@@ -10,6 +10,7 @@ import { registerWebAnalyticsRoutes } from "./routes/web-analytics.mjs";
 import { registerPayoutRoutes } from "./routes/payout.mjs";
 import { registerRevenueRoutes } from "./routes/revenue.mjs";
 import { registerVendorReportRoutes } from "./routes/vendor-reports.mjs";
+import { registerCampaignReportRoutes } from "./routes/campaign-reports.mjs";
 import { registerProfileRoutes } from "./routes/profile.mjs";
 import { registerExtensionPairingRoutes } from "./routes/extension-pairings.mjs";
 import { logger } from "./services/logger.mjs";
@@ -29,6 +30,7 @@ registerWebAnalyticsRoutes(app);
 registerPayoutRoutes(app);
 registerRevenueRoutes(app);
 registerVendorReportRoutes(app);
+registerCampaignReportRoutes(app);
 registerProfileRoutes(app);
 registerExtensionPairingRoutes(app);
 
