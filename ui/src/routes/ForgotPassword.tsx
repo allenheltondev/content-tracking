@@ -7,7 +7,7 @@ import Logo from '../components/Logo';
 type Step = 'request' | 'confirm';
 
 export default function ForgotPassword(): ReactElement {
-  const { isAuthenticated, isLoading, resetPassword, confirmResetPassword, signIn } = useAuth();
+  const { isAuthenticated, resetPassword, confirmResetPassword, signIn } = useAuth();
   const navigate = useNavigate();
 
   const [step, setStep] = useState<Step>('request');
@@ -19,14 +19,6 @@ export default function ForgotPassword(): ReactElement {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-
-  if (isLoading) {
-    return (
-      <section className="min-h-screen flex items-center justify-center text-muted-foreground">
-        Checking session...
-      </section>
-    );
-  }
 
   if (isAuthenticated) {
     return <Navigate to="/" replace />;

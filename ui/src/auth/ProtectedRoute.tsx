@@ -7,16 +7,8 @@ interface Props {
 }
 
 export default function ProtectedRoute({ children }: Props): ReactElement {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated } = useAuth();
   const location = useLocation();
-
-  if (isLoading) {
-    return (
-      <section className="max-w-md mx-auto mt-16 card card-body text-center text-muted-foreground">
-        Checking session...
-      </section>
-    );
-  }
 
   if (!isAuthenticated) {
     return <Navigate to="/signin" replace state={{ from: location.pathname + location.search }} />;
