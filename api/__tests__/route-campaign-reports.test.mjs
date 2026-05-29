@@ -26,6 +26,7 @@ jest.unstable_mockModule("../domain/campaign-report-record.mjs", () => ({
 }));
 jest.unstable_mockModule("../domain/vendor-report-record.mjs", () => ({
   reportObjectExpiresAtMs: jest.fn(),
+  REPORT_RETENTION_DAYS: 90,
 }));
 jest.unstable_mockModule("../services/newsletter-service.mjs", () => ({
   mintShortLink: jest.fn(),
@@ -74,8 +75,6 @@ function makeSnapshot(overrides = {}) {
     summary: {
       totalClicks: 1200,
       linkCount: 4,
-      firstClickAt: "2026-01-02T00:00:00.000Z",
-      lastClickAt: "2026-05-28T00:00:00.000Z",
       upstreamFailures: 0,
     },
     bySrc: [],
@@ -125,14 +124,18 @@ describe("routes/campaign-reports", () => {
       expect(putArg.reportId).toBe(snapshot.report.id);
       expect(putArg.html).toBe("<html>report</html>");
 
-      // URL signed for the stored key.
-      expect(signReportUrl).toHaveBeenCalledWith(`reports/campaigns/${CAMPAIGN_ID}/RID.html`);
+      // URL signed for the stored key, for the full 90-day retention window.
+      expect(signReportUrl).toHaveBeenCalledWith(
+        `reports/campaigns/${CAMPAIGN_ID}/RID.html`,
+        { expiresInSeconds: 90 * 24 * 60 * 60 },
+      );
 
-      // Shortlink minted to wrap the long CloudFront signed URL.
+      // Shortlink minted to wrap the long CloudFront signed URL, lasting as
+      // long as the report itself.
       expect(mintShortLink).toHaveBeenCalledWith({
         url: "https://cdn.example.com/reports/campaigns/c/RID.html?sig",
         src: "campaign-report",
-        expiresInDays: 7,
+        expiresInDays: 90,
       });
 
       // Record persisted with metadata (not the body), and NO period.
@@ -153,7 +156,8 @@ describe("routes/campaign-reports", () => {
         reportId: snapshot.report.id,
         url: "https://cdn.example.com/reports/campaigns/c/RID.html?sig",
         shortUrl: "https://bkd.to/r1",
-        expiresAt: "2026-06-05T10:00:00.000Z",
+        // generatedAt (2026-05-29T10:00Z) + 90-day retention window.
+        expiresAt: "2026-08-27T10:00:00.000Z",
         dataAsOf: "2026-05-29",
         summary: snapshot.summary,
       });
@@ -232,15 +236,28 @@ describe("routes/campaign-reports", () => {
           dataAsOf: "2026-04-01",
         },
       ]);
+      // Both objects expire at the same fixed point in the future, so the
+      // re-signed link and the reported expiry track the object lifetime.
+      const objectExpiryMs = Date.now() + 365 * 24 * 60 * 60 * 1000;
+      reportObjectExpiresAtMs.mockReturnValue(objectExpiryMs);
+      const expectedExpiresAt = new Date(objectExpiryMs).toISOString();
       signReportUrl
-        .mockReturnValueOnce({ url: "https://cdn/r2?fresh", expiresAt: "2026-06-05T10:00:00.000Z" })
-        .mockReturnValueOnce({ url: "https://cdn/r1?fresh", expiresAt: "2026-06-05T10:00:00.000Z" });
+        .mockReturnValueOnce({ url: "https://cdn/r2?fresh", expiresAt: "ignored" })
+        .mockReturnValueOnce({ url: "https://cdn/r1?fresh", expiresAt: "ignored" });
 
       const res = await getReports({ params: { campaignId: CAMPAIGN_ID } });
 
       expect(listCampaignReportRecords).toHaveBeenCalledWith(CAMPAIGN_ID);
-      expect(signReportUrl).toHaveBeenNthCalledWith(1, `reports/campaigns/${CAMPAIGN_ID}/R2.html`);
-      expect(signReportUrl).toHaveBeenNthCalledWith(2, `reports/campaigns/${CAMPAIGN_ID}/R1.html`);
+      expect(signReportUrl).toHaveBeenNthCalledWith(
+        1,
+        `reports/campaigns/${CAMPAIGN_ID}/R2.html`,
+        expect.objectContaining({ expiresInSeconds: expect.any(Number) }),
+      );
+      expect(signReportUrl).toHaveBeenNthCalledWith(
+        2,
+        `reports/campaigns/${CAMPAIGN_ID}/R1.html`,
+        expect.objectContaining({ expiresInSeconds: expect.any(Number) }),
+      );
 
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body);
@@ -251,19 +268,19 @@ describe("routes/campaign-reports", () => {
           generatedAt: "2026-05-29T10:00:00.000Z",
           dataAsOf: "2026-05-29",
           url: "https://cdn/r2?fresh",
-          expiresAt: "2026-06-05T10:00:00.000Z",
+          expiresAt: expectedExpiresAt,
         },
         {
           reportId: "R1",
           generatedAt: "2026-04-01T10:00:00.000Z",
           dataAsOf: "2026-04-01",
           url: "https://cdn/r1?fresh",
-          expiresAt: "2026-06-05T10:00:00.000Z",
+          expiresAt: expectedExpiresAt,
         },
       ]);
     });
 
-    test("skips records whose S3 object would expire before the fresh link", async () => {
+    test("skips records whose S3 object has already aged out", async () => {
       const live = {
         reportId: "LIVE",
         key: `reports/campaigns/${CAMPAIGN_ID}/LIVE.html`,
@@ -277,17 +294,20 @@ describe("routes/campaign-reports", () => {
         dataAsOf: "2025-01-01",
       };
       listCampaignReportRecords.mockResolvedValue([live, stale]);
-      // Live object outlives the link; stale object is already gone.
+      // Live object still has time left; stale object is already gone.
       reportObjectExpiresAtMs.mockImplementation((r) =>
         r.reportId === "LIVE" ? Date.now() + 30 * 24 * 60 * 60 * 1000 : Date.now() - 1000,
       );
-      signReportUrl.mockReturnValue({ url: "https://cdn/live?fresh", expiresAt: "2026-06-05T10:00:00.000Z" });
+      signReportUrl.mockReturnValue({ url: "https://cdn/live?fresh", expiresAt: "ignored" });
 
       const res = await getReports({ params: { campaignId: CAMPAIGN_ID } });
 
       // Only the live report is returned, and we never sign the stale key.
       expect(signReportUrl).toHaveBeenCalledTimes(1);
-      expect(signReportUrl).toHaveBeenCalledWith(`reports/campaigns/${CAMPAIGN_ID}/LIVE.html`);
+      expect(signReportUrl).toHaveBeenCalledWith(
+        `reports/campaigns/${CAMPAIGN_ID}/LIVE.html`,
+        expect.objectContaining({ expiresInSeconds: expect.any(Number) }),
+      );
       const body = JSON.parse(res.body);
       expect(body.reports.map((r) => r.reportId)).toEqual(["LIVE"]);
     });

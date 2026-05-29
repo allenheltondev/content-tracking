@@ -14,10 +14,14 @@ jest.unstable_mockModule("../services/campaign-analytics.mjs", () => ({
 jest.unstable_mockModule("../services/campaign-ga4.mjs", () => ({
   loadCampaignGa4: jest.fn(),
 }));
+jest.unstable_mockModule("../domain/profile.mjs", () => ({
+  getProfileSettings: jest.fn(),
+}));
 
 const campaignDomain = await import("../domain/campaign.mjs");
 const analyticsService = await import("../services/campaign-analytics.mjs");
 const ga4Service = await import("../services/campaign-ga4.mjs");
+const profileDomain = await import("../domain/profile.mjs");
 const { buildCampaignReportSnapshot } = await import("../domain/campaign-report.mjs");
 
 function analytics(overrides = {}) {
@@ -41,6 +45,8 @@ describe("domain/campaign-report buildCampaignReportSnapshot", () => {
     campaignDomain.getCampaignWithLinks.mockReset();
     analyticsService.getCampaignAnalytics.mockReset();
     ga4Service.loadCampaignGa4.mockReset();
+    profileDomain.getProfileSettings.mockReset();
+    profileDomain.getProfileSettings.mockResolvedValue(null);
     campaignDomain.getCampaignWithLinks.mockResolvedValue({
       metadata: {
         campaignId: "C1",
@@ -81,8 +87,28 @@ describe("domain/campaign-report buildCampaignReportSnapshot", () => {
         sponsor: "Acme",
         startDate: "2026-03-01",
         endDate: "2026-03-31",
-        status: "active",
       });
+      expect(snap.brand).toBeNull();
+    });
+
+    test("brand is null without a configured name, populated from the profile otherwise", async () => {
+      let snap = await buildCampaignReportSnapshot({ campaignId: "C1" });
+      expect(snap.brand).toBeNull();
+
+      profileDomain.getProfileSettings.mockResolvedValue({
+        brandName: "Ready, Set, Cloud!",
+        websiteUrl: "https://readysetcloud.io",
+      });
+      snap = await buildCampaignReportSnapshot({ campaignId: "C1" });
+      expect(snap.brand).toEqual({
+        name: "Ready, Set, Cloud!",
+        websiteUrl: "https://readysetcloud.io",
+      });
+
+      // Website is optional; name alone is enough to render the brand bar.
+      profileDomain.getProfileSettings.mockResolvedValue({ brandName: "Solo" });
+      snap = await buildCampaignReportSnapshot({ campaignId: "C1" });
+      expect(snap.brand).toEqual({ name: "Solo", websiteUrl: null });
     });
 
     test("missing optional campaign fields become null", async () => {
@@ -98,13 +124,12 @@ describe("domain/campaign-report buildCampaignReportSnapshot", () => {
         sponsor: null,
         startDate: null,
         endDate: null,
-        status: "draft",
       });
     });
   });
 
   describe("mapping + aggregation", () => {
-    test("bySrc shares + sort, byDay sort, links sort, click bounds, summary", async () => {
+    test("bySrc shares + sort, byDay sort, links sort, summary", async () => {
       analyticsService.getCampaignAnalytics.mockResolvedValue(analytics({
         total_clicks: 20,
         link_count: 3,
@@ -145,12 +170,10 @@ describe("domain/campaign-report buildCampaignReportSnapshot", () => {
       expect(snap.links[0]).toEqual({
         url: "https://b", role: "secondary", platform: "twitter", totalClicks: 15,
       });
-      // click bounds: earliest first, latest last across links
+      // summary no longer carries click bounds — just the click totals.
       expect(snap.summary).toEqual({
         totalClicks: 20,
         linkCount: 3,
-        firstClickAt: "2026-03-01T08:00:00.000Z",
-        lastClickAt: "2026-03-02T20:00:00.000Z",
         upstreamFailures: 1,
       });
     });
@@ -205,9 +228,13 @@ describe("domain/campaign-report buildCampaignReportSnapshot", () => {
         avgSessionDurationSeconds: 124.5,
         engagementRate: 0.72,
       });
+      // Main content feeds the content bucket with pageviews -> views only;
+      // GA4 engagement rate is shown elsewhere, not summed into engagements.
+      expect(snap.reach.content).toEqual({ views: 1500, impressions: 0, engagements: 0 });
+      expect(snap.reach.totals).toEqual({ views: 1500, impressions: 0, engagements: 0 });
     });
 
-    test("socialPosts and contentPosts: total engagement + top metric, sorted desc", async () => {
+    test("posts split into views/impressions/engagements + top metric, sorted by engagement desc", async () => {
       campaignDomain.getCampaignWithLinks.mockResolvedValue({
         metadata: { campaignId: "C1", name: "x", status: "active" },
         socialPosts: [
@@ -217,7 +244,7 @@ describe("domain/campaign-report buildCampaignReportSnapshot", () => {
           },
           {
             platform: "linkedin", url: "https://li/b", notes: null,
-            analytics: { reactions: 30, comments: 4 }, lastFetched: null,
+            analytics: { reactions: 30, comments: 4, impressions: 900 }, lastFetched: null,
           },
         ],
         contentPosts: [
@@ -228,28 +255,37 @@ describe("domain/campaign-report buildCampaignReportSnapshot", () => {
         ],
       });
       const snap = await buildCampaignReportSnapshot({ campaignId: "C1" });
-      // LinkedIn (34) ahead of twitter (7).
+      // LinkedIn engagements (reactions 30 + comments 4 = 34, impressions excluded)
+      // ahead of twitter (5 + 2 = 7).
       expect(snap.socialPosts).toEqual([
         {
           platform: "linkedin", url: "https://li/b", notes: null,
-          totalEngagement: 34, topMetric: "reactions", topMetricValue: 30, lastFetched: null,
+          views: 0, impressions: 900, engagements: 34,
+          topMetric: "impressions", topMetricValue: 900, lastFetched: null,
         },
         {
           platform: "twitter", url: "https://t.co/a", notes: "n",
-          totalEngagement: 7, topMetric: "likes", topMetricValue: 5,
-          lastFetched: "2026-03-02T10:00:00.000Z",
+          views: 0, impressions: 0, engagements: 7,
+          topMetric: "likes", topMetricValue: 5, lastFetched: "2026-03-02T10:00:00.000Z",
         },
       ]);
+      // Medium: views key -> views, reads -> engagement.
       expect(snap.contentPosts).toEqual([
         {
           platform: "medium", url: "https://m/x", notes: null,
-          totalEngagement: 1000, topMetric: "views", topMetricValue: 800,
-          lastFetched: "2026-03-03T10:00:00.000Z",
+          views: 800, impressions: 0, engagements: 200,
+          topMetric: "views", topMetricValue: 800, lastFetched: "2026-03-03T10:00:00.000Z",
         },
       ]);
+      // Buckets: content = cross-posts (no GA4 here); social = social posts.
+      expect(snap.reach).toEqual({
+        content: { views: 800, impressions: 0, engagements: 200 },
+        social: { views: 0, impressions: 900, engagements: 41 },
+        totals: { views: 800, impressions: 900, engagements: 241 },
+      });
     });
 
-    test("posts with no analytics map to zero engagement, null top metric", async () => {
+    test("posts with no analytics map to zero views/impressions/engagements, null top metric", async () => {
       campaignDomain.getCampaignWithLinks.mockResolvedValue({
         metadata: { campaignId: "C1", name: "x", status: "active" },
         socialPosts: [
@@ -260,11 +296,12 @@ describe("domain/campaign-report buildCampaignReportSnapshot", () => {
       const snap = await buildCampaignReportSnapshot({ campaignId: "C1" });
       expect(snap.socialPosts[0]).toEqual({
         platform: "twitter", url: "https://t.co/a", notes: null,
-        totalEngagement: 0, topMetric: null, topMetricValue: 0, lastFetched: null,
+        views: 0, impressions: 0, engagements: 0,
+        topMetric: null, topMetricValue: 0, lastFetched: null,
       });
     });
 
-    test("zero total clicks -> shares are 0, click bounds null", async () => {
+    test("zero total clicks -> shares are 0, reach totals zero", async () => {
       analyticsService.getCampaignAnalytics.mockResolvedValue(analytics({
         total_clicks: 0,
         by_src: { nl: 0 },
@@ -274,8 +311,7 @@ describe("domain/campaign-report buildCampaignReportSnapshot", () => {
       }));
       const snap = await buildCampaignReportSnapshot({ campaignId: "C1" });
       expect(snap.bySrc).toEqual([{ source: "nl", clicks: 0, share: 0 }]);
-      expect(snap.summary.firstClickAt).toBeNull();
-      expect(snap.summary.lastClickAt).toBeNull();
+      expect(snap.reach.totals).toEqual({ views: 0, impressions: 0, engagements: 0 });
     });
   });
 });

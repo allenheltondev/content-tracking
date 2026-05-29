@@ -1,4 +1,5 @@
 import { getCampaignWithLinks } from "./campaign.mjs";
+import { getProfileSettings } from "./profile.mjs";
 import { getCampaignAnalytics } from "../services/campaign-analytics.mjs";
 import { loadCampaignGa4 } from "../services/campaign-ga4.mjs";
 import { NotFoundError } from "../services/errors.mjs";
@@ -16,12 +17,11 @@ export async function buildCampaignReportSnapshot({ campaignId }) {
     throw new NotFoundError("Campaign", campaignId);
   }
 
-  const [analytics, ga4] = await Promise.all([
+  const [analytics, ga4, profile] = await Promise.all([
     getCampaignAnalytics(campaignId),
     loadCampaignGa4(metadata),
+    getProfileSettings(),
   ]);
-
-  const { firstClickAt, lastClickAt } = deriveClickBounds(analytics.links);
 
   const bySrc = Object.entries(analytics.by_src ?? {})
     .map(([source, clicks]) => ({
@@ -47,8 +47,9 @@ export async function buildCampaignReportSnapshot({ campaignId }) {
     .sort((a, b) => b.totalClicks - a.totalClicks);
 
   const mainContent = buildMainContent(ga4);
-  const socialPosts = (socialPostRows ?? []).map(toPostSnapshot).sort(byTotalDesc);
-  const contentPosts = (contentPostRows ?? []).map(toPostSnapshot).sort(byTotalDesc);
+  const socialPosts = (socialPostRows ?? []).map(toPostSnapshot).sort(byEngagementDesc);
+  const contentPosts = (contentPostRows ?? []).map(toPostSnapshot).sort(byEngagementDesc);
+  const reach = buildReach({ mainContent, contentPosts, socialPosts });
 
   const now = new Date();
 
@@ -60,21 +61,20 @@ export async function buildCampaignReportSnapshot({ campaignId }) {
       dataAsOf: now.toISOString().slice(0, 10),
       kind: "campaign",
     },
+    brand: buildBrand(profile),
     campaign: {
       id: metadata.campaignId,
       name: metadata.name,
       sponsor: metadata.sponsor ?? null,
       startDate: metadata.startDate ?? null,
       endDate: metadata.endDate ?? null,
-      status: metadata.status,
     },
     summary: {
       totalClicks: analytics.total_clicks,
       linkCount: analytics.link_count,
-      firstClickAt,
-      lastClickAt,
       upstreamFailures: analytics.upstream_failures,
     },
+    reach,
     mainContent,
     bySrc,
     byDay,
@@ -82,6 +82,15 @@ export async function buildCampaignReportSnapshot({ campaignId }) {
     socialPosts,
     contentPosts,
   };
+}
+
+// The creator's own brand, shown at the top of the report so the sponsor
+// sees who delivered the results. Null when no brand name is configured —
+// the renderer hides the brand bar in that case. Website is optional.
+function buildBrand(profile) {
+  const name = profile?.brandName ?? null;
+  if (!name) return null;
+  return { name, websiteUrl: profile?.websiteUrl ?? null };
 }
 
 // Maps the GA4 section into the snapshot shape. Returns null when GA4
@@ -100,14 +109,37 @@ function buildMainContent(ga4) {
   };
 }
 
+// Reach/engagement keys differ per platform (the extension reports an open
+// metric map), so we classify by name rather than a fixed schema. Reach
+// metrics (views, impressions) are kept OUT of the engagement total so the
+// two numbers never double-count the same interaction.
+const VIEW_KEY = /^(views?|pageviews?|screenpageviews)$/i;
+const IMPRESSION_KEY = /^impressions?$/i;
+
+function splitMetrics(analytics) {
+  let views = 0;
+  let impressions = 0;
+  let engagements = 0;
+  if (analytics && typeof analytics === "object") {
+    for (const [k, v] of Object.entries(analytics)) {
+      const n = typeof v === "number" && Number.isFinite(v) ? v : 0;
+      if (VIEW_KEY.test(k)) views += n;
+      else if (IMPRESSION_KEY.test(k)) impressions += n;
+      else engagements += n;
+    }
+  }
+  return { views, impressions, engagements };
+}
+
 function toPostSnapshot(row) {
-  let total = 0;
+  const { views, impressions, engagements } = splitMetrics(row.analytics);
+  // Top single metric across the whole map — an at-a-glance "what drove this
+  // post" hint, independent of the reach/engagement split above.
   let topMetric = null;
   let topMetricValue = 0;
   if (row.analytics && typeof row.analytics === "object") {
     for (const [k, v] of Object.entries(row.analytics)) {
-      const n = typeof v === "number" ? v : 0;
-      total += n;
+      const n = typeof v === "number" && Number.isFinite(v) ? v : 0;
       if (n > topMetricValue) {
         topMetric = k;
         topMetricValue = n;
@@ -118,30 +150,50 @@ function toPostSnapshot(row) {
     platform: row.platform,
     url: row.url,
     notes: row.notes ?? null,
-    totalEngagement: total,
+    views,
+    impressions,
+    engagements,
     topMetric,
     topMetricValue,
     lastFetched: row.lastFetched ?? null,
   };
 }
 
-function byTotalDesc(a, b) {
-  return b.totalEngagement - a.totalEngagement;
+function byEngagementDesc(a, b) {
+  return b.engagements - a.engagements;
 }
 
-// Earliest non-null first_click_at and latest non-null last_click_at across
-// the analytics links. ISO-8601 timestamps sort lexically, so string compare
-// is correct. Returns nulls when no link has a click.
-function deriveClickBounds(links) {
-  let firstClickAt = null;
-  let lastClickAt = null;
-  for (const l of links ?? []) {
-    if (l.first_click_at && (firstClickAt === null || l.first_click_at < firstClickAt)) {
-      firstClickAt = l.first_click_at;
-    }
-    if (l.last_click_at && (lastClickAt === null || l.last_click_at > lastClickAt)) {
-      lastClickAt = l.last_click_at;
-    }
+// Rolls the per-post splits into two buckets the report leads with:
+//   content = the main blog post (GA4) + every cross-post
+//   social  = every social post
+// GA4 has no discrete like/comment count, so the main post contributes only
+// its pageviews to views; its engagement rate is shown in the main-content
+// section but not folded into the bucket engagement total.
+function buildReach({ mainContent, contentPosts, socialPosts }) {
+  const content = { views: 0, impressions: 0, engagements: 0 };
+  if (mainContent) {
+    content.views += mainContent.pageviews || 0;
   }
-  return { firstClickAt, lastClickAt };
+  for (const p of contentPosts) {
+    content.views += p.views;
+    content.impressions += p.impressions;
+    content.engagements += p.engagements;
+  }
+
+  const social = { views: 0, impressions: 0, engagements: 0 };
+  for (const p of socialPosts) {
+    social.views += p.views;
+    social.impressions += p.impressions;
+    social.engagements += p.engagements;
+  }
+
+  return {
+    content,
+    social,
+    totals: {
+      views: content.views + social.views,
+      impressions: content.impressions + social.impressions,
+      engagements: content.engagements + social.engagements,
+    },
+  };
 }

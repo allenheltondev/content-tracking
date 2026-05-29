@@ -50,6 +50,29 @@
       overflow: hidden;
     }
 
+    /* Brand bar */
+    .brand-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 6px 16px;
+      padding: 16px 32px;
+      background: var(--ink);
+      color: #fff;
+    }
+    .brand-bar .brand-name {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    .brand-bar .brand-site {
+      font-size: 13px;
+      color: #cdd6e4;
+      text-decoration: none;
+    }
+    .brand-bar .brand-site:hover { color: #fff; text-decoration: underline; }
+
     /* Header */
     .doc-header {
       padding: 28px 32px;
@@ -263,6 +286,29 @@
     table.data td a:hover { text-decoration: underline; }
     table.data tbody tr:nth-child(even) { background: #fafbfc; }
     .muted-cell { color: var(--muted); }
+
+    /* Pagination */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-top: 12px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .pagination button {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--ink);
+      font-size: 13px;
+      padding: 6px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .pagination button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .pagination button:disabled { opacity: 0.45; cursor: default; }
+
     .empty-row td {
       text-align: center;
       color: var(--faint);
@@ -323,6 +369,7 @@
     @media (max-width: 720px) {
       .sheet { margin: 0; border-radius: 0; border-left: 0; border-right: 0; }
       .cards { grid-template-columns: repeat(2, 1fr); }
+      .brand-bar { padding: 14px 20px; }
       .doc-header { padding: 20px; }
       .section { padding: 20px; }
       .stamp { text-align: left; }
@@ -341,7 +388,14 @@
         box-shadow: none;
         border-radius: 0;
       }
-      .no-print, .toolbar, .controls { display: none !important; }
+      .no-print, .toolbar, .controls, .pagination { display: none !important; }
+      .brand-bar {
+        background: #fff;
+        color: var(--ink);
+        padding: 0 0 10px;
+        border-bottom: 2px solid var(--ink);
+      }
+      .brand-bar .brand-site { color: var(--muted); }
       .section { padding: 14px 0; page-break-inside: avoid; }
       .doc-header { padding: 0 0 14px; }
       .cards { grid-template-columns: repeat(4, 1fr); gap: 8px; }
@@ -358,6 +412,11 @@
 </head>
 <body>
   <main class="sheet" id="sheet">
+    <header class="brand-bar" id="brand-bar" hidden>
+      <span class="brand-name" id="brand-name"></span>
+      <a class="brand-site" id="brand-site" target="_blank" rel="noreferrer noopener" hidden></a>
+    </header>
+
     <div class="toolbar no-print">
       <button type="button" class="btn" id="download-pdf">Download PDF</button>
     </div>
@@ -382,6 +441,12 @@
       <h2 class="section-title">Summary</h2>
       <div class="cards" id="summary-cards"></div>
       <div class="skipped-note" id="skipped-note" hidden></div>
+    </section>
+
+    <section class="section" id="reach-section" hidden>
+      <h2 class="section-title">Reach &amp; engagement</h2>
+      <p class="section-lead">Content is the main post plus cross-posts. Social is your social posts.</p>
+      <div class="table-wrap" id="reach-wrap"></div>
     </section>
 
     <section class="section" id="main-content-section" hidden>
@@ -440,7 +505,9 @@
 
       var report = snapshot.report || {};
       var campaign = snapshot.campaign || {};
+      var brand = snapshot.brand || null;
       var summary = snapshot.summary || {};
+      var reach = snapshot.reach || null;
       var mainContent = snapshot.mainContent || null;
       var bySrc = Array.isArray(snapshot.bySrc) ? snapshot.bySrc : [];
       var byDay = Array.isArray(snapshot.byDay) ? snapshot.byDay : [];
@@ -510,6 +577,24 @@
         return start || end || "—";
       }
 
+      // Show a website as its bare host (readysetcloud.io), falling back to
+      // the raw value if it can't be parsed.
+      function siteLabel(u) {
+        try { return new URL(u).host; } catch (e) { return u; }
+      }
+
+      // ---- Brand ----
+      if (brand && brand.name) {
+        document.getElementById("brand-bar").hidden = false;
+        document.getElementById("brand-name").textContent = brand.name;
+        if (brand.websiteUrl) {
+          var siteEl = document.getElementById("brand-site");
+          siteEl.hidden = false;
+          siteEl.href = brand.websiteUrl;
+          siteEl.textContent = siteLabel(brand.websiteUrl);
+        }
+      }
+
       // ---- Header ----
       document.getElementById("campaign-name").textContent = campaign.name || "Campaign";
       document.getElementById("period-label").textContent =
@@ -523,7 +608,10 @@
         }
       }
       document.title = (campaign.name || "Campaign") + " — Report";
-      document.getElementById("footer-id").textContent = report.id ? ("Report " + report.id) : "";
+      var footerParts = [];
+      if (brand && brand.name) footerParts.push("Prepared by " + brand.name);
+      if (report.id) footerParts.push("Report " + report.id);
+      document.getElementById("footer-id").textContent = footerParts.join(" · ");
 
       var metaList = document.getElementById("campaign-meta");
       function addMeta(label, valueNode) {
@@ -537,9 +625,6 @@
         metaList.appendChild(li);
       }
       if (campaign.sponsor) addMeta("Sponsor", campaign.sponsor);
-      if (campaign.status) {
-        addMeta("Status", el("span", { "class": "pill" }, String(campaign.status)));
-      }
 
       // ---- Summary cards ----
       var cardsRoot = document.getElementById("summary-cards");
@@ -549,10 +634,11 @@
         card.appendChild(el("p", { "class": "card-value" }, value));
         cardsRoot.appendChild(card);
       }
-      addCard("Total clicks", fmtInt(summary.totalClicks), true);
-      addCard("Links tracked", fmtInt(summary.linkCount), false);
-      addCard("First click", fmtDate(summary.firstClickAt), false);
-      addCard("Last click", fmtDate(summary.lastClickAt), false);
+      var reachTotals = (reach && reach.totals) || { views: 0, impressions: 0, engagements: 0 };
+      addCard("Views", fmtInt(reachTotals.views), true);
+      addCard("Impressions", fmtInt(reachTotals.impressions), true);
+      addCard("Engagements", fmtInt(reachTotals.engagements), false);
+      addCard("Clicks", fmtInt(summary.totalClicks), false);
 
       if (summary.upstreamFailures > 0) {
         var note = document.getElementById("skipped-note");
@@ -560,6 +646,45 @@
         note.textContent = "Note: some link analytics couldn't be fetched (" +
           fmtInt(summary.upstreamFailures) +
           ") and are excluded from the totals above.";
+      }
+
+      // ---- Reach & engagement buckets ----
+      renderReach();
+      function renderReach() {
+        if (!reach) return;
+        var rows = [
+          { label: "Content", data: reach.content },
+          { label: "Social", data: reach.social }
+        ];
+        var hasAny = rows.some(function (r) {
+          var d = r.data || {};
+          return (d.views || 0) + (d.impressions || 0) + (d.engagements || 0) > 0;
+        });
+        if (!hasAny) return;
+        document.getElementById("reach-section").hidden = false;
+
+        var table = el("table", { "class": "data" });
+        var thead = el("thead");
+        var htr = el("tr");
+        htr.appendChild(el("th", { scope: "col" }, "Bucket"));
+        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Views"));
+        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Impressions"));
+        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Engagements"));
+        thead.appendChild(htr);
+        table.appendChild(thead);
+
+        var tbody = el("tbody");
+        rows.forEach(function (r) {
+          var d = r.data || {};
+          var tr = el("tr");
+          tr.appendChild(el("td", null, r.label));
+          tr.appendChild(el("td", { "class": "num" }, fmtInt(d.views)));
+          tr.appendChild(el("td", { "class": "num" }, fmtInt(d.impressions)));
+          tr.appendChild(el("td", { "class": "num" }, fmtInt(d.engagements)));
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        document.getElementById("reach-wrap").appendChild(table);
       }
 
       // ---- Main content (GA4) ----
@@ -712,7 +837,14 @@
       var region = document.getElementById("links-region");
       var searchInput = document.getElementById("search");
 
-      var state = { search: "", sortKey: "totalClicks", sortDir: "desc" };
+      var state = {
+        search: "",
+        sortKey: "totalClicks",
+        sortDir: "desc",
+        page: 1,
+        pageSize: 5,
+        printing: false
+      };
 
       var columns = [
         { key: "url", label: "Destination", num: false },
@@ -730,11 +862,13 @@
         buildTable();
         searchInput.addEventListener("input", function () {
           state.search = searchInput.value.trim().toLowerCase();
+          state.page = 1;
           renderRows();
         });
       }
 
       var tbody;
+      var pager;
       function buildTable() {
         var wrap = el("div", { "class": "table-wrap" });
         var table = el("table", { "class": "data sortable" });
@@ -760,6 +894,8 @@
         table.appendChild(tbody);
         wrap.appendChild(table);
         region.appendChild(wrap);
+        pager = el("div", { "class": "pagination no-print" });
+        region.appendChild(pager);
         renderRows();
         updateSortIndicators();
       }
@@ -771,6 +907,7 @@
           state.sortKey = key;
           state.sortDir = key === "totalClicks" ? "desc" : "asc";
         }
+        state.page = 1;
         updateSortIndicators();
         renderRows();
       }
@@ -825,9 +962,19 @@
           var td = el("td", { colspan: String(columns.length) }, "No links match your search.");
           tr.appendChild(td);
           tbody.appendChild(tr);
+          renderPagination(0, 0);
           return;
         }
-        rows.forEach(function (l) {
+
+        // Page through 5 links at a time. Printing renders the full list so
+        // the PDF isn't truncated to a single page.
+        var pageCount = Math.max(1, Math.ceil(rows.length / state.pageSize));
+        if (state.page > pageCount) state.page = pageCount;
+        var visible = state.printing
+          ? rows
+          : rows.slice((state.page - 1) * state.pageSize, state.page * state.pageSize);
+
+        visible.forEach(function (l) {
           var tr = el("tr");
 
           var destTd = el("td");
@@ -843,6 +990,33 @@
           tr.appendChild(el("td", { "class": "num" }, fmtInt(l.totalClicks)));
           tbody.appendChild(tr);
         });
+
+        renderPagination(rows.length, pageCount);
+      }
+
+      function renderPagination(total, pageCount) {
+        if (!pager) return;
+        pager.textContent = "";
+        // One page (or printing) needs no controls.
+        if (state.printing || total <= state.pageSize) return;
+
+        var prev = el("button", { type: "button" }, "Prev");
+        prev.disabled = state.page <= 1;
+        prev.addEventListener("click", function () {
+          if (state.page > 1) { state.page--; renderRows(); }
+        });
+
+        var label = el("span", null, "Page " + state.page + " of " + pageCount);
+
+        var next = el("button", { type: "button" }, "Next");
+        next.disabled = state.page >= pageCount;
+        next.addEventListener("click", function () {
+          if (state.page < pageCount) { state.page++; renderRows(); }
+        });
+
+        pager.appendChild(prev);
+        pager.appendChild(label);
+        pager.appendChild(next);
       }
 
       // ---- Social / content posts ----
@@ -857,8 +1031,9 @@
         var htr = el("tr");
         htr.appendChild(el("th", { scope: "col" }, "Platform"));
         htr.appendChild(el("th", { scope: "col" }, "Post"));
+        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Views"));
+        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Impressions"));
         htr.appendChild(el("th", { "class": "num", scope: "col" }, "Engagement"));
-        htr.appendChild(el("th", { scope: "col" }, "Top metric"));
         htr.appendChild(el("th", { scope: "col" }, "Last fetched"));
         thead.appendChild(htr);
         table.appendChild(thead);
@@ -878,14 +1053,9 @@
           }
           tr.appendChild(urlTd);
 
-          tr.appendChild(el("td", { "class": "num" }, fmtInt(p.totalEngagement)));
-          tr.appendChild(el(
-            "td",
-            { "class": "muted-cell" },
-            p.topMetric
-              ? p.topMetric + ": " + fmtInt(p.topMetricValue)
-              : "—"
-          ));
+          tr.appendChild(el("td", { "class": "num" }, fmtInt(p.views)));
+          tr.appendChild(el("td", { "class": "num" }, fmtInt(p.impressions)));
+          tr.appendChild(el("td", { "class": "num" }, fmtInt(p.engagements)));
           tr.appendChild(el("td", { "class": "muted-cell" }, fmtDate(p.lastFetched)));
           tbody.appendChild(tr);
         });
@@ -896,6 +1066,19 @@
       // ---- Print ----
       document.getElementById("download-pdf").addEventListener("click", function () {
         window.print();
+      });
+
+      // Render every link (not just the visible page) into the PDF, then
+      // restore the paged view afterward.
+      window.addEventListener("beforeprint", function () {
+        if (!links.length) return;
+        state.printing = true;
+        renderRows();
+      });
+      window.addEventListener("afterprint", function () {
+        if (!links.length) return;
+        state.printing = false;
+        renderRows();
       });
     })();
   </script>

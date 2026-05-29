@@ -16,14 +16,16 @@ function sampleSnapshot(overrides = {}) {
       sponsor: "Acme Corp",
       startDate: "2026-01-01",
       endDate: "2026-05-28",
-      status: "active",
     },
     summary: {
       totalClicks: 1234,
       linkCount: 3,
-      firstClickAt: "2026-01-02T08:00:00.000Z",
-      lastClickAt: "2026-05-27T22:00:00.000Z",
       upstreamFailures: 0,
+    },
+    reach: {
+      content: { views: 0, impressions: 0, engagements: 0 },
+      social: { views: 0, impressions: 0, engagements: 0 },
+      totals: { views: 0, impressions: 0, engagements: 0 },
     },
     bySrc: [
       { source: "twitter", clicks: 800, share: 0.6483 },
@@ -141,8 +143,9 @@ describe("renderCampaignReportHtml", () => {
     expect(html).not.toContain('key: "lastClickAt"');
   });
 
-  it("embeds main content + post data into the snapshot JSON when present", () => {
+  it("embeds main content + post data + reach buckets into the snapshot JSON when present", () => {
     const snapshot = sampleSnapshot({
+      brand: { name: "Ready, Set, Cloud!", websiteUrl: "https://readysetcloud.io" },
       mainContent: {
         blogUrl: "https://blog.example.com/post-x",
         range: { startDate: "2026-05-01", endDate: "2026-05-28" },
@@ -152,14 +155,21 @@ describe("renderCampaignReportHtml", () => {
         avgSessionDurationSeconds: 95,
         engagementRate: 0.81,
       },
+      reach: {
+        content: { views: 5000, impressions: 0, engagements: 2835 },
+        social: { views: 0, impressions: 12000, engagements: 42 },
+        totals: { views: 5000, impressions: 12000, engagements: 2877 },
+      },
       socialPosts: [
         {
           platform: "twitter",
           url: "https://twitter.com/u/status/1",
           notes: null,
-          totalEngagement: 42,
-          topMetric: "likes",
-          topMetricValue: 30,
+          views: 0,
+          impressions: 12000,
+          engagements: 42,
+          topMetric: "impressions",
+          topMetricValue: 12000,
           lastFetched: "2026-05-28T09:00:00.000Z",
         },
       ],
@@ -168,9 +178,11 @@ describe("renderCampaignReportHtml", () => {
           platform: "medium",
           url: "https://medium.com/@u/post",
           notes: null,
-          totalEngagement: 1000,
-          topMetric: "reads",
-          topMetricValue: 700,
+          views: 800,
+          impressions: 0,
+          engagements: 700,
+          topMetric: "views",
+          topMetricValue: 800,
           lastFetched: "2026-05-28T09:00:00.000Z",
         },
       ],
@@ -178,7 +190,10 @@ describe("renderCampaignReportHtml", () => {
     const html = renderCampaignReportHtml(snapshot);
     expect(html).toContain('"pageviews":4200');
     expect(html).toContain('"avgSessionDurationSeconds":95');
+    expect(html).toContain('"impressions":12000');
     expect(html).toContain("https://twitter.com/u/status/1");
     expect(html).toContain("https://medium.com/@u/post");
+    expect(html).toContain("Ready, Set, Cloud!");
+    expect(html).toContain("https://readysetcloud.io");
   });
 });
