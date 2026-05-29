@@ -1,10 +1,9 @@
-import { readFileSync } from "node:fs";
-
-// The bundled HTML template is read once at module load. It contains a single
-// __REPORT_DATA__ token inside a <script type="application/json"> tag; we swap
-// that token for the snapshot's JSON so the resulting page is fully
-// self-contained (no runtime API calls, no external resources).
-const TEMPLATE = readFileSync(new URL("../templates/campaign-report.html", import.meta.url), "utf8");
+// The HTML template is inlined into the bundle as a string by esbuild's
+// `.html=text` loader (see template.yaml esbuild-properties). It contains a
+// single __REPORT_DATA__ token inside a <script type="application/json">
+// tag; we swap that token for the snapshot's JSON so the resulting page is
+// fully self-contained (no runtime API calls, no external resources).
+import TEMPLATE from "../templates/campaign-report.html";
 
 const TOKEN = "__REPORT_DATA__";
 
