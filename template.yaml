@@ -141,6 +141,11 @@ Metadata:
     Banner:
       - js=import { createRequire } from 'module'; const require = createRequire(import.meta.url);
     External: []
+    # Inline HTML templates as strings so `import x from "./foo.html"` works
+    # in the bundled Lambda — no separate asset files to ship or path-resolve
+    # at runtime. The vendor-report renderer relies on this.
+    Loader:
+      - .html=text
 
 Globals:
   Function:

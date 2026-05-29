@@ -1,6 +1,7 @@
 export default {
   transform: {
-    '^.+\\.[tj]sx?$': 'babel-jest'
+    '^.+\\.[tj]sx?$': 'babel-jest',
+    '^.+\\.html$': '<rootDir>/jest-html-transformer.cjs'
   },
   transformIgnorePatterns: [
     '/node_modules/(?!(@aws-sdk))'
