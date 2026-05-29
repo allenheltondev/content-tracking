@@ -9,6 +9,7 @@ import { registerAnalyticsRoutes } from "./routes/analytics.mjs";
 import { registerWebAnalyticsRoutes } from "./routes/web-analytics.mjs";
 import { registerPayoutRoutes } from "./routes/payout.mjs";
 import { registerRevenueRoutes } from "./routes/revenue.mjs";
+import { registerVendorReportRoutes } from "./routes/vendor-reports.mjs";
 import { registerProfileRoutes } from "./routes/profile.mjs";
 import { registerExtensionPairingRoutes } from "./routes/extension-pairings.mjs";
 import { logger } from "./services/logger.mjs";
@@ -27,6 +28,7 @@ registerAnalyticsRoutes(app);
 registerWebAnalyticsRoutes(app);
 registerPayoutRoutes(app);
 registerRevenueRoutes(app);
+registerVendorReportRoutes(app);
 registerProfileRoutes(app);
 registerExtensionPairingRoutes(app);
 

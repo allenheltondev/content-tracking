@@ -85,6 +85,51 @@ export interface VendorCampaignsResponse {
   campaigns: VendorCampaignSummary[];
 }
 
+export interface VendorReportPeriod {
+  startDate: string;
+  endDate: string;
+  label: string;
+}
+
+export interface VendorReportSummary {
+  totalBookedAmount: number;
+  totalReceivedAmount: number;
+  outstandingAmount: number;
+  campaignCount: number;
+  paidCount: number;
+  unpaidCount: number;
+}
+
+// Response from POST /vendors/:vendorId/report — a freshly generated,
+// frozen report plus the CloudFront signed link to its static HTML.
+export interface VendorReportResponse {
+  reportId: string;
+  url: string;
+  expiresAt: string;
+  dataAsOf: string;
+  period: VendorReportPeriod;
+  currency: string;
+  summary: VendorReportSummary;
+}
+
+// One row from GET /vendors/:vendorId/reports. The list re-signs a fresh
+// `url` per call so a previously generated report can be re-shared without
+// regenerating it.
+export interface VendorReportListItem {
+  reportId: string;
+  generatedAt: string;
+  dataAsOf: string;
+  period: VendorReportPeriod;
+  currency: string;
+  url: string;
+  expiresAt: string;
+}
+
+export interface VendorReportsListResponse {
+  vendor_id: string;
+  reports: VendorReportListItem[];
+}
+
 export interface RevenueAggregate {
   amount: number;
   campaignCount: number;

@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Vendor Statement</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --surface: #ffffff;
+      --ink: #1a2230;
+      --muted: #5b6675;
+      --faint: #8a94a3;
+      --line: #e3e8ee;
+      --accent: #2256c7;
+      --accent-soft: #e8efff;
+      --received: #2e9e6b;
+      --received-soft: #e3f5ec;
+      --booked: #2256c7;
+      --warn-bg: #fff7e6;
+      --warn-ink: #8a5d00;
+      --warn-line: #f0dcae;
+      --radius: 10px;
+      --shadow: 0 1px 3px rgba(20, 32, 54, 0.08), 0 1px 2px rgba(20, 32, 54, 0.04);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .sheet {
+      max-width: 960px;
+      margin: 24px auto;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    /* Header */
+    .doc-header {
+      padding: 28px 32px;
+      border-bottom: 2px solid var(--ink);
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: flex-start;
+    }
+
+    .doc-header .lead { min-width: 240px; }
+
+    .doc-kicker {
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent);
+      margin: 0 0 6px;
+    }
+
+    .vendor-name {
+      font-size: 26px;
+      font-weight: 700;
+      margin: 0 0 4px;
+      letter-spacing: -0.01em;
+    }
+
+    .period-label {
+      color: var(--muted);
+      font-size: 15px;
+      margin: 0;
+    }
+
+    .vendor-meta {
+      margin: 14px 0 0;
+      padding: 0;
+      list-style: none;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .vendor-meta li { margin: 2px 0; }
+    .vendor-meta b { color: var(--ink); font-weight: 600; }
+    .vendor-meta a { color: var(--accent); text-decoration: none; }
+
+    .stamp {
+      text-align: right;
+      min-width: 180px;
+    }
+
+    .stamp .stamp-box {
+      display: inline-block;
+      border: 1.5px solid var(--accent);
+      color: var(--accent);
+      border-radius: 8px;
+      padding: 10px 14px;
+      background: var(--accent-soft);
+    }
+
+    .stamp .stamp-label {
+      display: block;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 10px;
+      font-weight: 700;
+      opacity: 0.85;
+    }
+
+    .stamp .stamp-date {
+      display: block;
+      font-size: 18px;
+      font-weight: 700;
+      margin-top: 2px;
+    }
+
+    .stamp .stamp-note {
+      display: block;
+      font-size: 11px;
+      color: var(--faint);
+      margin-top: 8px;
+    }
+
+    /* Sections */
+    .section {
+      padding: 24px 32px;
+      border-bottom: 1px solid var(--line);
+    }
+    .section:last-child { border-bottom: 0; }
+
+    .section-title {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      font-weight: 700;
+      color: var(--faint);
+      margin: 0 0 16px;
+    }
+
+    /* Summary cards */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      background: var(--surface);
+    }
+
+    .card.is-primary { border-color: var(--accent); background: var(--accent-soft); }
+
+    .card .card-label {
+      font-size: 12px;
+      color: var(--muted);
+      margin: 0 0 6px;
+      font-weight: 600;
+    }
+
+    .card .card-value {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      margin: 0;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .card .card-sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin: 6px 0 0;
+    }
+
+    .pill {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      border-radius: 999px;
+      padding: 1px 8px;
+    }
+    .pill.paid { background: var(--received-soft); color: var(--received); }
+    .pill.booked { background: var(--accent-soft); color: var(--accent); }
+
+    /* Chart */
+    .chart-wrap { width: 100%; overflow-x: auto; }
+    .chart-legend {
+      display: flex;
+      gap: 18px;
+      margin-bottom: 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+    .swatch.booked { background: var(--booked); }
+    .swatch.received { background: var(--received); }
+    svg .axis-line { stroke: var(--line); stroke-width: 1; }
+    svg .axis-label { fill: var(--faint); font-size: 11px; }
+    svg .month-label { fill: var(--muted); font-size: 11px; }
+    svg .bar-booked { fill: var(--booked); }
+    svg .bar-received { fill: var(--received); }
+
+    /* Controls */
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    .controls input[type="search"] {
+      flex: 1 1 220px;
+      min-width: 160px;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 14px;
+      color: var(--ink);
+    }
+    .seg {
+      display: inline-flex;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .seg button {
+      border: 0;
+      background: var(--surface);
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .seg button + button { border-left: 1px solid var(--line); }
+    .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+
+    /* Table */
+    .table-wrap { width: 100%; overflow-x: auto; }
+    table.campaigns {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    table.campaigns th, table.campaigns td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      white-space: nowrap;
+    }
+    table.campaigns th {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--faint);
+      cursor: pointer;
+      user-select: none;
+    }
+    table.campaigns th.sortable::after {
+      content: "";
+      opacity: 0.4;
+      margin-left: 4px;
+    }
+    table.campaigns th[aria-sort="ascending"]::after { content: "\25B2"; opacity: 1; }
+    table.campaigns th[aria-sort="descending"]::after { content: "\25BC"; opacity: 1; }
+    table.campaigns td.num, table.campaigns th.num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    table.campaigns tbody tr:nth-child(even) { background: #fafbfc; }
+    .empty-row td {
+      text-align: center;
+      color: var(--faint);
+      padding: 28px 12px;
+      font-style: italic;
+    }
+
+    .empty-state {
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      padding: 32px;
+      text-align: center;
+      color: var(--muted);
+      background: #fafbfc;
+    }
+    .empty-state h3 { margin: 0 0 4px; color: var(--ink); }
+    .empty-state p { margin: 0; font-size: 13px; }
+
+    .skipped-note {
+      margin-top: 14px;
+      font-size: 12px;
+      background: var(--warn-bg);
+      color: var(--warn-ink);
+      border: 1px solid var(--warn-line);
+      border-radius: 8px;
+      padding: 10px 14px;
+    }
+    .skipped-note b { font-weight: 700; }
+
+    .doc-footer {
+      padding: 18px 32px;
+      font-size: 11px;
+      color: var(--faint);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .btn {
+      border: 1px solid var(--accent);
+      background: var(--accent);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 9px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .btn:hover { filter: brightness(0.95); }
+
+    .toolbar {
+      display: flex;
+      justify-content: flex-end;
+      padding: 16px 32px 0;
+    }
+
+    /* Responsive */
+    @media (max-width: 720px) {
+      .sheet { margin: 0; border-radius: 0; border-left: 0; border-right: 0; }
+      .cards { grid-template-columns: repeat(2, 1fr); }
+      .doc-header { padding: 20px; }
+      .section { padding: 20px; }
+      .stamp { text-align: left; }
+    }
+    @media (max-width: 420px) {
+      .cards { grid-template-columns: 1fr; }
+    }
+
+    /* Print */
+    @media print {
+      body { background: #fff; font-size: 12px; }
+      .sheet {
+        margin: 0;
+        max-width: none;
+        border: 0;
+        box-shadow: none;
+        border-radius: 0;
+      }
+      .no-print, .toolbar, .controls { display: none !important; }
+      .section { padding: 14px 0; page-break-inside: avoid; }
+      .doc-header { padding: 0 0 14px; }
+      .cards { grid-template-columns: repeat(4, 1fr); gap: 8px; }
+      .card { box-shadow: none; }
+      table.campaigns { font-size: 11px; }
+      table.campaigns th { cursor: default; }
+      table.campaigns td, table.campaigns th { white-space: normal; }
+      .chart-wrap { overflow: visible; }
+      tr { page-break-inside: avoid; }
+      .stamp .stamp-box { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      a[href]::after { content: ""; }
+    }
+  </style>
+</head>
+<body>
+  <main class="sheet" id="sheet">
+    <div class="toolbar no-print">
+      <button type="button" class="btn" id="download-pdf">Download PDF</button>
+    </div>
+
+    <header class="doc-header">
+      <div class="lead">
+        <p class="doc-kicker">Vendor Statement</p>
+        <h1 class="vendor-name" id="vendor-name"></h1>
+        <p class="period-label" id="period-label"></p>
+        <ul class="vendor-meta" id="vendor-meta"></ul>
+      </div>
+      <div class="stamp">
+        <span class="stamp-box">
+          <span class="stamp-label">Data as of</span>
+          <span class="stamp-date" id="data-as-of"></span>
+        </span>
+        <span class="stamp-note" id="generated-note"></span>
+      </div>
+    </header>
+
+    <section class="section">
+      <h2 class="section-title">Summary</h2>
+      <div class="cards" id="summary-cards"></div>
+    </section>
+
+    <section class="section" id="chart-section">
+      <h2 class="section-title">Monthly activity</h2>
+      <div class="chart-legend">
+        <span><i class="swatch booked"></i> Booked</span>
+        <span><i class="swatch received"></i> Received</span>
+      </div>
+      <div class="chart-wrap" id="chart-wrap"></div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Campaigns</h2>
+      <div class="controls no-print">
+        <input type="search" id="search" placeholder="Search campaigns..." aria-label="Search campaigns">
+        <div class="seg" role="group" aria-label="Filter by status">
+          <button type="button" data-status="all" aria-pressed="true">All</button>
+          <button type="button" data-status="paid" aria-pressed="false">Paid</button>
+          <button type="button" data-status="booked" aria-pressed="false">Booked</button>
+        </div>
+      </div>
+      <div id="campaigns-region"></div>
+      <div class="skipped-note" id="skipped-note" hidden></div>
+    </section>
+
+    <footer class="doc-footer">
+      <span id="footer-id"></span>
+      <span>This statement reflects data frozen at generation time.</span>
+    </footer>
+  </main>
+
+  <script type="application/json" id="report-data">__REPORT_DATA__</script>
+  <script>
+    (function () {
+      "use strict";
+
+      var snapshot;
+      try {
+        snapshot = JSON.parse(document.getElementById("report-data").textContent);
+      } catch (e) {
+        document.getElementById("sheet").innerHTML =
+          '<div class="section"><p>Unable to load report data.</p></div>';
+        return;
+      }
+
+      var report = snapshot.report || {};
+      var vendor = snapshot.vendor || {};
+      var summary = snapshot.summary || {};
+      var monthly = Array.isArray(snapshot.monthly) ? snapshot.monthly : [];
+      var campaigns = Array.isArray(snapshot.campaigns) ? snapshot.campaigns : [];
+      var skipped = Array.isArray(snapshot.skipped) ? snapshot.skipped : [];
+      var currency = report.currency || "USD";
+
+      var money = new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: currency,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+      var compactMoney = new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: currency,
+        notation: "compact",
+        maximumFractionDigits: 1
+      });
+      var intFmt = new Intl.NumberFormat("en-US");
+
+      function fmtMoney(n) {
+        return money.format(typeof n === "number" ? n : 0);
+      }
+
+      // Parse "YYYY-MM-DD" as a local date to avoid timezone drift.
+      function parseISODate(s) {
+        if (!s || typeof s !== "string") return null;
+        var parts = s.split("-");
+        if (parts.length < 3) return null;
+        var d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        return isNaN(d.getTime()) ? null : d;
+      }
+
+      function fmtDate(s) {
+        var d = parseISODate(s);
+        if (!d) return "—";
+        return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+      }
+
+      function fmtMonth(ym) {
+        if (!ym || typeof ym !== "string") return ym || "";
+        var parts = ym.split("-");
+        if (parts.length < 2) return ym;
+        var d = new Date(Number(parts[0]), Number(parts[1]) - 1, 1);
+        if (isNaN(d.getTime())) return ym;
+        return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+      }
+
+      function el(tag, attrs, text) {
+        var node = document.createElement(tag);
+        if (attrs) {
+          for (var k in attrs) {
+            if (Object.prototype.hasOwnProperty.call(attrs, k)) node.setAttribute(k, attrs[k]);
+          }
+        }
+        if (text != null) node.textContent = text;
+        return node;
+      }
+
+      var SVG_NS = "http://www.w3.org/2000/svg";
+      function svgEl(tag, attrs) {
+        var node = document.createElementNS(SVG_NS, tag);
+        if (attrs) {
+          for (var k in attrs) {
+            if (Object.prototype.hasOwnProperty.call(attrs, k)) node.setAttribute(k, attrs[k]);
+          }
+        }
+        return node;
+      }
+
+      // ---- Header ----
+      document.getElementById("vendor-name").textContent = vendor.name || "Vendor";
+      var period = report.period || {};
+      document.getElementById("period-label").textContent =
+        period.label || ((period.startDate || "") + " – " + (period.endDate || ""));
+      document.getElementById("data-as-of").textContent = fmtDate(report.dataAsOf);
+      if (report.generatedAt) {
+        var gen = new Date(report.generatedAt);
+        if (!isNaN(gen.getTime())) {
+          document.getElementById("generated-note").textContent =
+            "Generated " + gen.toLocaleString("en-US");
+        }
+      }
+      document.title = (vendor.name || "Vendor") + " — Statement";
+      document.getElementById("footer-id").textContent = report.id ? ("Report " + report.id) : "";
+
+      var metaList = document.getElementById("vendor-meta");
+      function addMeta(label, value, isLink) {
+        var li = el("li");
+        li.appendChild(el("b", null, label + ": "));
+        if (isLink) {
+          var a = el("a", { href: value, rel: "noreferrer noopener", target: "_blank" }, value);
+          li.appendChild(a);
+        } else {
+          li.appendChild(document.createTextNode(value));
+        }
+        metaList.appendChild(li);
+      }
+      if (vendor.website) addMeta("Website", vendor.website, true);
+      if (vendor.contactName) addMeta("Contact", vendor.contactName, false);
+      if (vendor.paymentTerms) addMeta("Payment terms", vendor.paymentTerms, false);
+
+      // ---- Summary cards ----
+      var cardsRoot = document.getElementById("summary-cards");
+      function addCard(label, value, sub, primary) {
+        var card = el("div", { "class": "card" + (primary ? " is-primary" : "") });
+        card.appendChild(el("p", { "class": "card-label" }, label));
+        card.appendChild(el("p", { "class": "card-value" }, value));
+        if (sub) {
+          var subEl = el("p", { "class": "card-sub" });
+          subEl.appendChild(sub);
+          card.appendChild(subEl);
+        }
+        cardsRoot.appendChild(card);
+      }
+      addCard("Total booked", fmtMoney(summary.totalBookedAmount), null, true);
+      addCard("Total received", fmtMoney(summary.totalReceivedAmount), null, false);
+      addCard("Outstanding", fmtMoney(summary.outstandingAmount), null, false);
+
+      var countSub = document.createDocumentFragment();
+      var paidPill = el("span", { "class": "pill paid" }, intFmt.format(summary.paidCount || 0) + " paid");
+      var bookedPill = el("span", { "class": "pill booked" }, intFmt.format(summary.unpaidCount || 0) + " booked");
+      countSub.appendChild(paidPill);
+      countSub.appendChild(document.createTextNode(" "));
+      countSub.appendChild(bookedPill);
+      addCard("Campaigns", intFmt.format(summary.campaignCount || 0), countSub, false);
+
+      // ---- Chart ----
+      renderChart();
+      function renderChart() {
+        var wrap = document.getElementById("chart-wrap");
+        if (!monthly.length) {
+          document.getElementById("chart-section").style.display = "none";
+          return;
+        }
+
+        var W = 880, H = 280;
+        var pad = { top: 12, right: 12, bottom: 36, left: 64 };
+        var plotW = W - pad.left - pad.right;
+        var plotH = H - pad.top - pad.bottom;
+
+        var maxVal = 0;
+        monthly.forEach(function (m) {
+          maxVal = Math.max(maxVal, m.bookedAmount || 0, m.receivedAmount || 0);
+        });
+        if (maxVal <= 0) maxVal = 1;
+        // round the axis max up to a "nice" number
+        var pow = Math.pow(10, Math.floor(Math.log10(maxVal)));
+        var niceMax = Math.ceil(maxVal / pow) * pow;
+
+        var svg = svgEl("svg", {
+          viewBox: "0 0 " + W + " " + H,
+          width: "100%",
+          role: "img",
+          "aria-label": "Monthly booked versus received amounts",
+          preserveAspectRatio: "xMidYMid meet"
+        });
+        svg.style.minWidth = monthly.length > 8 ? "720px" : "0";
+
+        // Y gridlines + labels
+        var ticks = 4;
+        for (var t = 0; t <= ticks; t++) {
+          var val = (niceMax / ticks) * t;
+          var y = pad.top + plotH - (val / niceMax) * plotH;
+          svg.appendChild(svgEl("line", {
+            "class": "axis-line", x1: pad.left, y1: y, x2: pad.left + plotW, y2: y
+          }));
+          var lbl = svgEl("text", {
+            "class": "axis-label", x: pad.left - 8, y: y + 4, "text-anchor": "end"
+          });
+          lbl.textContent = compactMoney.format(val);
+          svg.appendChild(lbl);
+        }
+
+        var groupW = plotW / monthly.length;
+        var barGap = 4;
+        var barW = Math.max(6, Math.min(40, (groupW - barGap) / 2 - 4));
+
+        monthly.forEach(function (m, i) {
+          var cx = pad.left + groupW * i + groupW / 2;
+          var booked = m.bookedAmount || 0;
+          var received = m.receivedAmount || 0;
+          var bh = (booked / niceMax) * plotH;
+          var rh = (received / niceMax) * plotH;
+
+          var bx = cx - barW - barGap / 2;
+          var rx = cx + barGap / 2;
+
+          var bRect = svgEl("rect", {
+            "class": "bar-booked",
+            x: bx, y: pad.top + plotH - bh, width: barW, height: bh, rx: 2
+          });
+          bRect.appendChild(svgEl("title", {})).textContent =
+            fmtMonth(m.month) + " booked: " + fmtMoney(booked);
+          svg.appendChild(bRect);
+
+          var rRect = svgEl("rect", {
+            "class": "bar-received",
+            x: rx, y: pad.top + plotH - rh, width: barW, height: rh, rx: 2
+          });
+          rRect.appendChild(svgEl("title", {})).textContent =
+            fmtMonth(m.month) + " received: " + fmtMoney(received);
+          svg.appendChild(rRect);
+
+          var mLbl = svgEl("text", {
+            "class": "month-label", x: cx, y: H - 14, "text-anchor": "middle"
+          });
+          mLbl.textContent = fmtMonth(m.month);
+          svg.appendChild(mLbl);
+        });
+
+        // baseline
+        svg.appendChild(svgEl("line", {
+          "class": "axis-line",
+          x1: pad.left, y1: pad.top + plotH, x2: pad.left + plotW, y2: pad.top + plotH
+        }));
+
+        wrap.appendChild(svg);
+      }
+
+      // ---- Campaigns table ----
+      var region = document.getElementById("campaigns-region");
+      var searchInput = document.getElementById("search");
+      var statusButtons = Array.prototype.slice.call(document.querySelectorAll(".seg button"));
+
+      var state = { search: "", status: "all", sortKey: "bookedDate", sortDir: "desc" };
+
+      var columns = [
+        { key: "name", label: "Campaign", num: false },
+        { key: "bookedDate", label: "Booked", num: false },
+        { key: "amount", label: "Amount", num: true },
+        { key: "status", label: "Status", num: false },
+        { key: "paidAt", label: "Paid", num: false }
+      ];
+
+      if (!campaigns.length) {
+        var empty = el("div", { "class": "empty-state" });
+        empty.appendChild(el("h3", null, "No campaigns in this period"));
+        empty.appendChild(el("p", null, "There is no campaign activity to report for " +
+          (period.label || "the selected period") + "."));
+        region.appendChild(empty);
+        // hide controls when there is nothing to control
+        var ctrl = document.querySelector(".controls");
+        if (ctrl) ctrl.style.display = "none";
+      } else {
+        buildTable();
+        searchInput.addEventListener("input", function () {
+          state.search = searchInput.value.trim().toLowerCase();
+          renderRows();
+        });
+        statusButtons.forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            state.status = btn.getAttribute("data-status");
+            statusButtons.forEach(function (b) {
+              b.setAttribute("aria-pressed", b === btn ? "true" : "false");
+            });
+            renderRows();
+          });
+        });
+      }
+
+      var tbody;
+      function buildTable() {
+        var wrap = el("div", { "class": "table-wrap" });
+        var table = el("table", { "class": "campaigns" });
+        var thead = el("thead");
+        var tr = el("tr");
+        columns.forEach(function (col) {
+          var th = el("th", { "class": "sortable" + (col.num ? " num" : ""), "data-key": col.key, scope: "col" }, col.label);
+          th.setAttribute("role", "button");
+          th.setAttribute("tabindex", "0");
+          th.addEventListener("click", function () { sortBy(col.key); });
+          th.addEventListener("keydown", function (ev) {
+            if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); sortBy(col.key); }
+          });
+          tr.appendChild(th);
+        });
+        thead.appendChild(tr);
+        table.appendChild(thead);
+        tbody = el("tbody");
+        table.appendChild(tbody);
+        wrap.appendChild(table);
+        region.appendChild(wrap);
+        renderRows();
+        updateSortIndicators();
+      }
+
+      function sortBy(key) {
+        if (state.sortKey === key) {
+          state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
+        } else {
+          state.sortKey = key;
+          state.sortDir = (key === "amount" || key === "bookedDate" || key === "paidAt") ? "desc" : "asc";
+        }
+        updateSortIndicators();
+        renderRows();
+      }
+
+      function updateSortIndicators() {
+        var ths = tbody ? tbody.parentNode.querySelectorAll("th") : [];
+        Array.prototype.forEach.call(ths, function (th) {
+          if (th.getAttribute("data-key") === state.sortKey) {
+            th.setAttribute("aria-sort", state.sortDir === "asc" ? "ascending" : "descending");
+          } else {
+            th.removeAttribute("aria-sort");
+          }
+        });
+      }
+
+      function compareVals(a, b, key) {
+        var va = a[key], vb = b[key];
+        if (key === "amount") {
+          return (va || 0) - (vb || 0);
+        }
+        // dates + strings: nulls sort last (treated as empty)
+        var sa = va == null ? "" : String(va).toLowerCase();
+        var sb = vb == null ? "" : String(vb).toLowerCase();
+        if (sa < sb) return -1;
+        if (sa > sb) return 1;
+        return 0;
+      }
+
+      function filteredRows() {
+        var rows = campaigns.filter(function (c) {
+          if (state.status !== "all" && c.status !== state.status) return false;
+          if (state.search) {
+            var hay = ((c.name || "") + " " + (c.status || "")).toLowerCase();
+            if (hay.indexOf(state.search) === -1) return false;
+          }
+          return true;
+        });
+        var dir = state.sortDir === "asc" ? 1 : -1;
+        rows.sort(function (a, b) {
+          var cmp = compareVals(a, b, state.sortKey);
+          if (cmp === 0) cmp = compareVals(a, b, "name");
+          return cmp * dir;
+        });
+        return rows;
+      }
+
+      function renderRows() {
+        if (!tbody) return;
+        tbody.textContent = "";
+        var rows = filteredRows();
+        if (!rows.length) {
+          var tr = el("tr", { "class": "empty-row" });
+          var td = el("td", { colspan: String(columns.length) }, "No campaigns match your filters.");
+          tr.appendChild(td);
+          tbody.appendChild(tr);
+          return;
+        }
+        rows.forEach(function (c) {
+          var tr = el("tr");
+          tr.appendChild(el("td", null, c.name || "—"));
+          tr.appendChild(el("td", null, fmtDate(c.bookedDate)));
+          tr.appendChild(el("td", { "class": "num" }, fmtMoney(c.amount)));
+          var stTd = el("td");
+          stTd.appendChild(el("span", { "class": "pill " + (c.status === "paid" ? "paid" : "booked") },
+            c.status === "paid" ? "Paid" : "Booked"));
+          tr.appendChild(stTd);
+          tr.appendChild(el("td", null, c.paidAt ? fmtDate(c.paidAt) : "—"));
+          tbody.appendChild(tr);
+        });
+      }
+
+      // ---- Skipped note ----
+      if (skipped.length) {
+        var note = document.getElementById("skipped-note");
+        note.hidden = false;
+        var label = el("b", null, skipped.length === 1
+          ? "1 campaign not included (non-" + currency + "). "
+          : skipped.length + " campaigns not included (non-" + currency + "). ");
+        note.appendChild(label);
+        note.appendChild(document.createTextNode(
+          "Amounts in other currencies are excluded from the totals above."));
+      }
+
+      // ---- Print ----
+      document.getElementById("download-pdf").addEventListener("click", function () {
+        window.print();
+      });
+    })();
+  </script>
+</body>
+</html>
