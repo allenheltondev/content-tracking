@@ -15,16 +15,20 @@ jest.unstable_mockModule("../services/report-renderer.mjs", () => ({
 jest.unstable_mockModule("../services/vendor-report-store.mjs", () => ({
   putReportHtml: jest.fn(),
   signReportUrl: jest.fn(),
+  SIGNED_URL_TTL_SECONDS: 7 * 24 * 60 * 60,
 }));
 jest.unstable_mockModule("../domain/vendor-report-record.mjs", () => ({
   saveReportRecord: jest.fn(),
   listReportRecords: jest.fn(),
+  reportObjectExpiresAtMs: jest.fn(),
 }));
 
 const { buildVendorReportSnapshot } = await import("../domain/vendor-report.mjs");
 const { renderVendorReportHtml } = await import("../services/report-renderer.mjs");
 const { putReportHtml, signReportUrl } = await import("../services/vendor-report-store.mjs");
-const { saveReportRecord, listReportRecords } = await import("../domain/vendor-report-record.mjs");
+const { saveReportRecord, listReportRecords, reportObjectExpiresAtMs } = await import(
+  "../domain/vendor-report-record.mjs"
+);
 const { NotFoundError } = await import("../services/errors.mjs");
 const { registerVendorReportRoutes } = await import("../routes/vendor-reports.mjs");
 
@@ -73,6 +77,9 @@ function makeSnapshot(overrides = {}) {
 describe("routes/vendor-reports", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Default: every record's object outlives any link we'd mint, so the
+    // list endpoint's staleness filter keeps them. Individual tests override.
+    reportObjectExpiresAtMs.mockReturnValue(Date.now() + 365 * 24 * 60 * 60 * 1000);
   });
 
   describe("registration", () => {
@@ -312,6 +319,39 @@ describe("routes/vendor-reports", () => {
           expiresAt: "2026-06-05T10:00:00.000Z",
         },
       ]);
+    });
+
+    test("skips records whose S3 object would expire before the fresh link", async () => {
+      const live = {
+        reportId: "LIVE",
+        key: "reports/acme/LIVE.html",
+        generatedAt: "2026-05-20T10:00:00.000Z",
+        dataAsOf: "2026-05-20",
+        period: { startDate: "2026-01-01", endDate: "2026-12-31", label: "2026" },
+        currency: "USD",
+      };
+      const stale = {
+        reportId: "STALE",
+        key: "reports/acme/STALE.html",
+        generatedAt: "2025-01-01T10:00:00.000Z",
+        dataAsOf: "2025-01-01",
+        period: { startDate: "2025-01-01", endDate: "2025-12-31", label: "2025" },
+        currency: "USD",
+      };
+      listReportRecords.mockResolvedValue([live, stale]);
+      // Live object outlives the link; stale object is already gone.
+      reportObjectExpiresAtMs.mockImplementation((r) =>
+        r.reportId === "LIVE" ? Date.now() + 30 * 24 * 60 * 60 * 1000 : Date.now() - 1000,
+      );
+      signReportUrl.mockReturnValue({ url: "https://cdn/live?fresh", expiresAt: "2026-06-05T10:00:00.000Z" });
+
+      const res = await getReports({ params: { vendorId: "acme" } });
+
+      // Only the live report is returned, and we never sign the stale key.
+      expect(signReportUrl).toHaveBeenCalledTimes(1);
+      expect(signReportUrl).toHaveBeenCalledWith("reports/acme/LIVE.html");
+      const body = JSON.parse(res.body);
+      expect(body.reports.map((r) => r.reportId)).toEqual(["LIVE"]);
     });
 
     test("returns an empty list when the vendor has no reports", async () => {

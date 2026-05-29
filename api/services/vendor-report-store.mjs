@@ -13,6 +13,10 @@ const s3 = new S3Client({});
 // the same link for a few days; short enough that a leaked URL expires.
 const DEFAULT_EXPIRES_SECONDS = 7 * 24 * 60 * 60;
 
+// Exposed so the list endpoint can skip records whose S3 object would be
+// lifecycle-deleted before a link minted now would expire.
+export const SIGNED_URL_TTL_SECONDS = DEFAULT_EXPIRES_SECONDS;
+
 function reportKey(vendorId, reportId) {
   return `reports/${vendorId}/${reportId}.html`;
 }

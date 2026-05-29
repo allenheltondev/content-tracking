@@ -3,8 +3,12 @@ import { BadRequestError } from "../services/errors.mjs";
 import { jsonResponse } from "../services/http-handler.mjs";
 import { buildVendorReportSnapshot } from "../domain/vendor-report.mjs";
 import { renderVendorReportHtml } from "../services/report-renderer.mjs";
-import { putReportHtml, signReportUrl } from "../services/vendor-report-store.mjs";
-import { listReportRecords, saveReportRecord } from "../domain/vendor-report-record.mjs";
+import { putReportHtml, signReportUrl, SIGNED_URL_TTL_SECONDS } from "../services/vendor-report-store.mjs";
+import {
+  listReportRecords,
+  reportObjectExpiresAtMs,
+  saveReportRecord,
+} from "../domain/vendor-report-record.mjs";
 import { VENDOR_ID_RE } from "../validation/vendor.mjs";
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -57,22 +61,31 @@ export function registerVendorReportRoutes(app) {
   // Lists previously-generated reports newest-first, minting a FRESH
   // signed link for each so a vendor can be re-sent a working URL without
   // regenerating the report.
+  //
+  // The S3 lifecycle deletes a report's HTML ~retention days after it was
+  // generated. Records carry a matching TTL, but DynamoDB TTL deletion can
+  // lag, so we also skip any record whose object would be gone before a
+  // link minted now would expire — re-signing one would just hand the
+  // vendor a URL that 403s/404s at the CloudFront edge.
   app.get("/vendors/:vendorId/reports", async ({ params }) => {
     const vendorId = requireValidVendorId(params.vendorId);
     const records = await listReportRecords(vendorId);
 
-    const reports = records.map((record) => {
-      const { url, expiresAt } = signReportUrl(record.key);
-      return {
-        reportId: record.reportId,
-        generatedAt: record.generatedAt,
-        dataAsOf: record.dataAsOf,
-        period: record.period,
-        currency: record.currency,
-        url,
-        expiresAt,
-      };
-    });
+    const linkExpiryMs = Date.now() + SIGNED_URL_TTL_SECONDS * 1000;
+    const reports = records
+      .filter((record) => reportObjectExpiresAtMs(record) > linkExpiryMs)
+      .map((record) => {
+        const { url, expiresAt } = signReportUrl(record.key);
+        return {
+          reportId: record.reportId,
+          generatedAt: record.generatedAt,
+          dataAsOf: record.dataAsOf,
+          period: record.period,
+          currency: record.currency,
+          url,
+          expiresAt,
+        };
+      });
 
     return jsonResponse(200, { vendor_id: vendorId, reports });
   });
