@@ -96,6 +96,8 @@ function IntegrationsTab(): ReactElement {
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  const [brandName, setBrandName] = useState('');
+  const [websiteUrl, setWebsiteUrl] = useState('');
   const [propertyId, setPropertyId] = useState('');
   const [serviceAccount, setServiceAccount] = useState('');
   const [cruxKey, setCruxKey] = useState('');
@@ -111,6 +113,8 @@ function IntegrationsTab(): ReactElement {
       .then((res) => {
         if (cancelled) return;
         setProfile(res);
+        setBrandName(res.brand.name ?? '');
+        setWebsiteUrl(res.brand.website_url ?? '');
         setPropertyId(res.ga4.property_id ?? '');
       })
       .catch((err: Error) => {
@@ -128,6 +132,8 @@ function IntegrationsTab(): ReactElement {
     setSaved(false);
 
     const payload: ProfileUpdateRequest = {};
+    if (brandName.trim()) payload.brand_name = brandName.trim();
+    if (websiteUrl.trim()) payload.website_url = websiteUrl.trim();
     if (propertyId.trim()) payload.ga4_property_id = propertyId.trim();
     if (serviceAccount.trim()) payload.ga4_service_account = serviceAccount.trim();
     if (cruxKey.trim()) payload.crux_api_key = cruxKey.trim();
@@ -141,6 +147,8 @@ function IntegrationsTab(): ReactElement {
     try {
       const res = await updateProfile(apiFetch, payload);
       setProfile(res);
+      setBrandName(res.brand.name ?? '');
+      setWebsiteUrl(res.brand.website_url ?? '');
       setPropertyId(res.ga4.property_id ?? '');
       // Secrets are write-only — clear the inputs once stored.
       setServiceAccount('');
@@ -155,6 +163,40 @@ function IntegrationsTab(): ReactElement {
 
   return (
     <div className="space-y-6">
+      <div className="card card-body space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">Brand</h2>
+          <p className="text-sm text-muted-foreground">
+            Shown at the top of every report you share with a sponsor.
+          </p>
+        </div>
+
+        <label className="block">
+          <span className="field-label">Brand name</span>
+          <input
+            type="text"
+            className="input"
+            placeholder="e.g. Ready, Set, Cloud!"
+            value={brandName}
+            maxLength={80}
+            onChange={(e) => setBrandName(e.target.value)}
+            disabled={busy}
+          />
+        </label>
+
+        <label className="block">
+          <span className="field-label">Website</span>
+          <input
+            type="text"
+            className="input"
+            placeholder="readysetcloud.io"
+            value={websiteUrl}
+            onChange={(e) => setWebsiteUrl(e.target.value)}
+            disabled={busy}
+          />
+        </label>
+      </div>
+
       <p className="text-sm text-muted-foreground">
         Connect Google Analytics 4 and Core Web Vitals to pull per-post web analytics on each
         campaign. Credentials are stored encrypted and never shown again after saving.

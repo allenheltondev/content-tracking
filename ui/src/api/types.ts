@@ -133,8 +133,6 @@ export interface VendorReportsListResponse {
 export interface CampaignReportSummary {
   totalClicks: number;
   linkCount: number;
-  firstClickAt: string | null;
-  lastClickAt: string | null;
   upstreamFailures: number;
 }
 
@@ -440,6 +438,10 @@ export interface UpdateCampaignRequest {
 // GET /profile — integration settings. Secrets are never returned; only
 // whether each integration is configured.
 export interface ProfileResponse {
+  brand: {
+    name: string | null;
+    website_url: string | null;
+  };
   ga4: {
     property_id: string | null;
     service_account_email: string | null;
@@ -457,6 +459,8 @@ export interface ProfileUpdateRequest {
   // The full service-account JSON, pasted from the downloaded key file.
   ga4_service_account?: string;
   crux_api_key?: string;
+  brand_name?: string;
+  website_url?: string;
 }
 
 // Chrome-extension pairing tokens. The token value itself only appears

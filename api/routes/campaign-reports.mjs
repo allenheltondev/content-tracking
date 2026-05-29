@@ -7,28 +7,35 @@ import { renderCampaignReportHtml } from "../services/campaign-report-renderer.m
 import { putCampaignReportHtml } from "../services/campaign-report-store.mjs";
 // Signing is generic (keyed off the object key, not the vendor) so we
 // reuse it straight from the vendor report store for campaign reports too.
-import { signReportUrl, SIGNED_URL_TTL_SECONDS } from "../services/vendor-report-store.mjs";
+import { signReportUrl } from "../services/vendor-report-store.mjs";
 import { mintShortLink } from "../services/newsletter-service.mjs";
 import {
   saveCampaignReportRecord,
   listCampaignReportRecords,
 } from "../domain/campaign-report-record.mjs";
-// Generic retention helper shared with vendor reports.
-import { reportObjectExpiresAtMs } from "../domain/vendor-report-record.mjs";
+// Retention helpers shared with vendor reports: REPORT_RETENTION_DAYS is the
+// bucket/record lifetime (90d default); reportObjectExpiresAtMs(record) is the
+// epoch-ms the S3 object behind a record is deleted.
+import {
+  REPORT_RETENTION_DAYS,
+  reportObjectExpiresAtMs,
+} from "../domain/vendor-report-record.mjs";
 
-// CloudFront signed report URLs are ~500 chars. Wrap them in a
-// newsletter-service short link so the customer share link is one
-// reasonable-length URL. Shortlink TTL matches the signed-URL TTL — past
-// that the destination 403s anyway, so an outliving short link would
-// just hand back a dead URL.
-const REPORT_SHORTLINK_TTL_DAYS = Math.ceil(SIGNED_URL_TTL_SECONDS / 86400);
+// Campaign report links live as long as the report itself (the S3 object +
+// DynamoDB record both age out at REPORT_RETENTION_DAYS). Signing for the
+// full window means the share link a customer is handed keeps working for
+// the entire life of the report, not just a few days. This is deliberately
+// longer-lived than vendor report links — vendor reports keep the store's
+// 7-day default.
+const CAMPAIGN_REPORT_TTL_SECONDS = REPORT_RETENTION_DAYS * 24 * 60 * 60;
+const RETENTION_MS = CAMPAIGN_REPORT_TTL_SECONDS * 1000;
 
 async function mintReportShortLink(url) {
   try {
     const mint = await mintShortLink({
       url,
       src: "campaign-report",
-      expiresInDays: REPORT_SHORTLINK_TTL_DAYS,
+      expiresInDays: REPORT_RETENTION_DAYS,
     });
     return mint?.short_url ?? null;
   } catch (err) {
@@ -49,8 +56,9 @@ export function registerCampaignReportRoutes(app) {
   //
   // Generates a fresh campaign report: builds the snapshot, renders the
   // HTML, stores it in the private reports bucket, persists a record, and
-  // returns a signed CloudFront link. Campaign analytics is all-time, so
-  // there is NO period — the request body is ignored.
+  // returns a signed CloudFront link valid for the report's full lifetime.
+  // Campaign analytics is all-time, so there is NO period — the request body
+  // is ignored.
   app.post("/campaigns/:campaignId/report", async ({ params }) => {
     const campaignId = requireValidCampaignId(params.campaignId);
 
@@ -61,7 +69,10 @@ export function registerCampaignReportRoutes(app) {
 
     const html = renderCampaignReportHtml(snapshot);
     const key = await putCampaignReportHtml({ campaignId, reportId, html });
-    const { url, expiresAt } = signReportUrl(key);
+    // The object was just written, so its lifetime starts now: sign for the
+    // full retention window and report the matching expiration.
+    const { url } = signReportUrl(key, { expiresInSeconds: CAMPAIGN_REPORT_TTL_SECONDS });
+    const expiresAt = reportExpiresAt(snapshot.report.generatedAt);
     const shortUrl = await mintReportShortLink(url);
 
     await saveCampaignReportRecord({
@@ -86,29 +97,41 @@ export function registerCampaignReportRoutes(app) {
   // GET /campaigns/:campaignId/reports
   //
   // Lists previously-generated reports newest-first, minting a FRESH signed
-  // link for each. Skips any record whose S3 object would be
-  // lifecycle-deleted before a link minted now would expire — re-signing one
-  // would just hand back a URL that 403s/404s at the CloudFront edge.
+  // link for each that lasts exactly as long as the report's S3 object. Any
+  // record whose object has already aged out is skipped — re-signing one
+  // would just hand back a URL that 404s at the CloudFront edge.
   app.get("/campaigns/:campaignId/reports", async ({ params }) => {
     const campaignId = requireValidCampaignId(params.campaignId);
     const records = await listCampaignReportRecords(campaignId);
 
-    const linkExpiryMs = Date.now() + SIGNED_URL_TTL_SECONDS * 1000;
+    const nowMs = Date.now();
     const reports = records
-      .filter((record) => reportObjectExpiresAtMs(record) > linkExpiryMs)
       .map((record) => {
-        const { url, expiresAt } = signReportUrl(record.key);
+        const objectExpiryMs = reportObjectExpiresAtMs(record);
+        const remainingSeconds = Math.floor((objectExpiryMs - nowMs) / 1000);
+        if (remainingSeconds <= 0) return null;
+        const { url } = signReportUrl(record.key, { expiresInSeconds: remainingSeconds });
         return {
           reportId: record.reportId,
           generatedAt: record.generatedAt,
           dataAsOf: record.dataAsOf,
           url,
-          expiresAt,
+          expiresAt: new Date(objectExpiryMs).toISOString(),
         };
-      });
+      })
+      .filter(Boolean);
 
     return jsonResponse(200, { campaign_id: campaignId, reports });
   });
+}
+
+// The report (object + record) ages out RETENTION_MS after it was generated.
+// Falls back to now+retention if generatedAt is unparseable, mirroring the
+// TTL fallback in campaign-report-record.mjs.
+function reportExpiresAt(generatedAt) {
+  const generatedMs = Date.parse(generatedAt ?? "");
+  const baseMs = Number.isNaN(generatedMs) ? Date.now() : generatedMs;
+  return new Date(baseMs + RETENTION_MS).toISOString();
 }
 
 function requireValidCampaignId(campaignId) {

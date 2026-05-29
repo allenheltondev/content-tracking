@@ -6,16 +6,20 @@ import { BadRequestError } from "../services/errors.mjs";
 //   ga4PropertyId    -> non-secret, stored in DynamoDB
 //   ga4ServiceAccount -> secret, written to SSM
 //   cruxApiKey       -> secret, written to SSM
+//   brandName        -> non-secret, stored in DynamoDB; shown on shared reports
+//   websiteUrl       -> non-secret, stored in DynamoDB; shown on shared reports
 
 const GA4_PROPERTY_ID_RE = /^\d{1,20}$/;
 const CRUX_KEY_MAX = 200;
+const BRAND_NAME_MAX = 80;
+const WEBSITE_URL_MAX = 200;
 
 export function validateProfileUpdate(body) {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     throw new BadRequestError("request body must be a JSON object");
   }
 
-  const { ga4_property_id, ga4_service_account, crux_api_key } = body;
+  const { ga4_property_id, ga4_service_account, crux_api_key, brand_name, website_url } = body;
   const out = {};
 
   if (ga4_property_id !== undefined && ga4_property_id !== null && ga4_property_id !== "") {
@@ -37,7 +41,50 @@ export function validateProfileUpdate(body) {
     out.cruxApiKey = crux_api_key.trim();
   }
 
+  if (brand_name !== undefined && brand_name !== null && brand_name !== "") {
+    if (typeof brand_name !== "string" || brand_name.trim().length === 0) {
+      throw new BadRequestError("brand_name must be a non-empty string");
+    }
+    const value = brand_name.trim();
+    if (value.length > BRAND_NAME_MAX) {
+      throw new BadRequestError(`brand_name must be at most ${BRAND_NAME_MAX} chars`);
+    }
+    out.brandName = value;
+  }
+
+  if (website_url !== undefined && website_url !== null && website_url !== "") {
+    out.websiteUrl = validateWebsiteUrl(website_url);
+  }
+
   return out;
+}
+
+// Accepts a full URL or a bare host (readysetcloud.io); a missing scheme is
+// assumed to be https so the stored value is always a usable absolute URL.
+function validateWebsiteUrl(input) {
+  if (typeof input !== "string" || input.trim().length === 0) {
+    throw new BadRequestError("website_url must be a non-empty string");
+  }
+  let value = input.trim();
+  // Only assume https for a bare host. An explicit non-http scheme (ftp://,
+  // javascript:, ...) is left intact so the protocol check below rejects it
+  // rather than it being masked by a prepended https://.
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+    value = `https://${value}`;
+  }
+  if (value.length > WEBSITE_URL_MAX) {
+    throw new BadRequestError(`website_url must be at most ${WEBSITE_URL_MAX} chars`);
+  }
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new BadRequestError("website_url must be a valid URL");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new BadRequestError("website_url must be an http(s) URL");
+  }
+  return value;
 }
 
 // Accepts the Google service-account JSON either as an object or as the raw

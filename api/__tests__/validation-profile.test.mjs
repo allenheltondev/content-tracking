@@ -58,4 +58,31 @@ describe("validateProfileUpdate", () => {
     expect(out.cruxApiKey).toBe("AIzaKey");
     expect(out.ga4ServiceAccount.client_email).toBe(SERVICE_ACCOUNT.client_email);
   });
+
+  test("accepts and trims a brand_name", () => {
+    expect(validateProfileUpdate({ brand_name: "  Ready, Set, Cloud!  " }).brandName)
+      .toBe("Ready, Set, Cloud!");
+  });
+
+  test("treats empty brand_name as omitted, rejects an over-long one", () => {
+    expect(validateProfileUpdate({ brand_name: "" })).toEqual({});
+    expect(() => validateProfileUpdate({ brand_name: "x".repeat(81) })).toThrow(/at most 80/);
+  });
+
+  test("accepts a full website_url and assumes https for a bare host", () => {
+    expect(validateProfileUpdate({ website_url: "https://readysetcloud.io/blog" }).websiteUrl)
+      .toBe("https://readysetcloud.io/blog");
+    expect(validateProfileUpdate({ website_url: "readysetcloud.io" }).websiteUrl)
+      .toBe("https://readysetcloud.io");
+  });
+
+  test("rejects a non-http website_url", () => {
+    expect(() => validateProfileUpdate({ website_url: "ftp://files.example.com" }))
+      .toThrow(/http\(s\) URL/);
+    expect(() => validateProfileUpdate({ website_url: "http://" })).toThrow(/valid URL/);
+  });
+
+  test("treats empty website_url as omitted", () => {
+    expect(validateProfileUpdate({ website_url: "" })).toEqual({});
+  });
 });

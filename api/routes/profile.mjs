@@ -28,14 +28,21 @@ export function registerProfileRoutes(app) {
     if (fields.cruxApiKey) {
       await writeCruxApiKey(fields.cruxApiKey);
     }
-    if (fields.ga4PropertyId) {
-      await saveProfileSettings({ ga4PropertyId: fields.ga4PropertyId });
+    // Non-secret fields share one DynamoDB write.
+    const nonSecret = {};
+    if (fields.ga4PropertyId) nonSecret.ga4PropertyId = fields.ga4PropertyId;
+    if (fields.brandName) nonSecret.brandName = fields.brandName;
+    if (fields.websiteUrl) nonSecret.websiteUrl = fields.websiteUrl;
+    if (Object.keys(nonSecret).length > 0) {
+      await saveProfileSettings(nonSecret);
     }
 
     logger.info("Profile settings updated", {
       ga4PropertyId: fields.ga4PropertyId ? "set" : "unchanged",
       ga4ServiceAccount: fields.ga4ServiceAccount ? "set" : "unchanged",
       cruxApiKey: fields.cruxApiKey ? "set" : "unchanged",
+      brandName: fields.brandName ? "set" : "unchanged",
+      websiteUrl: fields.websiteUrl ? "set" : "unchanged",
     });
 
     // forceFetch so the response reflects the just-written secrets rather
@@ -52,6 +59,10 @@ async function buildProfileView({ forceFetch = false } = {}) {
   ]);
 
   return {
+    brand: {
+      name: settings?.brandName ?? null,
+      website_url: settings?.websiteUrl ?? null,
+    },
     ga4: {
       property_id: settings?.ga4PropertyId ?? null,
       service_account_email: serviceAccount?.client_email ?? null,
