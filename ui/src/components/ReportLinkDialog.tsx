@@ -12,7 +12,12 @@ export default function ReportLinkDialog({
   onClose,
   caption,
 }: {
-  report: { url: string; expiresAt: string; dataAsOf: string } | null;
+  report: {
+    url: string;
+    shortUrl?: string | null;
+    expiresAt: string;
+    dataAsOf: string;
+  } | null;
   onClose: () => void;
   caption?: ReactNode;
 }): ReactElement | null {
@@ -20,8 +25,12 @@ export default function ReportLinkDialog({
 
   if (!report) return null;
 
+  // Prefer the shortlink — it's the customer-facing URL. Fall back to the
+  // signed URL when minting failed (older reports never had a shortUrl).
+  const shareUrl = report.shortUrl ?? report.url;
+
   const copy = (): void => {
-    void navigator.clipboard.writeText(report.url).then(() => {
+    void navigator.clipboard.writeText(shareUrl).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
@@ -41,14 +50,14 @@ export default function ReportLinkDialog({
         </p>
         <div className="space-y-2">
           <code className="block bg-muted rounded p-3 font-mono text-xs break-all">
-            {report.url}
+            {shareUrl}
           </code>
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs text-muted-foreground">
               Link expires {report.expiresAt.slice(0, 10)}
             </span>
             <div className="flex gap-2">
-              <a href={report.url} target="_blank" rel="noreferrer" className="btn-link">
+              <a href={shareUrl} target="_blank" rel="noreferrer" className="btn-link">
                 Open
               </a>
               <button type="button" className="btn-secondary" onClick={copy}>

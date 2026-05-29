@@ -140,10 +140,12 @@ export interface CampaignReportSummary {
 
 // Response from POST /campaigns/:campaignId/report — a freshly generated,
 // frozen performance report plus the CloudFront signed link to its static
-// HTML.
+// HTML and a shortlink wrapper. `shortUrl` is null when the shortlink
+// mint failed; callers should fall back to `url` in that case.
 export interface CampaignReportResponse {
   reportId: string;
   url: string;
+  shortUrl: string | null;
   expiresAt: string;
   dataAsOf: string;
   summary: CampaignReportSummary;

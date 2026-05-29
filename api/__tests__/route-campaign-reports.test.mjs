@@ -27,6 +27,9 @@ jest.unstable_mockModule("../domain/campaign-report-record.mjs", () => ({
 jest.unstable_mockModule("../domain/vendor-report-record.mjs", () => ({
   reportObjectExpiresAtMs: jest.fn(),
 }));
+jest.unstable_mockModule("../services/newsletter-service.mjs", () => ({
+  mintShortLink: jest.fn(),
+}));
 
 const { buildCampaignReportSnapshot } = await import("../domain/campaign-report.mjs");
 const { renderCampaignReportHtml } = await import("../services/campaign-report-renderer.mjs");
@@ -36,6 +39,7 @@ const { saveCampaignReportRecord, listCampaignReportRecords } = await import(
   "../domain/campaign-report-record.mjs"
 );
 const { reportObjectExpiresAtMs } = await import("../domain/vendor-report-record.mjs");
+const { mintShortLink } = await import("../services/newsletter-service.mjs");
 const { NotFoundError } = await import("../services/errors.mjs");
 const { registerCampaignReportRoutes } = await import("../routes/campaign-reports.mjs");
 
@@ -106,6 +110,7 @@ describe("routes/campaign-reports", () => {
         url: "https://cdn.example.com/reports/campaigns/c/RID.html?sig",
         expiresAt: "2026-06-05T10:00:00.000Z",
       });
+      mintShortLink.mockResolvedValue({ short_url: "https://bkd.to/r1" });
       saveCampaignReportRecord.mockResolvedValue({});
 
       const res = await postReport({ event: { body: null }, params: { campaignId: CAMPAIGN_ID } });
@@ -122,6 +127,13 @@ describe("routes/campaign-reports", () => {
 
       // URL signed for the stored key.
       expect(signReportUrl).toHaveBeenCalledWith(`reports/campaigns/${CAMPAIGN_ID}/RID.html`);
+
+      // Shortlink minted to wrap the long CloudFront signed URL.
+      expect(mintShortLink).toHaveBeenCalledWith({
+        url: "https://cdn.example.com/reports/campaigns/c/RID.html?sig",
+        src: "campaign-report",
+        expiresInDays: 7,
+      });
 
       // Record persisted with metadata (not the body), and NO period.
       const recordArg = saveCampaignReportRecord.mock.calls[0][0];
@@ -140,10 +152,34 @@ describe("routes/campaign-reports", () => {
       expect(body).toEqual({
         reportId: snapshot.report.id,
         url: "https://cdn.example.com/reports/campaigns/c/RID.html?sig",
+        shortUrl: "https://bkd.to/r1",
         expiresAt: "2026-06-05T10:00:00.000Z",
         dataAsOf: "2026-05-29",
         summary: snapshot.summary,
       });
+    });
+
+    test("returns shortUrl: null when the shortlink mint fails", async () => {
+      buildCampaignReportSnapshot.mockResolvedValue(makeSnapshot());
+      renderCampaignReportHtml.mockReturnValue("<html></html>");
+      putCampaignReportHtml.mockResolvedValue("k");
+      signReportUrl.mockReturnValue({
+        url: "https://cdn.example.com/r.html?sig",
+        expiresAt: "2026-06-05T10:00:00.000Z",
+      });
+      mintShortLink.mockRejectedValue(new Error("upstream boom"));
+      saveCampaignReportRecord.mockResolvedValue({});
+
+      const res = await postReport({ event: { body: null }, params: { campaignId: CAMPAIGN_ID } });
+
+      // Mint failure must not break report generation — the long URL still
+      // works and the response simply reports shortUrl: null.
+      expect(res.statusCode).toBe(201);
+      const body = JSON.parse(res.body);
+      expect(body.shortUrl).toBeNull();
+      expect(body.url).toBe("https://cdn.example.com/r.html?sig");
+      // Record was still persisted.
+      expect(saveCampaignReportRecord).toHaveBeenCalled();
     });
 
     test("ignores the request body (no period parsing)", async () => {
@@ -151,6 +187,7 @@ describe("routes/campaign-reports", () => {
       renderCampaignReportHtml.mockReturnValue("<html></html>");
       putCampaignReportHtml.mockResolvedValue("k");
       signReportUrl.mockReturnValue({ url: "u", expiresAt: "e" });
+      mintShortLink.mockResolvedValue({ short_url: "s" });
       saveCampaignReportRecord.mockResolvedValue({});
 
       // Even an unparseable body must not error — it is ignored entirely.
