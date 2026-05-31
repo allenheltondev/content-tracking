@@ -79,3 +79,50 @@ export async function copyProfileAssetToPublic({ key, slug }) {
   }));
   return `https://${PUBLIC_DOMAIN}/${destKey}`;
 }
+
+// robots.txt + sitemap.xml live at the bucket root and point crawlers at the
+// single published page. There's one public kit per stack (single-tenant),
+// so the sitemap has exactly one URL. Rewritten on every publish so the
+// sitemap's lastmod tracks the latest publish.
+export async function writePublicMediaKitSeoFiles({ slug, lastmod }) {
+  const pageUrl = publicMediaKitUrl(slug);
+  const sitemapUrl = `https://${PUBLIC_DOMAIN}/sitemap.xml`;
+  const day = (lastmod ?? new Date().toISOString()).slice(0, 10);
+
+  const sitemap =
+    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
+    `  <url>\n    <loc>${pageUrl}</loc>\n    <lastmod>${day}</lastmod>\n` +
+    "    <changefreq>weekly</changefreq>\n  </url>\n</urlset>\n";
+
+  const robots = `User-agent: *\nAllow: /\n\nSitemap: ${sitemapUrl}\n`;
+
+  await Promise.all([
+    s3.send(new PutObjectCommand({
+      Bucket: PUBLIC_BUCKET,
+      Key: "sitemap.xml",
+      Body: sitemap,
+      ContentType: "application/xml; charset=utf-8",
+      CacheControl: CACHE_CONTROL,
+    })),
+    s3.send(new PutObjectCommand({
+      Bucket: PUBLIC_BUCKET,
+      Key: "robots.txt",
+      Body: robots,
+      ContentType: "text/plain; charset=utf-8",
+      CacheControl: CACHE_CONTROL,
+    })),
+  ]);
+}
+
+// Removes the SEO files on unpublish so crawlers aren't pointed at a page
+// that's gone. Best-effort — a missing object is not an error.
+export async function removePublicMediaKitSeoFiles() {
+  await Promise.all(
+    ["sitemap.xml", "robots.txt"].map((Key) =>
+      s3
+        .send(new DeleteObjectCommand({ Bucket: PUBLIC_BUCKET, Key }))
+        .catch(() => undefined),
+    ),
+  );
+}

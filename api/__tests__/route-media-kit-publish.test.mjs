@@ -20,6 +20,8 @@ jest.unstable_mockModule("../services/public-media-kit-store.mjs", () => ({
   unpublishMediaKit: jest.fn(),
   copyProfileAssetToPublic: jest.fn(),
   publicMediaKitUrl: jest.fn((slug) => `https://kit.example.com/${slug}`),
+  writePublicMediaKitSeoFiles: jest.fn(),
+  removePublicMediaKitSeoFiles: jest.fn(),
 }));
 
 const {
@@ -33,6 +35,8 @@ const {
   publishMediaKitHtml,
   unpublishMediaKit,
   copyProfileAssetToPublic,
+  writePublicMediaKitSeoFiles,
+  removePublicMediaKitSeoFiles,
 } = await import("../services/public-media-kit-store.mjs");
 const { registerMediaKitPublishRoutes } = await import("../routes/media-kit-publish.mjs");
 
@@ -60,7 +64,13 @@ const SNAPSHOT = {
 };
 
 describe("routes/media-kit-publish", () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    // The route .catch()es these best-effort SEO writes, so they must always
+    // return a promise. Tests override when asserting specifics.
+    writePublicMediaKitSeoFiles.mockResolvedValue(undefined);
+    removePublicMediaKitSeoFiles.mockResolvedValue(undefined);
+  });
 
   test("registers POST, GET, DELETE", () => {
     expect(typeof post).toBe("function");
@@ -87,6 +97,7 @@ describe("routes/media-kit-publish", () => {
         .mockResolvedValueOnce("https://kit.example.com/allen/logo");
       renderMediaKitHtml.mockReturnValue("<html>teaser</html>");
       publishMediaKitHtml.mockResolvedValue("https://kit.example.com/allen");
+      writePublicMediaKitSeoFiles.mockResolvedValue(undefined);
       markPublicMediaKitPublished.mockResolvedValue({});
 
       const res = await post({});
@@ -96,12 +107,17 @@ describe("routes/media-kit-publish", () => {
         avatarUrl: "https://kit.example.com/allen/avatar",
         logoUrl: "https://kit.example.com/allen/logo",
       });
-      // Rendered with indexable: true (public page is meant to be found).
+      // Rendered with indexable: true and the canonical pageUrl (drives the
+      // SEO head's canonical/OG/JSON-LD url fields).
       expect(renderMediaKitHtml).toHaveBeenCalledWith(
         expect.objectContaining({ teaser: true }),
-        { indexable: true },
+        { indexable: true, pageUrl: "https://kit.example.com/allen" },
       );
       expect(publishMediaKitHtml).toHaveBeenCalledWith({ slug: "allen", html: "<html>teaser</html>" });
+      // robots.txt + sitemap.xml written for crawlers.
+      expect(writePublicMediaKitSeoFiles).toHaveBeenCalledWith(
+        expect.objectContaining({ slug: "allen" }),
+      );
       expect(markPublicMediaKitPublished).toHaveBeenCalledTimes(1);
 
       expect(res.statusCode).toBe(200);
@@ -133,6 +149,7 @@ describe("routes/media-kit-publish", () => {
       getProfileSettings.mockResolvedValue({ publicSlug: "allen" });
       const res = await del({});
       expect(unpublishMediaKit).toHaveBeenCalledWith({ slug: "allen" });
+      expect(removePublicMediaKitSeoFiles).toHaveBeenCalledTimes(1);
       expect(clearPublicMediaKitPublished).toHaveBeenCalledTimes(1);
       expect(res.statusCode).toBe(204);
     });

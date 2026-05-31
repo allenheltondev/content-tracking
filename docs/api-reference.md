@@ -968,6 +968,14 @@ rate card** (pricing stays in the private link). Generating and publishing are
 still fully Cognito-gated; only the resulting static page is public. Requires a
 `public_slug` set via [`PUT /profile`](#put-profile).
 
+The public page is built for discovery and sharing: the renderer
+server-renders the `<head>` with a title, meta description, canonical link,
+Open Graph + Twitter card tags (so the link unfurls with the creator's avatar
+in Slack/LinkedIn/X), and a `ProfilePage`/`Person` JSON-LD block. Publishing
+also writes `robots.txt` and `sitemap.xml` at the public bucket root pointing
+crawlers at the page; unpublishing removes them. Private signed kits stay
+`noindex` with none of this head metadata.
+
 #### POST /media-kit/publish
 
 Render the public teaser from the current profile + aggregate stats, copy the

@@ -13,6 +13,8 @@ import {
   unpublishMediaKit,
   copyProfileAssetToPublic,
   publicMediaKitUrl,
+  writePublicMediaKitSeoFiles,
+  removePublicMediaKitSeoFiles,
 } from "../services/public-media-kit-store.mjs";
 
 // The public, brand-facing media kit: a teaser published to a stable vanity
@@ -58,11 +60,20 @@ export function registerMediaKitPublishRoutes(app) {
         : Promise.resolve(null),
     ]);
 
+    const url = publicMediaKitUrl(slug);
     const teaser = toPublicTeaser(snapshot, { avatarUrl, logoUrl });
-    const html = renderMediaKitHtml(teaser, { indexable: true });
-    const url = await publishMediaKitHtml({ slug, html });
+    // pageUrl drives the canonical link + OG/Twitter/JSON-LD url fields.
+    const html = renderMediaKitHtml(teaser, { indexable: true, pageUrl: url });
+    await publishMediaKitHtml({ slug, html });
 
+    // robots.txt + sitemap.xml at the bucket root point crawlers at the
+    // single published page. Best-effort: SEO-file failures must not fail
+    // the publish itself.
     const publishedAt = new Date().toISOString();
+    await writePublicMediaKitSeoFiles({ slug, lastmod: publishedAt }).catch((err) => {
+      logger.warn("Failed to write media-kit SEO files", { error: err?.message });
+    });
+
     await markPublicMediaKitPublished(publishedAt);
 
     return jsonResponse(200, { slug, url, published: true, published_at: publishedAt });
@@ -78,6 +89,11 @@ export function registerMediaKitPublishRoutes(app) {
     const slug = profile?.publicSlug;
     if (slug) {
       await unpublishMediaKit({ slug });
+      // Drop robots.txt + sitemap.xml so crawlers stop being pointed at the
+      // now-gone page. Best-effort.
+      await removePublicMediaKitSeoFiles().catch((err) => {
+        logger.warn("Failed to remove media-kit SEO files", { error: err?.message });
+      });
     }
     await clearPublicMediaKitPublished();
     return emptyResponse(204);
