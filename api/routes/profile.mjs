@@ -133,7 +133,8 @@ async function buildProfileView({ forceFetch = false } = {}) {
 async function previewAssetUrl(key) {
   if (!key) return null;
   try {
-    return await signProfileAssetUrl({ key, expiresInSeconds: ASSET_PREVIEW_TTL_SECONDS });
+    const { url } = signProfileAssetUrl(key, { expiresInSeconds: ASSET_PREVIEW_TTL_SECONDS });
+    return url;
   } catch (err) {
     logger.warn("Failed to sign profile asset url", { key, error: err?.message });
     return null;

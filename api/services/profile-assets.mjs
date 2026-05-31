@@ -7,7 +7,10 @@ import { ulid } from "ulid";
 // outlast the 7-day cap on presigned S3 GETs.
 export { signReportUrl as signProfileAssetUrl } from "./vendor-report-store.mjs";
 
-const REPORTS_BUCKET = process.env.REPORTS_BUCKET;
+// Profile images share the vendor-reports bucket + CloudFront distribution
+// (the function's IAM policy already grants this bucket, and signReportUrl
+// signs against its domain), so no new infra is needed.
+const REPORTS_BUCKET = process.env.VENDOR_REPORTS_BUCKET;
 const s3 = new S3Client({});
 
 const UPLOAD_EXPIRES_SECONDS = 15 * 60;
