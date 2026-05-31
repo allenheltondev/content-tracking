@@ -22,4 +22,16 @@ describe("renderMediaKitHtml", () => {
     const html = renderMediaKitHtml(snapshot);
     expect(html).toContain("$5");
   });
+
+  test("defaults to noindex; the indexable flag flips it to index/follow", () => {
+    const snapshot = { report: { id: "K1" }, identity: {}, stats: {} };
+
+    const priv = renderMediaKitHtml(snapshot);
+    expect(priv).toContain('content="noindex, nofollow"');
+    expect(priv).not.toContain('content="index, follow"');
+
+    const pub = renderMediaKitHtml(snapshot, { indexable: true });
+    expect(pub).toContain('content="index, follow"');
+    expect(pub).not.toContain('content="noindex, nofollow"');
+  });
 });

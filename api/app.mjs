@@ -12,6 +12,8 @@ import { registerRevenueRoutes } from "./routes/revenue.mjs";
 import { registerVendorReportRoutes } from "./routes/vendor-reports.mjs";
 import { registerCampaignReportRoutes } from "./routes/campaign-reports.mjs";
 import { registerProfileRoutes } from "./routes/profile.mjs";
+import { registerMediaKitRoutes } from "./routes/media-kit.mjs";
+import { registerMediaKitPublishRoutes } from "./routes/media-kit-publish.mjs";
 import { registerExtensionPairingRoutes } from "./routes/extension-pairings.mjs";
 import { logger } from "./services/logger.mjs";
 import { jsonResponse } from "./services/http-handler.mjs";
@@ -32,6 +34,8 @@ registerRevenueRoutes(app);
 registerVendorReportRoutes(app);
 registerCampaignReportRoutes(app);
 registerProfileRoutes(app);
+registerMediaKitRoutes(app);
+registerMediaKitPublishRoutes(app);
 registerExtensionPairingRoutes(app);
 
 app.notFound(({ event }) => {

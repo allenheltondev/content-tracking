@@ -161,6 +161,27 @@ describe("validateCreatorProfileUpdate", () => {
     expect(validateCreatorProfileUpdate({ audience: null })).toEqual({ audience: null });
   });
 
+  test("public_slug accepts valid slugs and clears with null/empty", () => {
+    expect(validateCreatorProfileUpdate({ public_slug: "allen-helton" })).toEqual({
+      publicSlug: "allen-helton",
+    });
+    // Lowercased and trimmed.
+    expect(validateCreatorProfileUpdate({ public_slug: "  Allen99  " })).toEqual({
+      publicSlug: "allen99",
+    });
+    expect(validateCreatorProfileUpdate({ public_slug: null })).toEqual({ publicSlug: null });
+    expect(validateCreatorProfileUpdate({ public_slug: "" })).toEqual({ publicSlug: null });
+  });
+
+  test("public_slug rejects invalid shapes", () => {
+    expect(() => validateCreatorProfileUpdate({ public_slug: "ab" })).toThrow(/public_slug/); // too short
+    expect(() => validateCreatorProfileUpdate({ public_slug: "Allen!" })).toThrow(/public_slug/);
+    expect(() => validateCreatorProfileUpdate({ public_slug: "-allen" })).toThrow(/public_slug/);
+    expect(() => validateCreatorProfileUpdate({ public_slug: "allen-" })).toThrow(/public_slug/);
+    expect(() => validateCreatorProfileUpdate({ public_slug: "al--len" })).toThrow(/public_slug/);
+    expect(() => validateCreatorProfileUpdate({ public_slug: "x".repeat(41) })).toThrow(/public_slug/);
+  });
+
   test("avatar_key and logo_key must match minted keys", () => {
     expect(
       validateCreatorProfileUpdate({ avatar_key: `profile/avatar-${ULID}.png` }),

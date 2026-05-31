@@ -26,18 +26,32 @@ function escapeForScript(json) {
     .replace(PARA_SEP, "\\u2029");
 }
 
+// The template ships with a noindex directive (private signed kits must
+// never be indexed). The public teaser overrides this so the bio-link page
+// can be found by search engines.
+const NOINDEX_META = '<meta name="robots" content="noindex, nofollow">';
+const INDEX_META = '<meta name="robots" content="index, follow">';
+
 /**
  * Render a frozen media-kit snapshot into a complete, standalone HTML
  * document. Pure function: the only I/O is reading the bundled template at
  * module load. No network access.
  *
  * @param {object} snapshot - the media-kit snapshot (see data contract).
+ * @param {object} [options]
+ * @param {boolean} [options.indexable=false] - when true, emit an
+ *   index/follow robots directive instead of the default noindex. Only the
+ *   public teaser sets this; private signed kits stay noindex.
  * @returns {string} the full HTML document.
  */
-export function renderMediaKitHtml(snapshot) {
+export function renderMediaKitHtml(snapshot, { indexable = false } = {}) {
   const json = JSON.stringify(snapshot);
   const safe = escapeForScript(json);
   // Use a replacer function so `$` sequences in the data are not interpreted
   // as replacement patterns by String.prototype.replace.
-  return TEMPLATE.replace(TOKEN, () => safe);
+  let html = TEMPLATE.replace(TOKEN, () => safe);
+  if (indexable) {
+    html = html.replace(NOINDEX_META, INDEX_META);
+  }
+  return html;
 }

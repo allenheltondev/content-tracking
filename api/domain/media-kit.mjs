@@ -105,6 +105,26 @@ export async function buildMediaKitSnapshot({ assetUrlTtlSeconds = ASSET_TTL_DEF
   };
 }
 
+// Derives the PUBLIC teaser snapshot from a full media-kit snapshot. The
+// public page is deliberately a teaser: it drops the rate card (pricing
+// stays private, shared per-brand via the signed link) and re-points the
+// avatar/logo at the caller-supplied public-bucket URLs, since the
+// permanent public page can't reference a short-lived signed asset URL.
+// `contactEmail` is kept — the public page's whole job is inbound contact.
+export function toPublicTeaser(snapshot, { avatarUrl = null, logoUrl = null } = {}) {
+  return {
+    ...snapshot,
+    report: { ...snapshot.report, kind: "media-kit-public" },
+    identity: {
+      ...snapshot.identity,
+      avatarUrl,
+      logoUrl,
+    },
+    // Pricing is intentionally withheld from the public teaser.
+    rateCard: [],
+  };
+}
+
 // The creator's brand block (name + website), null when no brand name is
 // configured so the renderer can omit it.
 function buildBrand(profile) {

@@ -11,6 +11,7 @@ import {
   presignProfileImageUpload,
   signProfileAssetUrl,
 } from "../services/profile-assets.mjs";
+import { publicMediaKitUrl } from "../services/public-media-kit-store.mjs";
 import {
   readCruxApiKey,
   readGa4ServiceAccount,
@@ -115,6 +116,12 @@ async function buildProfileView({ forceFetch = false } = {}) {
     rate_card: s.rateCard ?? [],
     testimonials: s.testimonials ?? [],
     featured_collaborations: s.featuredCollaborations ?? [],
+    public_media_kit: {
+      slug: s.publicSlug ?? null,
+      published: Boolean(s.publicMediaKitPublishedAt),
+      url: s.publicSlug && s.publicMediaKitPublishedAt ? publicMediaKitUrl(s.publicSlug) : null,
+      published_at: s.publicMediaKitPublishedAt ?? null,
+    },
     ga4: {
       property_id: s.ga4PropertyId ?? null,
       service_account_email: serviceAccount?.client_email ?? null,
