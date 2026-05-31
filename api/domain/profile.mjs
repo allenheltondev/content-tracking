@@ -49,3 +49,31 @@ export async function saveProfileSettings(fields) {
   }));
   return result.Attributes;
 }
+
+// Records that the public media kit has been published (stamps the
+// timestamp the profile view reads to report published state). Kept
+// separate from saveProfileSettings so the publish flow can't be confused
+// with an ordinary settings edit.
+export async function markPublicMediaKitPublished(publishedAt) {
+  const result = await ddb.send(new UpdateCommand({
+    TableName: TABLE_NAME,
+    Key: PROFILE_KEY,
+    UpdateExpression: "SET #at = :at, #entity = :entity",
+    ExpressionAttributeNames: { "#at": "publicMediaKitPublishedAt", "#entity": "entity" },
+    ExpressionAttributeValues: { ":at": publishedAt, ":entity": "Settings" },
+    ReturnValues: "ALL_NEW",
+  }));
+  return result.Attributes;
+}
+
+// Clears the published timestamp (unpublish).
+export async function clearPublicMediaKitPublished() {
+  const result = await ddb.send(new UpdateCommand({
+    TableName: TABLE_NAME,
+    Key: PROFILE_KEY,
+    UpdateExpression: "REMOVE #at",
+    ExpressionAttributeNames: { "#at": "publicMediaKitPublishedAt" },
+    ReturnValues: "ALL_NEW",
+  }));
+  return result.Attributes;
+}

@@ -92,7 +92,13 @@ access token issued by the `RSCUserPool` user pool. The pool ARN is
 read from SSM (`/readysetcloud/auth/user-pool-arn`) at deploy time and
 wired into API Gateway as a `cognito_user_pools` authorizer.
 
-There is no anonymous access. There are no API keys.
+Every API route requires authentication; there are no API keys. The one
+public surface is the **published media kit**: a creator can publish a
+brand-facing teaser to a stable vanity URL
+(`https://kit.<domain>/<slug>`) that is served anonymously from a
+dedicated public bucket + CloudFront distribution. Generating and
+publishing it are still Cognito-gated — only the resulting static page is
+public, and it deliberately omits rate-card pricing.
 
 ## Deeper docs
 

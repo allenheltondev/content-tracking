@@ -834,6 +834,7 @@ echoes the secrets back.
 | `location` | string \| null | <=120 chars |
 | `contact_email` | string \| null | Valid email, <=320 chars |
 | `accent_color` | string \| null | Hex color (`#abc` or `#aabbcc`) |
+| `public_slug` | string \| null | Vanity slug for the public media kit (`^[a-z0-9-]{3,40}$`, no leading/trailing/double hyphen) |
 | `niches` | array of string \| null | <=20 items, each <=40 chars, deduped |
 | `avatar_key` | string \| null | A key returned by [`POST /profile/images/upload-url`](#post-profileimagesupload-url) with `kind=avatar` |
 | `logo_key` | string \| null | A key returned by the upload endpoint with `kind=logo` |
@@ -954,6 +955,63 @@ object has already aged out are skipped.
 Each item is `{ reportId, generatedAt, dataAsOf, stats, url, expiresAt }`,
 where `stats` is the [MediaKitStats](#mediakitstats-object) snapshot frozen at
 generation time.
+
+### Public media kit
+
+The endpoints above mint **private, signed, expiring** links for targeted
+brand sends. The endpoints below manage the **public** media kit: a permanent,
+brand-facing teaser published to a stable vanity URL (`https://<public-host>/<slug>`)
+that anyone can view — the inbound front door. It is served anonymously from a
+dedicated public bucket/CloudFront distribution (separate from the signed
+report bucket), is **search-engine indexable**, and deliberately **omits the
+rate card** (pricing stays in the private link). Generating and publishing are
+still fully Cognito-gated; only the resulting static page is public. Requires a
+`public_slug` set via [`PUT /profile`](#put-profile).
+
+The public page is built for discovery and sharing: the renderer
+server-renders the `<head>` with a title, meta description, canonical link,
+Open Graph + Twitter card tags (so the link unfurls with the creator's avatar
+in Slack/LinkedIn/X), and a `ProfilePage`/`Person` JSON-LD block. Publishing
+also writes `robots.txt` and `sitemap.xml` at the public bucket root pointing
+crawlers at the page; unpublishing removes them. Private signed kits stay
+`noindex` with none of this head metadata.
+
+#### POST /media-kit/publish
+
+Render the public teaser from the current profile + aggregate stats, copy the
+avatar/logo into the public bucket (so the permanent page has permanent image
+URLs), write the page to the slug, and mark the profile published. Republishing
+overwrites in place to refresh the data.
+
+**Authentication:** Cognito.
+
+**Responses:**
+
+- `200 OK` - `{ "slug": "...", "url": "https://...", "published": true, "published_at": "..." }`.
+- `400 Bad Request` - no `public_slug` set on the profile.
+- `500 Internal Server Error`.
+
+#### DELETE /media-kit/publish
+
+Take the public page down (removes the page + copied images) and clear the
+published flag. Idempotent — unpublishing when nothing is published is a
+no-op success.
+
+**Authentication:** Cognito.
+
+**Responses:**
+
+- `204 No Content`.
+
+#### GET /media-kit/publish
+
+Report the current public-kit state.
+
+**Authentication:** Cognito.
+
+**Responses:**
+
+- `200 OK` - `{ "slug": string | null, "published": boolean, "url": string | null, "published_at": string | null }`.
 
 ---
 

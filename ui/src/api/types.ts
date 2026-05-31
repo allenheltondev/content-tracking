@@ -499,6 +499,12 @@ export interface ProfileResponse {
   rate_card: ProfileRateCardItem[];
   testimonials: ProfileTestimonial[];
   featured_collaborations: ProfileFeaturedCollaboration[];
+  public_media_kit: {
+    slug: string | null;
+    published: boolean;
+    url: string | null;
+    published_at: string | null;
+  };
   ga4: {
     property_id: string | null;
     service_account_email: string | null;
@@ -525,6 +531,7 @@ export interface ProfileUpdateRequest {
   location?: string | null;
   contact_email?: string | null;
   accent_color?: string | null;
+  public_slug?: string | null;
   niches?: string[] | null;
   avatar_key?: string | null;
   logo_key?: string | null;
@@ -578,6 +585,15 @@ export interface MediaKitListItem {
 
 export interface MediaKitListResponse {
   media_kits: MediaKitListItem[];
+}
+
+// State of the public, brand-facing media kit published to a stable
+// vanity URL.
+export interface MediaKitPublishState {
+  slug: string | null;
+  published: boolean;
+  url: string | null;
+  published_at: string | null;
 }
 
 // Chrome-extension pairing tokens. The token value itself only appears

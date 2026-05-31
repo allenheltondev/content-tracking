@@ -2,8 +2,14 @@ import type { ReactElement } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApiFetch, ApiError } from '../auth/useApiFetch';
-import { generateMediaKit, listMediaKits } from '../api/mediaKit';
-import type { MediaKitListItem, MediaKitStats } from '../api/types';
+import {
+  generateMediaKit,
+  listMediaKits,
+  getPublishState,
+  publishMediaKit,
+  unpublishMediaKit,
+} from '../api/mediaKit';
+import type { MediaKitListItem, MediaKitPublishState, MediaKitStats } from '../api/types';
 
 const intFmt = new Intl.NumberFormat('en-US');
 
@@ -32,12 +38,15 @@ export default function MediaKit(): ReactElement {
   const [latest, setLatest] = useState<{ url: string; shortUrl: string | null } | null>(null);
   const [copied, setCopied] = useState(false);
 
+  const [publishState, setPublishState] = useState<MediaKitPublishState | null>(null);
+
   const load = useCallback(async () => {
     setLoadError(null);
     setLoading(true);
     try {
-      const res = await listMediaKits(apiFetch);
-      setKits(res.media_kits);
+      const [list, pub] = await Promise.all([listMediaKits(apiFetch), getPublishState(apiFetch)]);
+      setKits(list.media_kits);
+      setPublishState(pub);
     } catch (err) {
       setLoadError((err as Error).message);
     } finally {
@@ -81,11 +90,12 @@ export default function MediaKit(): ReactElement {
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Media kit</h1>
           <p className="text-sm text-muted-foreground">
-            A shareable one-pager for brands, built from your{' '}
+            A one-pager for brands, built from your{' '}
             <Link to="/settings" className="text-primary-700 hover:underline">
               profile
             </Link>{' '}
-            and live campaign performance.
+            and live campaign performance. Generate a private link to send a specific brand, or
+            publish a public page for your bio.
           </p>
         </div>
         <button type="button" className="btn-primary" onClick={() => void generate()} disabled={generating}>
@@ -117,6 +127,8 @@ export default function MediaKit(): ReactElement {
           </div>
         </div>
       )}
+
+      <PublicKitPanel state={publishState} onChange={setPublishState} />
 
       {stats && <StatsOverview stats={stats} />}
 
@@ -168,6 +180,114 @@ export default function MediaKit(): ReactElement {
         )}
       </div>
     </section>
+  );
+}
+
+// The public, brand-facing teaser published to a stable vanity URL — the
+// inbound front door. Distinct from the private signed link above: this is
+// permanent, indexable, and intentionally omits your rate card.
+function PublicKitPanel({
+  state,
+  onChange,
+}: {
+  state: MediaKitPublishState | null;
+  onChange: (s: MediaKitPublishState) => void;
+}): ReactElement | null {
+  const apiFetch = useApiFetch();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // Still loading the initial publish state.
+  if (!state) return null;
+
+  const hasSlug = Boolean(state.slug);
+  const url = state.url ?? '';
+
+  const publish = async (): Promise<void> => {
+    setError(null);
+    setBusy(true);
+    try {
+      onChange(await publishMediaKit(apiFetch));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const unpublish = async (): Promise<void> => {
+    setError(null);
+    setBusy(true);
+    try {
+      await unpublishMediaKit(apiFetch);
+      onChange({ ...state, published: false, url: null, published_at: null });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copy = (): void => {
+    if (!url) return;
+    void navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  return (
+    <div className="card card-body space-y-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h2 className="text-lg font-semibold text-foreground">Public page</h2>
+        {state.published ? (
+          <span className="status-pill status-active">Published</span>
+        ) : (
+          <span className="status-pill status-draft">Not published</span>
+        )}
+      </div>
+      <p className="text-sm text-muted-foreground">
+        A permanent, search-engine–indexable page for your link-in-bio. It shows your highlights and
+        a contact button, but <span className="font-medium text-foreground">hides your rate card</span> —
+        keep pricing for the private link above, which you send to specific brands.
+      </p>
+
+      {!hasSlug ? (
+        <p className="text-sm text-muted-foreground">
+          Set a{' '}
+          <Link to="/settings" className="text-primary-700 hover:underline">
+            public media-kit URL
+          </Link>{' '}
+          in your profile first, then publish here.
+        </p>
+      ) : (
+        <>
+          {state.published && url && (
+            <div className="flex items-center gap-2">
+              <input type="text" readOnly value={url} className="input flex-1 font-mono text-xs" />
+              <button type="button" className="btn-secondary shrink-0" onClick={copy}>
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+              <a href={url} target="_blank" rel="noreferrer noopener" className="btn-secondary shrink-0">
+                Open
+              </a>
+            </div>
+          )}
+          {error && <p className="form-error">{error}</p>}
+          <div className="flex gap-2">
+            <button type="button" className="btn-primary" onClick={() => void publish()} disabled={busy}>
+              {busy ? 'Working…' : state.published ? 'Republish (refresh data)' : 'Publish'}
+            </button>
+            {state.published && (
+              <button type="button" className="btn-secondary" onClick={() => void unpublish()} disabled={busy}>
+                Unpublish
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

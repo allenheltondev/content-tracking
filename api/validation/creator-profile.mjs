@@ -34,6 +34,10 @@ const COUNTRIES_MAX = 30;
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const CURRENCY_RE = /^[A-Z]{3}$/;
 const HEX_COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+// The vanity part of the public media-kit URL (https://<host>/<slug>).
+// Lowercase letters, digits, and hyphens; 3-40 chars; no leading/trailing
+// or doubled hyphen so the URL stays clean and unambiguous.
+const SLUG_RE = /^[a-z0-9](?:[a-z0-9]|-(?!-)){1,38}[a-z0-9]$/;
 
 // The image kinds the profile accepts and the content types behind them.
 // Kept in sync with services/profile-assets.mjs (which owns the
@@ -76,6 +80,10 @@ export function validateCreatorProfileUpdate(body) {
 
   if ("accent_color" in body) {
     out.accentColor = optionalHexColor(body.accent_color);
+  }
+
+  if ("public_slug" in body) {
+    out.publicSlug = optionalSlug(body.public_slug);
   }
 
   if ("avatar_key" in body) {
@@ -178,6 +186,21 @@ function optionalHexColor(value) {
     throw new BadRequestError("accent_color must be a hex color like #1a2b3c");
   }
   return value.trim().toLowerCase();
+}
+
+function optionalSlug(value) {
+  if (value === null) return null;
+  if (typeof value !== "string") {
+    throw new BadRequestError("public_slug must be a string");
+  }
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed.length === 0) return null;
+  if (!SLUG_RE.test(trimmed)) {
+    throw new BadRequestError(
+      "public_slug must be 3-40 chars of lowercase letters, digits, or single hyphens",
+    );
+  }
+  return trimmed;
 }
 
 function optionalImageKey(value, kind, label) {

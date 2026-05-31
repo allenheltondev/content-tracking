@@ -24,7 +24,7 @@ const { listSocialPosts } = await import("../domain/social-post.mjs");
 const { listContentPosts } = await import("../domain/content-post.mjs");
 const { getProfileSettings } = await import("../domain/profile.mjs");
 const { signProfileAssetUrl } = await import("../services/profile-assets.mjs");
-const { buildMediaKitSnapshot } = await import("../domain/media-kit.mjs");
+const { buildMediaKitSnapshot, toPublicTeaser } = await import("../domain/media-kit.mjs");
 
 const FULL_PROFILE = {
   brandName: "Ready, Set, Cloud!",
@@ -154,6 +154,29 @@ describe("buildMediaKitSnapshot", () => {
     expect(snap.brand).toBeNull();
     expect(snap.identity.avatarUrl).toBeNull();
     expect(signProfileAssetUrl).not.toHaveBeenCalled();
+  });
+
+  test("toPublicTeaser drops the rate card and re-points images", () => {
+    const snapshot = {
+      report: { id: "K1", kind: "media-kit" },
+      identity: { displayName: "Allen", avatarUrl: "signed-avatar", logoUrl: "signed-logo", contactEmail: "a@b.co" },
+      rateCard: [{ deliverable: "Post", price: 2500 }],
+      stats: { totalFollowers: 100 },
+    };
+    const teaser = toPublicTeaser(snapshot, {
+      avatarUrl: "https://kit/allen/avatar",
+      logoUrl: "https://kit/allen/logo",
+    });
+    // Pricing withheld from the public teaser.
+    expect(teaser.rateCard).toEqual([]);
+    // Images re-pointed at the public copies.
+    expect(teaser.identity.avatarUrl).toBe("https://kit/allen/avatar");
+    expect(teaser.identity.logoUrl).toBe("https://kit/allen/logo");
+    // Contact stays — the public page's whole job is inbound contact.
+    expect(teaser.identity.contactEmail).toBe("a@b.co");
+    // Marked as the public variant; stats preserved.
+    expect(teaser.report.kind).toBe("media-kit-public");
+    expect(teaser.stats.totalFollowers).toBe(100);
   });
 
   test("a signing failure degrades the asset url to null", async () => {

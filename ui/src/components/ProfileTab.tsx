@@ -22,6 +22,7 @@ interface FormState {
   location: string;
   contactEmail: string;
   accentColor: string;
+  publicSlug: string;
   niches: string[];
   socialAccounts: ProfileSocialAccount[];
   rateCard: ProfileRateCardItem[];
@@ -36,6 +37,7 @@ const EMPTY: FormState = {
   location: '',
   contactEmail: '',
   accentColor: '#2256c7',
+  publicSlug: '',
   niches: [],
   socialAccounts: [],
   rateCard: [],
@@ -51,6 +53,7 @@ function fromProfile(res: ProfileResponse): FormState {
     location: res.identity.location ?? '',
     contactEmail: res.identity.contact_email ?? '',
     accentColor: res.identity.accent_color ?? '#2256c7',
+    publicSlug: res.public_media_kit.slug ?? '',
     niches: res.identity.niches ?? [],
     socialAccounts: res.social_accounts ?? [],
     rateCard: res.rate_card ?? [],
@@ -70,6 +73,7 @@ function toPayload(s: FormState): ProfileUpdateRequest {
     location: orNull(s.location),
     contact_email: orNull(s.contactEmail),
     accent_color: orNull(s.accentColor),
+    public_slug: s.publicSlug.trim() ? s.publicSlug.trim().toLowerCase() : null,
     niches: s.niches,
     social_accounts: s.socialAccounts
       .filter((a) => a.platform.trim() && (a.handle?.trim() || a.url?.trim()))
@@ -269,6 +273,23 @@ export default function ProfileTab(): ReactElement {
             placeholder="Add a niche (e.g. AWS, Serverless)"
             disabled={busy}
           />
+        </label>
+
+        <label className="block">
+          <span className="field-label">Public media-kit URL</span>
+          <input
+            type="text"
+            className="input font-mono text-sm"
+            placeholder="your-name"
+            value={form.publicSlug}
+            onChange={(e) => patch({ publicSlug: e.target.value })}
+            disabled={busy}
+          />
+          <span className="field-hint">
+            The vanity slug for your shareable public media kit (e.g. <code>your-name</code> →{' '}
+            <code>/your-name</code>). Lowercase letters, digits, and hyphens. Set this, save, then
+            publish from the Media kit page.
+          </span>
         </label>
       </div>
 
