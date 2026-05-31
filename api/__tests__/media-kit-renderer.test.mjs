@@ -70,6 +70,10 @@ describe("renderMediaKitHtml", () => {
     });
 
     expect(html).toContain("<title>Allen Helton — Serverless educator</title>");
+    // The generic default title is removed so crawlers can't read it first;
+    // the SEO title is the only <title> in the document.
+    expect(html).not.toContain("<title>Media Kit</title>");
+    expect(html.match(/<title>/g) ?? []).toHaveLength(1);
     expect(html).toContain('<meta name="description" content="I teach cloud &amp; serverless to developers.">');
     expect(html).toContain('<link rel="canonical" href="https://kit.example.com/allen">');
 

@@ -40,6 +40,12 @@ function escapeForScript(json) {
 const NOINDEX_META = '<meta name="robots" content="noindex, nofollow">';
 const INDEX_META = '<meta name="robots" content="index, follow">';
 
+// The template carries a generic default <title> for private kits. The
+// public teaser server-renders its own creator-specific <title> in the SEO
+// head block, so the default must be removed for indexable renders —
+// otherwise crawlers/unfurlers may read the generic one that appears first.
+const DEFAULT_TITLE = "<title>Media Kit</title>";
+
 // Escape a value for use inside a double-quoted HTML attribute.
 function escapeAttr(value) {
   return String(value ?? "")
@@ -191,6 +197,8 @@ export function renderMediaKitHtml(snapshot, { indexable = false, pageUrl } = {}
 
   if (indexable) {
     html = html.replace(NOINDEX_META, INDEX_META);
+    // Drop the generic default title so only the SEO <title> survives.
+    html = html.replace(DEFAULT_TITLE, "");
     const head = buildSeoHead(snapshot, { pageUrl });
     html = html.replace(HEAD_TOKEN, () => head);
   } else {

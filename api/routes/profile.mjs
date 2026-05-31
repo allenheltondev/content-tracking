@@ -6,12 +6,20 @@ import {
   validateCreatorProfileUpdate,
   validateProfileImageUploadRequest,
 } from "../validation/creator-profile.mjs";
-import { getProfileSettings, saveProfileSettings } from "../domain/profile.mjs";
+import {
+  getProfileSettings,
+  saveProfileSettings,
+  clearPublicMediaKitPublished,
+} from "../domain/profile.mjs";
 import {
   presignProfileImageUpload,
   signProfileAssetUrl,
 } from "../services/profile-assets.mjs";
-import { publicMediaKitUrl } from "../services/public-media-kit-store.mjs";
+import {
+  publicMediaKitUrl,
+  unpublishMediaKit,
+  removePublicMediaKitSeoFiles,
+} from "../services/public-media-kit-store.mjs";
 import {
   readCruxApiKey,
   readGa4ServiceAccount,
@@ -46,6 +54,15 @@ export function registerProfileRoutes(app) {
       await writeCruxApiKey(fields.cruxApiKey);
     }
 
+    // Read the current row up front so we can detect a public_slug change
+    // (and whether a kit was published under the OLD slug) before the write
+    // overwrites it.
+    const prior = (await getProfileSettings()) ?? {};
+    const oldSlug = prior.publicSlug ?? null;
+    const wasPublished = Boolean(prior.publicMediaKitPublishedAt);
+    const slugChanged =
+      "publicSlug" in creator && (creator.publicSlug ?? null) !== oldSlug;
+
     // Non-secret integration fields + every creator-profile field share one
     // DynamoDB write. validateProfileUpdate and validateCreatorProfileUpdate
     // own disjoint key sets, so the merge can't collide.
@@ -56,6 +73,20 @@ export function registerProfileRoutes(app) {
     Object.assign(nonSecret, creator);
     if (Object.keys(nonSecret).length > 0) {
       await saveProfileSettings(nonSecret);
+    }
+
+    // A public_slug change orphans the previously-published page: the old S3
+    // object stays live under the old slug while GET /media-kit/publish would
+    // derive a URL from the NEW slug + the stale timestamp and wrongly report
+    // it as published. When the slug changes and a kit was published, take
+    // the old page (and its SEO files) down and clear the published flag, so
+    // the creator re-publishes under the new slug.
+    if (slugChanged && wasPublished) {
+      if (oldSlug) {
+        await unpublishMediaKit({ slug: oldSlug });
+        await removePublicMediaKitSeoFiles();
+      }
+      await clearPublicMediaKitPublished();
     }
 
     logger.info("Profile settings updated", {
