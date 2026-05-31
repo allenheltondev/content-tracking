@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Media Kit</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --surface: #ffffff;
+      --ink: #1a2230;
+      --muted: #5b6675;
+      --faint: #8a94a3;
+      --line: #e3e8ee;
+      --accent: #2256c7;
+      --accent-soft: #e8efff;
+      --bar: #2256c7;
+      --radius: 10px;
+      --shadow: 0 1px 3px rgba(20, 32, 54, 0.08), 0 1px 2px rgba(20, 32, 54, 0.04);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .sheet {
+      max-width: 960px;
+      margin: 24px auto;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    /* Brand bar */
+    .brand-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 6px 16px;
+      padding: 16px 32px;
+      background: var(--ink);
+      color: #fff;
+    }
+    .brand-bar .brand-name { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+    .brand-bar .brand-site { font-size: 13px; color: #cdd6e4; text-decoration: none; }
+    .brand-bar .brand-site:hover { color: #fff; text-decoration: underline; }
+
+    .toolbar { display: flex; justify-content: flex-end; padding: 16px 32px 0; }
+    .btn {
+      border: 1px solid var(--accent);
+      background: var(--accent);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 9px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .btn:hover { filter: brightness(0.95); }
+
+    /* Hero */
+    .hero {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 24px;
+      align-items: center;
+      padding: 28px 32px;
+      border-bottom: 2px solid var(--ink);
+    }
+    .hero-avatar {
+      width: 108px;
+      height: 108px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 3px solid var(--accent-soft);
+      background: var(--accent-soft);
+      flex: 0 0 auto;
+    }
+    .hero-body { min-width: 240px; flex: 1 1 320px; }
+    .doc-kicker {
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent);
+      margin: 0 0 6px;
+    }
+    .hero-name { font-size: 28px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.01em; }
+    .hero-tagline { color: var(--muted); font-size: 16px; margin: 0 0 8px; }
+    .hero-location { color: var(--faint); font-size: 13px; margin: 0 0 10px; }
+    .hero-contact {
+      display: inline-block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accent);
+      text-decoration: none;
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      padding: 6px 12px;
+      margin-top: 4px;
+    }
+    .hero-contact:hover { background: var(--accent-soft); }
+
+    .pills { margin: 10px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+    .pill {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 999px;
+      padding: 2px 10px;
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    /* Sections */
+    .section { padding: 24px 32px; border-bottom: 1px solid var(--line); }
+    .section:last-child { border-bottom: 0; }
+    .section-title {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      font-weight: 700;
+      color: var(--faint);
+      margin: 0 0 16px;
+    }
+    .bio-text { margin: 0; color: var(--ink); white-space: pre-wrap; }
+
+    /* Stat cards */
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .card { border: 1px solid var(--line); border-radius: 8px; padding: 16px; background: var(--surface); }
+    .card.is-primary { border-color: var(--accent); background: var(--accent-soft); }
+    .card .card-label { font-size: 12px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+    .card .card-value { font-size: 24px; font-weight: 700; letter-spacing: -0.01em; margin: 0; font-variant-numeric: tabular-nums; }
+
+    /* Tables */
+    .table-wrap { width: 100%; overflow-x: auto; }
+    table.data { width: 100%; border-collapse: collapse; font-size: 14px; }
+    table.data th, table.data td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      white-space: nowrap;
+    }
+    table.data th {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--faint);
+    }
+    table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    table.data td a { color: var(--accent); text-decoration: none; }
+    table.data td a:hover { text-decoration: underline; }
+    table.data tbody tr:nth-child(even) { background: #fafbfc; }
+    .muted-cell { color: var(--muted); }
+
+    /* Audience bars */
+    .audience-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
+    .audience-block h3 { font-size: 13px; margin: 0 0 10px; color: var(--ink); }
+    .bar-row { display: grid; grid-template-columns: 90px 1fr 48px; align-items: center; gap: 10px; margin: 0 0 8px; font-size: 13px; }
+    .bar-row .bar-label { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bar-track { background: var(--accent-soft); border-radius: 999px; height: 10px; overflow: hidden; }
+    .bar-fill { background: var(--bar); height: 100%; border-radius: 999px; }
+    .bar-row .bar-val { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+    .audience-note { margin: 14px 0 0; font-size: 13px; color: var(--muted); }
+
+    /* Rate card */
+    .rate-deliverable { font-weight: 600; color: var(--ink); }
+    .rate-desc { color: var(--muted); font-size: 13px; }
+    .rate-price { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+    /* Testimonials */
+    .quotes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    .quote {
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--accent);
+      border-radius: 8px;
+      padding: 16px;
+      background: #fafbfc;
+    }
+    .quote blockquote { margin: 0 0 10px; font-size: 14px; color: var(--ink); }
+    .quote .attr { font-size: 12px; color: var(--muted); }
+    .quote .attr b { color: var(--ink); }
+
+    /* Featured collaborations */
+    .collab-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+    .collab {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 16px;
+      background: var(--surface);
+      flex: 1 1 220px;
+      min-width: 200px;
+    }
+    .collab .collab-brand { font-weight: 700; color: var(--ink); }
+    .collab .collab-brand a { color: inherit; text-decoration: none; }
+    .collab .collab-brand a:hover { text-decoration: underline; color: var(--accent); }
+    .collab .collab-year { color: var(--faint); font-size: 12px; font-weight: 600; }
+    .collab .collab-desc { color: var(--muted); font-size: 13px; margin-top: 4px; }
+
+    .empty-state {
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      padding: 32px;
+      text-align: center;
+      color: var(--muted);
+      background: #fafbfc;
+    }
+    .empty-state h3 { margin: 0 0 4px; color: var(--ink); }
+    .empty-state p { margin: 0; font-size: 13px; }
+
+    .doc-footer {
+      padding: 18px 32px;
+      font-size: 11px;
+      color: var(--faint);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    @media (max-width: 720px) {
+      .sheet { margin: 0; border-radius: 0; border-left: 0; border-right: 0; }
+      .cards { grid-template-columns: repeat(2, 1fr); }
+      .audience-grid, .quotes { grid-template-columns: 1fr; }
+      .brand-bar, .hero, .section { padding-left: 20px; padding-right: 20px; }
+    }
+    @media (max-width: 420px) {
+      .cards { grid-template-columns: 1fr; }
+    }
+
+    @media print {
+      body { background: #fff; font-size: 12px; }
+      .sheet { margin: 0; max-width: none; border: 0; box-shadow: none; border-radius: 0; }
+      .no-print, .toolbar { display: none !important; }
+      .brand-bar { background: #fff; color: var(--ink); padding: 0 0 10px; border-bottom: 2px solid var(--ink); }
+      .brand-bar .brand-site { color: var(--muted); }
+      .section { padding: 14px 0; page-break-inside: avoid; }
+      .hero { padding: 0 0 14px; }
+      .card { box-shadow: none; }
+      .cards { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+      .quote, .collab { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      a[href]::after { content: ""; }
+    }
+  </style>
+</head>
+<body>
+  <main class="sheet" id="sheet">
+    <header class="brand-bar" id="brand-bar" hidden>
+      <span class="brand-name" id="brand-name"></span>
+      <a class="brand-site" id="brand-site" target="_blank" rel="noreferrer noopener" hidden></a>
+    </header>
+
+    <div class="toolbar no-print">
+      <button type="button" class="btn" id="download-pdf">Download PDF</button>
+    </div>
+
+    <header class="hero">
+      <img class="hero-avatar" id="hero-avatar" alt="" hidden>
+      <div class="hero-body">
+        <p class="doc-kicker">Media Kit</p>
+        <h1 class="hero-name" id="hero-name"></h1>
+        <p class="hero-tagline" id="hero-tagline" hidden></p>
+        <p class="hero-location" id="hero-location" hidden></p>
+        <a class="hero-contact" id="hero-contact" hidden>Get in touch</a>
+        <ul class="pills" id="hero-niches"></ul>
+      </div>
+    </header>
+
+    <section class="section" id="bio-section" hidden>
+      <h2 class="section-title">About</h2>
+      <p class="bio-text" id="bio-text"></p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">At a glance</h2>
+      <div class="cards" id="stat-cards"></div>
+    </section>
+
+    <section class="section" id="platforms-section" hidden>
+      <h2 class="section-title">Platforms</h2>
+      <div class="table-wrap" id="platforms-wrap"></div>
+    </section>
+
+    <section class="section" id="audience-section" hidden>
+      <h2 class="section-title">Audience</h2>
+      <div class="audience-grid" id="audience-grid"></div>
+      <p class="audience-note" id="audience-note" hidden></p>
+    </section>
+
+    <section class="section" id="rate-card-section" hidden>
+      <h2 class="section-title">Rate card</h2>
+      <div class="table-wrap" id="rate-card-wrap"></div>
+    </section>
+
+    <section class="section" id="collabs-section" hidden>
+      <h2 class="section-title">Featured collaborations</h2>
+      <div class="collab-grid" id="collabs-grid"></div>
+    </section>
+
+    <section class="section" id="testimonials-section" hidden>
+      <h2 class="section-title">What partners say</h2>
+      <div class="quotes" id="quotes"></div>
+    </section>
+
+    <footer class="doc-footer">
+      <span id="footer-id"></span>
+      <span>Performance figures reflect data frozen at generation time.</span>
+    </footer>
+  </main>
+
+  <script type="application/json" id="media-kit-data">__MEDIA_KIT_DATA__</script>
+  <script>
+    (function () {
+      "use strict";
+
+      var snapshot;
+      try {
+        snapshot = JSON.parse(document.getElementById("media-kit-data").textContent);
+      } catch (e) {
+        document.getElementById("sheet").innerHTML =
+          '<div class="section"><p>Unable to load media kit data.</p></div>';
+        return;
+      }
+
+      var report = snapshot.report || {};
+      var brand = snapshot.brand || null;
+      var identity = snapshot.identity || {};
+      var stats = snapshot.stats || {};
+      var socialAccounts = Array.isArray(snapshot.socialAccounts) ? snapshot.socialAccounts : [];
+      var audience = snapshot.audience || null;
+      var rateCard = Array.isArray(snapshot.rateCard) ? snapshot.rateCard : [];
+      var testimonials = Array.isArray(snapshot.testimonials) ? snapshot.testimonials : [];
+      var collaborations = Array.isArray(snapshot.featuredCollaborations) ? snapshot.featuredCollaborations : [];
+
+      var intFmt = new Intl.NumberFormat("en-US");
+      function fmtInt(n) { return intFmt.format(typeof n === "number" ? n : 0); }
+
+      // Compact follower-style formatting: 12.3K, 4.5M.
+      function fmtCompact(n) {
+        if (typeof n !== "number" || !isFinite(n)) return "0";
+        var abs = Math.abs(n);
+        if (abs >= 1e6) return trimZero(n / 1e6) + "M";
+        if (abs >= 1e3) return trimZero(n / 1e3) + "K";
+        return fmtInt(n);
+      }
+      function trimZero(x) {
+        return (Math.round(x * 10) / 10).toString();
+      }
+
+      function fmtPercent(rate) {
+        if (typeof rate !== "number" || !isFinite(rate)) return "—";
+        return (rate * 100).toFixed(1) + "%";
+      }
+
+      function fmtMoney(amount, currency) {
+        if (typeof amount !== "number" || !isFinite(amount)) return "—";
+        try {
+          return new Intl.NumberFormat("en-US", {
+            style: "currency",
+            currency: currency || "USD",
+            maximumFractionDigits: 0
+          }).format(amount);
+        } catch (e) {
+          return fmtInt(amount) + " " + (currency || "");
+        }
+      }
+
+      function el(tag, attrs, text) {
+        var node = document.createElement(tag);
+        if (attrs) {
+          for (var k in attrs) {
+            if (Object.prototype.hasOwnProperty.call(attrs, k)) node.setAttribute(k, attrs[k]);
+          }
+        }
+        if (text != null) node.textContent = text;
+        return node;
+      }
+
+      function truncate(s, n) {
+        if (!s) return "";
+        return s.length <= n ? s : s.slice(0, n - 1) + "…";
+      }
+
+      function siteLabel(u) {
+        try { return new URL(u).host; } catch (e) { return u; }
+      }
+
+      // Apply the creator's accent color if one is configured and valid.
+      if (typeof identity.accentColor === "string" && /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(identity.accentColor)) {
+        var root = document.documentElement;
+        root.style.setProperty("--accent", identity.accentColor);
+        root.style.setProperty("--bar", identity.accentColor);
+      }
+
+      // ---- Brand bar ----
+      if (brand && brand.name) {
+        document.getElementById("brand-bar").hidden = false;
+        document.getElementById("brand-name").textContent = brand.name;
+        if (brand.websiteUrl) {
+          var siteEl = document.getElementById("brand-site");
+          siteEl.hidden = false;
+          siteEl.href = brand.websiteUrl;
+          siteEl.textContent = siteLabel(brand.websiteUrl);
+        }
+      }
+
+      // ---- Hero ----
+      var name = identity.displayName || (brand && brand.name) || "Media Kit";
+      document.getElementById("hero-name").textContent = name;
+      document.title = name + " — Media Kit";
+
+      if (identity.avatarUrl) {
+        var avatar = document.getElementById("hero-avatar");
+        avatar.src = identity.avatarUrl;
+        avatar.alt = name;
+        avatar.hidden = false;
+      }
+      if (identity.tagline) {
+        var tag = document.getElementById("hero-tagline");
+        tag.textContent = identity.tagline;
+        tag.hidden = false;
+      }
+      if (identity.location) {
+        var loc = document.getElementById("hero-location");
+        loc.textContent = identity.location;
+        loc.hidden = false;
+      }
+      if (identity.contactEmail) {
+        var contact = document.getElementById("hero-contact");
+        contact.href = "mailto:" + identity.contactEmail;
+        contact.hidden = false;
+      }
+      var niches = Array.isArray(identity.niches) ? identity.niches : [];
+      if (niches.length) {
+        var nicheRoot = document.getElementById("hero-niches");
+        niches.forEach(function (n) {
+          nicheRoot.appendChild(el("li", { "class": "pill" }, String(n)));
+        });
+      }
+
+      // ---- Bio ----
+      if (identity.bio) {
+        document.getElementById("bio-section").hidden = false;
+        document.getElementById("bio-text").textContent = identity.bio;
+      }
+
+      // ---- Stat cards ----
+      var cardsRoot = document.getElementById("stat-cards");
+      function addCard(label, value, primary) {
+        var card = el("div", { "class": "card" + (primary ? " is-primary" : "") });
+        card.appendChild(el("p", { "class": "card-label" }, label));
+        card.appendChild(el("p", { "class": "card-value" }, value));
+        cardsRoot.appendChild(card);
+      }
+      addCard("Total followers", fmtCompact(stats.totalFollowers), true);
+      addCard("Total reach", fmtCompact(stats.totalReach), true);
+      addCard("Engagement rate", fmtPercent(stats.engagementRate), true);
+      addCard("Platforms", fmtInt(stats.platformCount), false);
+      addCard("Campaigns delivered", fmtInt(stats.campaignsCompleted), false);
+      addCard("Total engagements", fmtCompact(stats.totalEngagements), false);
+
+      // ---- Platforms ----
+      if (socialAccounts.length) {
+        document.getElementById("platforms-section").hidden = false;
+        var pTable = el("table", { "class": "data" });
+        var pHead = el("thead");
+        var pHtr = el("tr");
+        pHtr.appendChild(el("th", { scope: "col" }, "Platform"));
+        pHtr.appendChild(el("th", { scope: "col" }, "Handle"));
+        pHtr.appendChild(el("th", { "class": "num", scope: "col" }, "Followers"));
+        pHead.appendChild(pHtr);
+        pTable.appendChild(pHead);
+        var pBody = el("tbody");
+        socialAccounts.forEach(function (a) {
+          var tr = el("tr");
+          tr.appendChild(el("td", null, a.platform ? String(a.platform) : "—"));
+          var handleTd = el("td");
+          var label = a.handle || (a.url ? siteLabel(a.url) : "—");
+          if (a.url) {
+            handleTd.appendChild(el("a", { href: a.url, rel: "noreferrer noopener", target: "_blank" }, label));
+          } else {
+            handleTd.textContent = label;
+          }
+          tr.appendChild(handleTd);
+          tr.appendChild(el("td", { "class": "num" },
+            typeof a.followers === "number" ? fmtInt(a.followers) : "—"));
+          pBody.appendChild(tr);
+        });
+        pTable.appendChild(pBody);
+        document.getElementById("platforms-wrap").appendChild(pTable);
+      }
+
+      // ---- Audience ----
+      renderAudience();
+      function renderAudience() {
+        if (!audience) return;
+        var grid = document.getElementById("audience-grid");
+        var blocks = 0;
+        blocks += addPercentBlock(grid, "Age", audience.ageBrackets);
+        blocks += addPercentBlock(grid, "Gender", audience.gender);
+        blocks += addCountriesBlock(grid, audience.topCountries);
+        if (blocks > 0) {
+          document.getElementById("audience-section").hidden = false;
+        }
+        if (audience.note) {
+          var note = document.getElementById("audience-note");
+          note.textContent = audience.note;
+          note.hidden = false;
+          if (blocks === 0) document.getElementById("audience-section").hidden = false;
+        }
+      }
+
+      function addPercentBlock(grid, title, map) {
+        if (!map || typeof map !== "object") return 0;
+        var entries = Object.keys(map).map(function (k) { return [k, map[k]]; });
+        if (!entries.length) return 0;
+        entries.sort(function (a, b) { return (b[1] || 0) - (a[1] || 0); });
+        var block = el("div", { "class": "audience-block" });
+        block.appendChild(el("h3", null, title));
+        entries.forEach(function (e) {
+          block.appendChild(barRow(e[0], e[1]));
+        });
+        grid.appendChild(block);
+        return 1;
+      }
+
+      function addCountriesBlock(grid, countries) {
+        if (!Array.isArray(countries) || !countries.length) return 0;
+        var rows = countries.slice().sort(function (a, b) {
+          return (b.percent || 0) - (a.percent || 0);
+        });
+        var block = el("div", { "class": "audience-block" });
+        block.appendChild(el("h3", null, "Top countries"));
+        rows.forEach(function (c) {
+          block.appendChild(barRow(c.country, c.percent));
+        });
+        grid.appendChild(block);
+        return 1;
+      }
+
+      function barRow(label, pct) {
+        var value = typeof pct === "number" && isFinite(pct) ? pct : 0;
+        var row = el("div", { "class": "bar-row" });
+        row.appendChild(el("span", { "class": "bar-label", title: String(label) }, String(label)));
+        var track = el("div", { "class": "bar-track" });
+        var fill = el("div", { "class": "bar-fill" });
+        fill.style.width = Math.max(0, Math.min(100, value)) + "%";
+        track.appendChild(fill);
+        row.appendChild(track);
+        row.appendChild(el("span", { "class": "bar-val" }, Math.round(value) + "%"));
+        return row;
+      }
+
+      // ---- Rate card ----
+      if (rateCard.length) {
+        document.getElementById("rate-card-section").hidden = false;
+        var rTable = el("table", { "class": "data" });
+        var rHead = el("thead");
+        var rHtr = el("tr");
+        rHtr.appendChild(el("th", { scope: "col" }, "Deliverable"));
+        rHtr.appendChild(el("th", { "class": "num", scope: "col" }, "Rate"));
+        rHead.appendChild(rHtr);
+        rTable.appendChild(rHead);
+        var rBody = el("tbody");
+        rateCard.forEach(function (item) {
+          var tr = el("tr");
+          var cell = el("td");
+          cell.appendChild(el("div", { "class": "rate-deliverable" }, item.deliverable ? String(item.deliverable) : "—"));
+          if (item.description) cell.appendChild(el("div", { "class": "rate-desc" }, String(item.description)));
+          tr.appendChild(cell);
+          tr.appendChild(el("td", { "class": "num rate-price" },
+            typeof item.price === "number" ? fmtMoney(item.price, item.currency) : "On request"));
+          rBody.appendChild(tr);
+        });
+        rTable.appendChild(rBody);
+        document.getElementById("rate-card-wrap").appendChild(rTable);
+      }
+
+      // ---- Featured collaborations ----
+      if (collaborations.length) {
+        document.getElementById("collabs-section").hidden = false;
+        var cGrid = document.getElementById("collabs-grid");
+        collaborations.forEach(function (c) {
+          var card = el("div", { "class": "collab" });
+          var head = el("div", { "class": "collab-brand" });
+          if (c.url) {
+            head.appendChild(el("a", { href: c.url, rel: "noreferrer noopener", target: "_blank" },
+              c.brand ? String(c.brand) : siteLabel(c.url)));
+          } else {
+            head.textContent = c.brand ? String(c.brand) : "—";
+          }
+          if (c.year) {
+            head.appendChild(document.createTextNode(" "));
+            head.appendChild(el("span", { "class": "collab-year" }, String(c.year)));
+          }
+          card.appendChild(head);
+          if (c.description) card.appendChild(el("div", { "class": "collab-desc" }, String(c.description)));
+          cGrid.appendChild(card);
+        });
+      }
+
+      // ---- Testimonials ----
+      if (testimonials.length) {
+        document.getElementById("testimonials-section").hidden = false;
+        var qRoot = document.getElementById("quotes");
+        testimonials.forEach(function (t) {
+          var card = el("div", { "class": "quote" });
+          card.appendChild(el("blockquote", null, "“" + (t.quote ? String(t.quote) : "") + "”"));
+          var attrParts = [];
+          if (t.author) attrParts.push(t.author);
+          var roleCompany = [t.role, t.company].filter(Boolean).join(", ");
+          var attr = el("div", { "class": "attr" });
+          if (t.author) {
+            attr.appendChild(el("b", null, String(t.author)));
+            if (roleCompany) attr.appendChild(document.createTextNode(" — " + roleCompany));
+          } else if (roleCompany) {
+            attr.appendChild(document.createTextNode(roleCompany));
+          }
+          if (t.author || roleCompany) card.appendChild(attr);
+          qRoot.appendChild(card);
+        });
+      }
+
+      // ---- Footer ----
+      var footerParts = [];
+      footerParts.push(name);
+      if (report.dataAsOf) footerParts.push("Data as of " + report.dataAsOf);
+      if (report.id) footerParts.push("Kit " + report.id);
+      document.getElementById("footer-id").textContent = footerParts.join(" · ");
+
+      // ---- Print ----
+      document.getElementById("download-pdf").addEventListener("click", function () {
+        window.print();
+      });
+    })();
+  </script>
+</body>
+</html>
