@@ -15,13 +15,16 @@ import type {
   ProfileUpdateRequest,
 } from '../api/types';
 import Modal from '../components/Modal';
+import ProfileTab from '../components/ProfileTab';
 
-type SettingsTab = 'integrations' | 'extension';
+type SettingsTab = 'profile' | 'integrations' | 'extension';
 
 const TAB_PARAM = 'tab';
 
 function parseTab(value: string | null): SettingsTab {
-  return value === 'extension' ? 'extension' : 'integrations';
+  if (value === 'extension') return 'extension';
+  if (value === 'integrations') return 'integrations';
+  return 'profile';
 }
 
 export default function Settings(): ReactElement {
@@ -32,7 +35,7 @@ export default function Settings(): ReactElement {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
-        if (tab === 'integrations') next.delete(TAB_PARAM);
+        if (tab === 'profile') next.delete(TAB_PARAM);
         else next.set(TAB_PARAM, tab);
         return next;
       },
@@ -48,6 +51,11 @@ export default function Settings(): ReactElement {
 
       <nav className="border-b border-border flex gap-1" aria-label="Settings sections">
         <TabButton
+          label="Profile"
+          active={activeTab === 'profile'}
+          onClick={() => selectTab('profile')}
+        />
+        <TabButton
           label="Integrations"
           active={activeTab === 'integrations'}
           onClick={() => selectTab('integrations')}
@@ -59,6 +67,7 @@ export default function Settings(): ReactElement {
         />
       </nav>
 
+      {activeTab === 'profile' && <ProfileTab />}
       {activeTab === 'integrations' && <IntegrationsTab />}
       {activeTab === 'extension' && <ExtensionTab />}
     </section>
