@@ -740,16 +740,20 @@ Example success body (grouping=month):
 
 ## Profile
 
-Account-level integration settings for the Google Analytics 4 and Core Web
-Vitals lookups used by [web analytics](#get-campaignscampaignidweb-analytics).
-This stack is effectively single-tenant, so there is one shared profile
-rather than one per user. Secrets (the GA4 service account and the CrUX API
-key) are stored in SSM SecureStrings and are **never returned** — responses
-only report whether each integration is configured.
+The single shared account profile. It carries two concerns: **integration
+settings** (Google Analytics 4 and Core Web Vitals, used by
+[web analytics](#get-campaignscampaignidweb-analytics)) and the
+**creator profile** that the [media kit](#media-kit) and shared reports
+render from — identity, social accounts, audience, rate card, testimonials,
+and featured collaborations. This stack is effectively single-tenant, so
+there is one shared profile rather than one per user. Secrets (the GA4
+service account and the CrUX API key) are stored in SSM SecureStrings and
+are **never returned** — responses only report whether each integration is
+configured.
 
 ### GET /profile
 
-Read the current integration settings.
+Read the full profile.
 
 **Authentication:** Cognito.
 
@@ -762,6 +766,38 @@ Example success body:
 
 ```json
 {
+  "brand": { "name": "Ready, Set, Cloud!", "website_url": "https://readysetcloud.io" },
+  "identity": {
+    "display_name": "Allen Helton",
+    "tagline": "Serverless educator & developer advocate",
+    "bio": "I teach cloud and serverless.",
+    "location": "Tennessee, USA",
+    "contact_email": "partnerships@readysetcloud.io",
+    "accent_color": "#2256c7",
+    "niches": ["AWS", "Serverless"],
+    "avatar_key": "profile/avatar-01J0A2B3C4D5E6F7G8H9JKMNPQ.png",
+    "avatar_url": "https://reports.example.com/profile/avatar-...png?Expires=...",
+    "logo_key": null,
+    "logo_url": null
+  },
+  "social_accounts": [
+    { "platform": "x", "handle": "@allenheltondev", "url": null, "followers": 12000 }
+  ],
+  "audience": {
+    "ageBrackets": { "25-34": 45, "35-44": 30 },
+    "gender": { "male": 70, "female": 30 },
+    "topCountries": [{ "country": "United States", "percent": 55 }],
+    "note": "Mostly senior developers and architects"
+  },
+  "rate_card": [
+    { "deliverable": "Sponsored blog post", "description": null, "price": 2500, "currency": "USD" }
+  ],
+  "testimonials": [
+    { "quote": "A pleasure to work with.", "author": "Jordan Lee", "role": "Marketing Lead", "company": "Acme" }
+  ],
+  "featured_collaborations": [
+    { "brand": "Acme Corp", "description": "Q3 launch campaign", "url": "https://acme.example", "year": 2025 }
+  ],
   "ga4": {
     "property_id": "123456789",
     "service_account_email": "booked@my-project.iam.gserviceaccount.com",
@@ -774,10 +810,12 @@ Example success body:
 
 ### PUT /profile
 
-Store integration credentials. The GA4 service account and CrUX API key are
-written to SSM SecureStrings; the GA4 property id is stored in DynamoDB. All
-fields are optional — only those present are applied. The response is the
-same shape as `GET /profile` and never echoes the secrets back.
+Store profile fields. The GA4 service account and CrUX API key are written to
+SSM SecureStrings; everything else is stored in DynamoDB. All fields are
+optional — only those present are applied (partial update). For the nullable
+creator fields, an explicit `null` clears the field; arrays replace the prior
+value wholesale. The response is the same shape as `GET /profile` and never
+echoes the secrets back.
 
 **Authentication:** Cognito.
 
@@ -788,22 +826,134 @@ same shape as `GET /profile` and never echoes the secrets back.
 | `ga4_property_id` | string | Numeric GA4 property id (e.g. `123456789`) |
 | `ga4_service_account` | string | The Google service-account JSON key, as a string (contents of the downloaded key file). The service account needs Viewer on the GA4 property |
 | `crux_api_key` | string | A Google API key with the CrUX API and PageSpeed Insights API enabled. <=200 chars |
+| `brand_name` | string | <=80 chars. Shown on shared reports |
+| `website_url` | string | <=200 chars. Bare host accepted (https assumed) |
+| `display_name` | string \| null | <=80 chars |
+| `tagline` | string \| null | <=160 chars |
+| `bio` | string \| null | <=2000 chars |
+| `location` | string \| null | <=120 chars |
+| `contact_email` | string \| null | Valid email, <=320 chars |
+| `accent_color` | string \| null | Hex color (`#abc` or `#aabbcc`) |
+| `niches` | array of string \| null | <=20 items, each <=40 chars, deduped |
+| `avatar_key` | string \| null | A key returned by [`POST /profile/images/upload-url`](#post-profileimagesupload-url) with `kind=avatar` |
+| `logo_key` | string \| null | A key returned by the upload endpoint with `kind=logo` |
+| `social_accounts` | array \| null | <=30 items. Each `{ platform, handle?, url?, followers? }`; needs a handle or url |
+| `audience` | object \| null | `{ ageBrackets?, gender?, topCountries?, note? }`; percentages 0-100 |
+| `rate_card` | array \| null | <=30 items. Each `{ deliverable, description?, price?, currency? }` (currency defaults `USD`) |
+| `testimonials` | array \| null | <=20 items. Each `{ quote, author?, role?, company? }` |
+| `featured_collaborations` | array \| null | <=20 items. Each `{ brand, description?, url?, year? }` |
 
 Example request:
 
 ```json
 {
-  "ga4_property_id": "123456789",
-  "ga4_service_account": "{ \"type\": \"service_account\", \"client_email\": \"...\", \"private_key\": \"-----BEGIN PRIVATE KEY-----\\n...\" }",
-  "crux_api_key": "AIza..."
+  "display_name": "Allen Helton",
+  "tagline": "Serverless educator",
+  "niches": ["AWS", "Serverless"],
+  "social_accounts": [
+    { "platform": "x", "handle": "@allenheltondev", "followers": 12000 }
+  ],
+  "rate_card": [
+    { "deliverable": "Sponsored blog post", "price": 2500, "currency": "USD" }
+  ]
 }
 ```
 
 **Responses:**
 
 - `200 OK` - updated [Profile](#profile-object).
-- `400 Bad Request` - validation failure (non-numeric property id, malformed service account JSON).
+- `400 Bad Request` - validation failure (non-numeric property id, malformed service account JSON, bad email/color/url, over-limit field, unknown image key).
 - `500 Internal Server Error`.
+
+### POST /profile/images/upload-url
+
+Mint a presigned S3 `PUT` URL for a profile image (avatar or logo). The
+client uploads the image bytes directly to the returned `url` (bound to the
+`content_type`), then persists the returned `key` via
+[`PUT /profile`](#put-profile) as `avatar_key` or `logo_key`. Images are
+stored in the private reports bucket and surfaced on the media kit via
+long-lived CloudFront signed URLs.
+
+**Authentication:** Cognito.
+
+**Request body:**
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `kind` | enum | yes | `avatar` \| `logo` |
+| `content_type` | enum | yes | `image/png` \| `image/jpeg` \| `image/webp` \| `image/gif` |
+
+**Responses:**
+
+- `200 OK` - `{ "kind": "avatar", "key": "profile/avatar-...png", "url": "https://...", "expiresAt": "..." }`. The presigned `url` is valid for 15 minutes.
+- `400 Bad Request` - unknown `kind` or unsupported `content_type`.
+- `500 Internal Server Error`.
+
+---
+
+## Media kit
+
+A shareable, brand-facing one-pager built from the [creator profile](#profile)
+plus live aggregate performance across every campaign (total followers,
+cross-campaign reach and engagement, campaigns delivered). Rendered to a
+standalone HTML page, stored in the private reports bucket, and served via a
+CloudFront signed URL — the same delivery pattern as
+[campaign reports](#campaign-reports). Reports age out after the retention
+window (90 days by default).
+
+### POST /media-kit
+
+Generate a fresh media kit. Builds the snapshot, renders the HTML (with the
+avatar/logo image URLs signed for the kit's full lifetime), stores it,
+persists a record, and returns a signed share link plus a minted short link.
+
+**Authentication:** Cognito.
+
+**Responses:**
+
+- `201 Created` - [MediaKitGenerateResult](#mediakitgenerateresult-object).
+- `500 Internal Server Error`.
+
+Example success body:
+
+```json
+{
+  "reportId": "01J0A2B3C4D5E6F7G8H9JKMNPQ",
+  "url": "https://reports.example.com/reports/media-kit/01J0...html?Expires=...",
+  "shortUrl": "https://rdyset.click/c/Mk7Qz2",
+  "expiresAt": "2026-08-29T14:03:11.512Z",
+  "dataAsOf": "2026-05-31",
+  "stats": {
+    "totalFollowers": 15000,
+    "platformCount": 2,
+    "campaignsCompleted": 6,
+    "campaignsTotal": 8,
+    "postsTracked": 24,
+    "totalViews": 120000,
+    "totalImpressions": 80000,
+    "totalReach": 200000,
+    "totalEngagements": 9500,
+    "engagementRate": 0.0475
+  }
+}
+```
+
+### GET /media-kit
+
+List previously-generated media kits, newest first, each with a freshly
+re-signed link valid for as long as its S3 object survives. Records whose
+object has already aged out are skipped.
+
+**Authentication:** Cognito.
+
+**Responses:**
+
+- `200 OK` - `{ "media_kits": [MediaKitListItem, ...] }`.
+- `500 Internal Server Error`.
+
+Each item is `{ reportId, generatedAt, dataAsOf, stats, url, expiresAt }`,
+where `stats` is the [MediaKitStats](#mediakitstats-object) snapshot frozen at
+generation time.
 
 ---
 
@@ -1248,11 +1398,55 @@ additional `campaign_name` field.
 
 | Field | Type | Notes |
 | --- | --- | --- |
+| `brand.name` | string \| null | Brand name shown on shared reports |
+| `brand.website_url` | string \| null | Brand website |
+| `identity.display_name` | string \| null | Creator's display name |
+| `identity.tagline` | string \| null | Short one-line tagline |
+| `identity.bio` | string \| null | Longer about paragraph |
+| `identity.location` | string \| null | Free-form location |
+| `identity.contact_email` | string \| null | Partnerships contact email |
+| `identity.accent_color` | string \| null | Hex color applied to the media kit |
+| `identity.niches` | array of string | Topic/niche tags |
+| `identity.avatar_key` | string \| null | Stored avatar S3 key |
+| `identity.avatar_url` | string \| null | Signed avatar preview URL; `null` if unset or signing unavailable |
+| `identity.logo_key` | string \| null | Stored logo S3 key |
+| `identity.logo_url` | string \| null | Signed logo preview URL |
+| `social_accounts` | array | Each `{ platform, handle, url, followers }` |
+| `audience` | object \| null | `{ ageBrackets, gender, topCountries, note }` |
+| `rate_card` | array | Each `{ deliverable, description, price, currency }` |
+| `testimonials` | array | Each `{ quote, author, role, company }` |
+| `featured_collaborations` | array | Each `{ brand, description, url, year }` |
 | `ga4.property_id` | string \| null | Numeric GA4 property id |
 | `ga4.service_account_email` | string \| null | `client_email` from the stored service account |
 | `ga4.configured` | boolean | True when both a property id and service account are stored |
 | `core_web_vitals.configured` | boolean | True when a CrUX/PageSpeed API key is stored |
 | `updated_at` | string (date-time) \| null | Last settings write |
+
+### MediaKitStats object
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `totalFollowers` | integer | Sum of follower counts across `social_accounts` |
+| `platformCount` | integer | Number of social accounts |
+| `campaignsCompleted` | integer | Campaigns with status `completed` |
+| `campaignsTotal` | integer | All campaigns |
+| `postsTracked` | integer | Social + content posts across all campaigns |
+| `totalViews` | integer | Summed view-type metrics across tracked posts |
+| `totalImpressions` | integer | Summed impression metrics |
+| `totalReach` | integer | `totalViews + totalImpressions` |
+| `totalEngagements` | integer | Summed engagement metrics (excludes views/impressions) |
+| `engagementRate` | number \| null | `totalEngagements / totalReach`; `null` when there is no reach |
+
+### MediaKitGenerateResult object
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `reportId` | string (ULID) | Generated media-kit id |
+| `url` | string | CloudFront signed URL, valid for the kit's full lifetime |
+| `shortUrl` | string \| null | Minted short link wrapping `url`; `null` if minting failed |
+| `expiresAt` | string (date-time) | When the kit (object + record) ages out |
+| `dataAsOf` | string (date) | Date the snapshot was frozen |
+| `stats` | [MediaKitStats](#mediakitstats-object) | Aggregate performance at generation time |
 
 ### WebAnalytics object
 

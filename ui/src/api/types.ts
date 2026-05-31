@@ -437,11 +437,68 @@ export interface UpdateCampaignRequest {
 
 // GET /profile — integration settings. Secrets are never returned; only
 // whether each integration is configured.
+// One social platform the creator is on, shown on the media kit.
+export interface ProfileSocialAccount {
+  platform: string;
+  handle: string | null;
+  url: string | null;
+  followers: number | null;
+}
+
+// A single priced deliverable in the rate card.
+export interface ProfileRateCardItem {
+  deliverable: string;
+  description: string | null;
+  price: number | null;
+  currency: string;
+}
+
+export interface ProfileTestimonial {
+  quote: string;
+  author: string | null;
+  role: string | null;
+  company: string | null;
+}
+
+export interface ProfileFeaturedCollaboration {
+  brand: string;
+  description: string | null;
+  url: string | null;
+  year: number | null;
+}
+
+// Audience demographics. Age/gender are label -> percent maps; countries
+// are an ordered list. All percentages are 0-100.
+export interface ProfileAudience {
+  ageBrackets?: Record<string, number> | null;
+  gender?: Record<string, number> | null;
+  topCountries?: { country: string; percent: number }[] | null;
+  note?: string | null;
+}
+
 export interface ProfileResponse {
   brand: {
     name: string | null;
     website_url: string | null;
   };
+  identity: {
+    display_name: string | null;
+    tagline: string | null;
+    bio: string | null;
+    location: string | null;
+    contact_email: string | null;
+    accent_color: string | null;
+    niches: string[];
+    avatar_key: string | null;
+    avatar_url: string | null;
+    logo_key: string | null;
+    logo_url: string | null;
+  };
+  social_accounts: ProfileSocialAccount[];
+  audience: ProfileAudience | null;
+  rate_card: ProfileRateCardItem[];
+  testimonials: ProfileTestimonial[];
+  featured_collaborations: ProfileFeaturedCollaboration[];
   ga4: {
     property_id: string | null;
     service_account_email: string | null;
@@ -454,6 +511,7 @@ export interface ProfileResponse {
 }
 
 // PUT /profile — all fields optional; only the ones present are applied.
+// Explicit null clears a nullable field (mirrors the API's contract).
 export interface ProfileUpdateRequest {
   ga4_property_id?: string;
   // The full service-account JSON, pasted from the downloaded key file.
@@ -461,6 +519,65 @@ export interface ProfileUpdateRequest {
   crux_api_key?: string;
   brand_name?: string;
   website_url?: string;
+  display_name?: string | null;
+  tagline?: string | null;
+  bio?: string | null;
+  location?: string | null;
+  contact_email?: string | null;
+  accent_color?: string | null;
+  niches?: string[] | null;
+  avatar_key?: string | null;
+  logo_key?: string | null;
+  social_accounts?: ProfileSocialAccount[] | null;
+  audience?: ProfileAudience | null;
+  rate_card?: ProfileRateCardItem[] | null;
+  testimonials?: ProfileTestimonial[] | null;
+  featured_collaborations?: ProfileFeaturedCollaboration[] | null;
+}
+
+export type ProfileImageKind = 'avatar' | 'logo';
+
+export interface ProfileImageUploadResponse {
+  kind: ProfileImageKind;
+  key: string;
+  url: string;
+  expiresAt: string;
+}
+
+// Aggregate performance stats baked into a generated media kit.
+export interface MediaKitStats {
+  totalFollowers: number;
+  platformCount: number;
+  campaignsCompleted: number;
+  campaignsTotal: number;
+  postsTracked: number;
+  totalViews: number;
+  totalImpressions: number;
+  totalReach: number;
+  totalEngagements: number;
+  engagementRate: number | null;
+}
+
+export interface MediaKitGenerateResponse {
+  reportId: string;
+  url: string;
+  shortUrl: string | null;
+  expiresAt: string;
+  dataAsOf: string;
+  stats: MediaKitStats;
+}
+
+export interface MediaKitListItem {
+  reportId: string;
+  generatedAt: string;
+  dataAsOf: string;
+  stats: MediaKitStats | null;
+  url: string;
+  expiresAt: string;
+}
+
+export interface MediaKitListResponse {
+  media_kits: MediaKitListItem[];
 }
 
 // Chrome-extension pairing tokens. The token value itself only appears

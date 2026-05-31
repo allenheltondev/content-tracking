@@ -1,5 +1,6 @@
 import { getCampaignWithLinks } from "./campaign.mjs";
 import { getProfileSettings } from "./profile.mjs";
+import { splitPostMetrics } from "./post-metrics.mjs";
 import { getCampaignAnalytics } from "../services/campaign-analytics.mjs";
 import { loadCampaignGa4 } from "../services/campaign-ga4.mjs";
 import { NotFoundError } from "../services/errors.mjs";
@@ -109,30 +110,8 @@ function buildMainContent(ga4) {
   };
 }
 
-// Reach/engagement keys differ per platform (the extension reports an open
-// metric map), so we classify by name rather than a fixed schema. Reach
-// metrics (views, impressions) are kept OUT of the engagement total so the
-// two numbers never double-count the same interaction.
-const VIEW_KEY = /^(views?|pageviews?|screenpageviews)$/i;
-const IMPRESSION_KEY = /^impressions?$/i;
-
-function splitMetrics(analytics) {
-  let views = 0;
-  let impressions = 0;
-  let engagements = 0;
-  if (analytics && typeof analytics === "object") {
-    for (const [k, v] of Object.entries(analytics)) {
-      const n = typeof v === "number" && Number.isFinite(v) ? v : 0;
-      if (VIEW_KEY.test(k)) views += n;
-      else if (IMPRESSION_KEY.test(k)) impressions += n;
-      else engagements += n;
-    }
-  }
-  return { views, impressions, engagements };
-}
-
 function toPostSnapshot(row) {
-  const { views, impressions, engagements } = splitMetrics(row.analytics);
+  const { views, impressions, engagements } = splitPostMetrics(row.analytics);
   // Top single metric across the whole map — an at-a-glance "what drove this
   // post" hint, independent of the reach/engagement split above.
   let topMetric = null;
