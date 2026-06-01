@@ -664,6 +664,85 @@ Example success body:
 
 ---
 
+## Content post recommendations
+
+On-demand AI suggestions for where else to cross-post or promote a content
+post (the campaign's published "work item") to boost engagement. The agent
+reads the work item plus the campaign's distribution history — the brief,
+where the piece is already cross-posted (cross-post [links](#links) and the
+campaign's other content posts), and what's already been said about it on
+social ([social posts](#social-posts) and their notes) — so it doesn't
+recommend channels you've already used or repeat angles you've already
+posted. Recommendations are generated on request, not automatically on
+content-post creation, since each generation calls Bedrock.
+
+The most recent set is stored on the content post and can be re-read without
+re-running the model.
+
+### POST /campaigns/{campaignId}/content-posts/{postId}/recommendations
+
+Generate a fresh set of recommendations for the content post and store them.
+
+**Authentication:** Cognito.
+
+**Request body:** optional.
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `goal` | string | no | Up to 500 chars of free-text guidance to steer the model (e.g. "we want developer signups, not vanity reach"). |
+
+**Responses:**
+
+- `201 Created` - [EngagementRecommendation](#engagementrecommendation-object).
+- `400 Bad Request` - malformed body or an over-long `goal`.
+- `404 Not Found` - campaign or content post does not exist.
+- `502 Bad Gateway` - the model call failed (nothing is stored; retry re-runs).
+- `500 Internal Server Error`.
+
+Example success body:
+
+```json
+{
+  "campaign_id": "01HV0AABBCCDDEEFFGGHHJJKKM",
+  "post_id": "01HV0CONTENTPOST0000000001",
+  "summary": "Strong fit for hands-on developer communities; lead with the concrete result rather than the product name.",
+  "recommendations": [
+    {
+      "channel": "reddit r/webdev",
+      "action": "promote",
+      "priority": "high",
+      "rationale": "The piece is a hands-on tutorial and r/webdev rewards practical write-ups; you haven't shared it there yet.",
+      "suggested_message": "Wrote up how I cut our build times 40% with a few config tweaks — happy to answer questions on the approach."
+    },
+    {
+      "channel": "dev.to",
+      "action": "cross_post",
+      "priority": "medium",
+      "rationale": "Long-form republish reaches a developer audience; set a canonical URL back to the original to avoid duplicate-content issues.",
+      "suggested_message": "Cross-posting my latest deep dive — full walkthrough with code."
+    }
+  ],
+  "already_covered": ["x", "linkedin"],
+  "generated_at": "2026-06-01T14:30:00.000Z"
+}
+```
+
+---
+
+### GET /campaigns/{campaignId}/content-posts/{postId}/recommendations
+
+Return the most recently generated recommendation set for the content post.
+
+**Authentication:** Cognito.
+
+**Responses:**
+
+- `200 OK` - [EngagementRecommendation](#engagementrecommendation-object).
+- `404 Not Found` - no recommendations have been generated for this post yet.
+- `500 Internal Server Error`.
+
+---
+
 ## Revenue
 
 ### GET /revenue
@@ -1331,6 +1410,22 @@ additional `campaign_name` field.
 | `issues[].detail` | string | What's wrong |
 | `issues[].suggestion` | string | How to fix it |
 | `missing_requirements` | array<string> | Brief requirements the draft doesn't address |
+
+### EngagementRecommendation object
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `campaign_id` | string | |
+| `post_id` | string | The content post these recommendations are for |
+| `summary` | string \| null | One- or two-sentence overall distribution strategy |
+| `recommendations` | array | Where to cross-post or promote, strongest first (see fields below) |
+| `recommendations[].channel` | string | The platform or venue (e.g. `linkedin`, `reddit r/webdev`, `hacker news`) |
+| `recommendations[].action` | enum | `cross_post` (republish the full piece) \| `promote` (share a link/teaser) |
+| `recommendations[].priority` | enum | `high` \| `medium` \| `low` |
+| `recommendations[].rationale` | string | Why this channel fits and extends reach |
+| `recommendations[].suggested_message` | string | Ready-to-use, channel-tailored copy with a fresh angle |
+| `already_covered` | array<string> | Channels skipped because the piece is already there or already promoted on them |
+| `generated_at` | string (date-time) | When this set was generated |
 
 ### LinkAnalytics object
 
