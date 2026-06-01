@@ -380,6 +380,119 @@ paths:
         httpMethod: POST
         type: aws_proxy
 
+  /campaigns/{campaignId}/content-posts/{postId}/recommendations:
+    parameters:
+      - name: campaignId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+      - name: postId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Recommend where else to cross-post or promote a content post
+      description: |
+        On-demand AI suggestions for boosting a content post's engagement.
+        When generating, the agent makes a best-effort GET of the post's URL
+        and feeds the extracted page text to the model (skipped silently when
+        the page can't be fetched). It also reads the work item's distribution
+        history — the campaign brief, where it's already cross-posted
+        (cross-post links and the campaign's other content posts), and what's
+        already been said on social — so it avoids channels already used and
+        angles already posted. Generation fetches the page and calls Bedrock;
+        the resulting set is stored on the post and returned.
+      tags:
+        - Campaigns
+      security:
+        - CognitoUserPoolAuthorizer: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                goal:
+                  type: string
+                  maxLength: 500
+                  description: |
+                    Optional free-text guidance to steer the model (e.g. the
+                    outcome you care about most).
+      responses:
+        201:
+          description: Recommendations generated, stored, and returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EngagementRecommendation"
+        400:
+          description: Malformed body or an over-long goal
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        404:
+          description: Campaign or content post not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        502:
+          description: The model call failed (nothing stored; retry re-runs)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+    get:
+      summary: Get the most recent recommendation set for a content post
+      tags:
+        - Campaigns
+      security:
+        - CognitoUserPoolAuthorizer: []
+      responses:
+        200:
+          description: The most recently generated recommendation set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EngagementRecommendation"
+        404:
+          description: No recommendations have been generated for this post yet
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        500:
+          $ref: "#/components/responses/UnknownError"
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiFunction.Arn}/invocations
+        httpMethod: POST
+        type: aws_proxy
+
   /campaigns/{campaignId}/analytics:
     parameters:
       - name: campaignId
@@ -1465,6 +1578,60 @@ components:
           type: string
           format: date-time
         updated_at:
+          type: string
+          format: date-time
+
+    EngagementRecommendationItem:
+      type: object
+      required:
+        - channel
+        - action
+        - priority
+        - rationale
+        - suggested_message
+      properties:
+        channel:
+          type: string
+          description: The platform or venue (e.g. linkedin, reddit r/webdev, hacker news).
+        action:
+          type: string
+          enum: [cross_post, promote]
+          description: cross_post republishes the full piece; promote shares a link or teaser.
+        priority:
+          type: string
+          enum: [high, medium, low]
+        rationale:
+          type: string
+        suggested_message:
+          type: string
+          description: Ready-to-use, channel-tailored copy with a fresh angle.
+
+    EngagementRecommendation:
+      type: object
+      description: On-demand AI recommendations for where else to push a content post.
+      required:
+        - campaign_id
+        - post_id
+        - recommendations
+        - generated_at
+      properties:
+        campaign_id:
+          type: string
+        post_id:
+          type: string
+        summary:
+          type: string
+          nullable: true
+        recommendations:
+          type: array
+          items:
+            $ref: "#/components/schemas/EngagementRecommendationItem"
+        already_covered:
+          type: array
+          description: Channels skipped because the piece is already there or already promoted on them.
+          items:
+            type: string
+        generated_at:
           type: string
           format: date-time
 
