@@ -416,7 +416,9 @@ const RECORD_ENGAGEMENT_RECOMMENDATIONS_TOOL = {
   },
 };
 
-const ENGAGEMENT_SYSTEM_PROMPT = `You are a content distribution and audience-growth strategist for a solo content creator. You are given a single published piece of content (the "work item") plus everything we already know about how it and its campaign have been distributed: the campaign brief, where the piece is already cross-posted, the other content pieces in the same campaign, and the social-media posts that have already promoted it.
+const ENGAGEMENT_SYSTEM_PROMPT = `You are a content distribution and audience-growth strategist for a solo content creator. You are given a single published piece of content (the "work item") — usually including the page text we fetched from its URL — plus everything we already know about how it and its campaign have been distributed: the campaign brief, where the piece is already cross-posted, the other content pieces in the same campaign, and the social-media posts that have already promoted it.
+
+Ground your recommendations in what the piece is actually about. When the fetched content is present, use it to judge topic, depth, and tone; when it could not be fetched, fall back to the URL, notes, and brief.
 
 Recommend additional places the creator should cross-post or promote this content to boost engagement, by calling the record_engagement_recommendations tool. For each recommendation provide channel, action (cross_post or promote), priority, a rationale, and a ready-to-use suggested_message.
 
@@ -442,6 +444,7 @@ export async function recommendEngagement({
   crossPostLinks,
   otherContentPosts,
   socialPosts,
+  contentText,
   goal,
 }) {
   const contextBlock = formatEngagementContext({
@@ -451,6 +454,7 @@ export async function recommendEngagement({
     crossPostLinks,
     otherContentPosts,
     socialPosts,
+    contentText,
     goal,
   });
 
@@ -480,6 +484,7 @@ function formatEngagementContext({
   crossPostLinks,
   otherContentPosts,
   socialPosts,
+  contentText,
   goal,
 }) {
   const sections = [];
@@ -489,6 +494,17 @@ function formatEngagementContext({
   if (contentPost?.url) workItem.push(`url: ${contentPost.url}`);
   if (contentPost?.notes) workItem.push(`notes: ${contentPost.notes}`);
   sections.push(workItem.join("\n"));
+
+  // The fetched body is the strongest signal for what the piece is actually
+  // about — when we have it, the recommendations key off the real content
+  // rather than just the title/URL. It's best-effort, so it's often absent.
+  if (typeof contentText === "string" && contentText.trim().length > 0) {
+    sections.push(`=== CONTENT (fetched from the work item URL) ===\n${contentText.trim()}`);
+  } else {
+    sections.push(
+      "=== CONTENT (fetched from the work item URL) ===\n(could not fetch the page text; base your read of the topic on the work item url, notes, and campaign brief)",
+    );
+  }
 
   const campaignLines = [];
   if (campaign?.name) campaignLines.push(`name: ${campaign.name}`);

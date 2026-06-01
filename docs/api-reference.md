@@ -667,14 +667,19 @@ Example success body:
 ## Content post recommendations
 
 On-demand AI suggestions for where else to cross-post or promote a content
-post (the campaign's published "work item") to boost engagement. The agent
-reads the work item plus the campaign's distribution history — the brief,
-where the piece is already cross-posted (cross-post [links](#links) and the
-campaign's other content posts), and what's already been said about it on
-social ([social posts](#social-posts) and their notes) — so it doesn't
-recommend channels you've already used or repeat angles you've already
-posted. Recommendations are generated on request, not automatically on
-content-post creation, since each generation calls Bedrock.
+post (the campaign's published "work item") to boost engagement. When
+generating, the agent makes a best-effort GET of the post's URL and feeds the
+extracted page text to the model so recommendations key off what the piece
+actually says — this works for the typical case of a blog on a static,
+server-rendered site, and is skipped silently when the page can't be fetched
+(paywall, bot block, JS-only render, timeout). It also reads the campaign's
+distribution history — the brief, where the piece is already cross-posted
+(cross-post [links](#links) and the campaign's other content posts), and
+what's already been said about it on social ([social posts](#social-posts)
+and their notes) — so it doesn't recommend channels you've already used or
+repeat angles you've already posted. Recommendations are generated on
+request, not automatically on content-post creation, since each generation
+fetches the page and calls Bedrock.
 
 The most recent set is stored on the content post and can be re-read without
 re-running the model.

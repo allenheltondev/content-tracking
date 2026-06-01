@@ -397,12 +397,14 @@ paths:
       summary: Recommend where else to cross-post or promote a content post
       description: |
         On-demand AI suggestions for boosting a content post's engagement.
-        The agent reads the work item plus its distribution history — the
-        campaign brief, where it's already cross-posted (cross-post links and
-        the campaign's other content posts), and what's already been said on
-        social — so it avoids channels already used and angles already posted.
-        Generation calls Bedrock; the resulting set is stored on the post and
-        returned.
+        When generating, the agent makes a best-effort GET of the post's URL
+        and feeds the extracted page text to the model (skipped silently when
+        the page can't be fetched). It also reads the work item's distribution
+        history — the campaign brief, where it's already cross-posted
+        (cross-post links and the campaign's other content posts), and what's
+        already been said on social — so it avoids channels already used and
+        angles already posted. Generation fetches the page and calls Bedrock;
+        the resulting set is stored on the post and returned.
       tags:
         - Campaigns
       security:

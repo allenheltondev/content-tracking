@@ -1,6 +1,7 @@
 import { BadRequestError, NotFoundError } from "../services/errors.mjs";
 import { jsonResponse } from "../services/http-handler.mjs";
 import { recommendEngagement } from "../services/bedrock.mjs";
+import { fetchContentText } from "../services/content-fetch.mjs";
 import { getCampaignWithLinks } from "../domain/campaign.mjs";
 import {
   getEngagementRecommendation,
@@ -39,6 +40,12 @@ export function registerContentRecommendationRoutes(app) {
     const crossPostLinks = links.filter((l) => l.role === "cross_post");
     const otherContentPosts = contentPosts.filter((p) => p.postId !== postId);
 
+    // Best-effort fetch of the published page so the agent reasons over the
+    // actual prose. Blogs are typically static sites that render server-side,
+    // so a plain GET usually works; when it doesn't, fetchContentText returns
+    // null and the agent falls back to the URL, notes, and brief.
+    const contentText = await fetchContentText(contentPost.url);
+
     // Bedrock errors propagate as UpstreamError → 502; nothing is persisted on
     // failure, so a retry simply re-runs.
     const recommendation = await recommendEngagement({
@@ -48,6 +55,7 @@ export function registerContentRecommendationRoutes(app) {
       crossPostLinks,
       otherContentPosts,
       socialPosts,
+      contentText,
       goal,
     });
 

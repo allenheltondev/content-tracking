@@ -9,6 +9,9 @@ process.env.ENVIRONMENT = "staging";
 jest.unstable_mockModule("../services/bedrock.mjs", () => ({
   recommendEngagement: jest.fn(),
 }));
+jest.unstable_mockModule("../services/content-fetch.mjs", () => ({
+  fetchContentText: jest.fn(),
+}));
 jest.unstable_mockModule("../domain/campaign.mjs", () => ({
   getCampaignWithLinks: jest.fn(),
 }));
@@ -18,6 +21,7 @@ jest.unstable_mockModule("../domain/engagement-recommendation.mjs", () => ({
 }));
 
 const { recommendEngagement } = await import("../services/bedrock.mjs");
+const { fetchContentText } = await import("../services/content-fetch.mjs");
 const { getCampaignWithLinks } = await import("../domain/campaign.mjs");
 const { saveEngagementRecommendation, getEngagementRecommendation } = await import(
   "../domain/engagement-recommendation.mjs"
@@ -65,6 +69,8 @@ function makeCampaignBundle(overrides = {}) {
 describe("routes/content-recommendations", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Default: the page fetch succeeds. Individual tests override.
+    fetchContentText.mockResolvedValue("The full blog post body.");
   });
 
   test("registers the POST and GET routes", () => {
@@ -110,6 +116,10 @@ describe("routes/content-recommendations", () => {
       expect(arg.socialPosts).toHaveLength(1);
       expect(arg.goal).toBe("developer signups");
 
+      // The page was fetched from the work item URL and handed to the agent.
+      expect(fetchContentText).toHaveBeenCalledWith("https://medium.com/p/abc");
+      expect(arg.contentText).toBe("The full blog post body.");
+
       expect(saveEngagementRecommendation).toHaveBeenCalledWith(
         CAMPAIGN_ID,
         POST_ID,
@@ -134,6 +144,21 @@ describe("routes/content-recommendations", () => {
 
       expect(res.statusCode).toBe(201);
       expect(recommendEngagement.mock.calls[0][0].goal).toBeUndefined();
+    });
+
+    test("still generates when the page fetch comes back empty", async () => {
+      getCampaignWithLinks.mockResolvedValue(makeCampaignBundle());
+      fetchContentText.mockResolvedValue(null);
+      recommendEngagement.mockResolvedValue({ summary: "x", recommendations: [] });
+      saveEngagementRecommendation.mockResolvedValue({
+        campaignId: CAMPAIGN_ID, postId: POST_ID, summary: "x", recommendations: [], alreadyCovered: [], generatedAt: "t",
+      });
+
+      const res = await postRecs({ event: { body: null }, params: { campaignId: CAMPAIGN_ID, postId: POST_ID } });
+
+      expect(res.statusCode).toBe(201);
+      // Null body is passed through; the agent falls back to URL + brief.
+      expect(recommendEngagement.mock.calls[0][0].contentText).toBeNull();
     });
 
     test("404 when the content post isn't on the campaign", async () => {

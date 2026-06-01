@@ -249,6 +249,7 @@ describe("services/bedrock recommendEngagement", () => {
       crossPostLinks: [{ platform: "x", url: "https://x.com/p/1" }],
       otherContentPosts: [{ platform: "devto", url: "https://dev.to/p/2" }],
       socialPosts: [{ platform: "linkedin", url: "https://linkedin.com/p/3", notes: "Excited to share my widget post!" }],
+      contentText: "A hands-on guide to cutting build times by 40 percent.",
       goal: "developer signups",
     });
 
@@ -273,6 +274,9 @@ describe("services/bedrock recommendEngagement", () => {
     expect(userText).toContain("Excited to share my widget post!");
     expect(userText).toContain("mention pricing");
     expect(userText).toContain("developer signups");
+    // The fetched page body is handed to the model as the topic signal.
+    expect(userText).toContain("CONTENT (fetched from the work item URL)");
+    expect(userText).toContain("A hands-on guide to cutting build times by 40 percent.");
   });
 
   test("notes when nothing has been distributed yet", async () => {
@@ -291,6 +295,8 @@ describe("services/bedrock recommendEngagement", () => {
     expect(userText).toContain("(none yet)");
     expect(userText).toContain("(nothing yet)");
     expect(userText).not.toContain("USER GUIDANCE");
+    // No fetched body → the prompt tells the model to fall back to url/notes/brief.
+    expect(userText).toContain("could not fetch the page text");
   });
 
   test("wraps Bedrock errors in UpstreamError", async () => {
