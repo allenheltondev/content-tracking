@@ -85,4 +85,31 @@ describe("validateProfileUpdate", () => {
   test("treats empty website_url as omitted", () => {
     expect(validateProfileUpdate({ website_url: "" })).toEqual({});
   });
+
+  test("accepts a personal_site_url and assumes https for a bare host", () => {
+    expect(validateProfileUpdate({ personal_site_url: "https://readysetcloud.io/blog" }).personalSiteUrl)
+      .toBe("https://readysetcloud.io/blog");
+    expect(validateProfileUpdate({ personal_site_url: "readysetcloud.io" }).personalSiteUrl)
+      .toBe("https://readysetcloud.io");
+  });
+
+  test("rejects a non-http personal_site_url with a field-specific message", () => {
+    expect(() => validateProfileUpdate({ personal_site_url: "ftp://files.example.com" }))
+      .toThrow(/personal_site_url must be an http\(s\) URL/);
+    expect(() => validateProfileUpdate({ personal_site_url: "x".repeat(201) }))
+      .toThrow(/personal_site_url must be at most 200/);
+  });
+
+  test("treats empty personal_site_url as omitted", () => {
+    expect(validateProfileUpdate({ personal_site_url: "" })).toEqual({});
+  });
+
+  test("website_url and personal_site_url are independent fields", () => {
+    const out = validateProfileUpdate({
+      website_url: "https://brand.example.com",
+      personal_site_url: "https://readysetcloud.io",
+    });
+    expect(out.websiteUrl).toBe("https://brand.example.com");
+    expect(out.personalSiteUrl).toBe("https://readysetcloud.io");
+  });
 });
