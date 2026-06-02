@@ -57,7 +57,10 @@
       "matches": [
         "https://x.com/*",
         "https://twitter.com/*",
-        "https://www.linkedin.com/*"
+        "https://www.linkedin.com/*",
+        "https://medium.com/*",
+        "https://*.medium.com/*",
+        "https://dev.to/*"
       ],
       "js": ["src/content/taskbar.js"],
       "run_at": "document_idle",
