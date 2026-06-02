@@ -15,6 +15,7 @@ import VendorEdit from './routes/VendorEdit';
 import Revenue from './routes/Revenue';
 import Insights from './routes/Insights';
 import MediaKit from './routes/MediaKit';
+import Profile from './routes/Profile';
 import Settings from './routes/Settings';
 
 export const router = createBrowserRouter([
@@ -58,6 +59,7 @@ export const router = createBrowserRouter([
       { path: 'revenue', element: <Revenue /> },
       { path: 'insights', element: <Insights /> },
       { path: 'media-kit', element: <MediaKit /> },
+      { path: 'profile', element: <Profile /> },
       { path: 'settings', element: <Settings /> },
     ],
   },
