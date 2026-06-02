@@ -117,10 +117,14 @@ export default function ContentEngagementSection({
         <Tile label="Total engagement" value={totals.total.toLocaleString()} />
         <Tile label="Posts tracked" value={String(posts.length)} />
         <Tile
-          label="Stale captures"
+          label="Needs refresh"
           value={String(totals.staleCount)}
           tone={totals.staleCount > 0 ? 'warning' : 'default'}
-          sublabel={totals.staleCount > 0 ? `>${STALE_AFTER_DAYS}d since refresh` : 'All fresh'}
+          sublabel={
+            totals.staleCount > 0 ? `Not captured in ${STALE_AFTER_DAYS}+ days` : 'All up to date'
+          }
+          hint={`Posts the Booked extension hasn't captured in over ${STALE_AFTER_DAYS} days. Open them, or hit the refresh icon (with the extension installed) to pull fresh numbers.`}
+          slot="needs-refresh"
         />
         <Tile
           label="Last refresh"
@@ -241,16 +245,33 @@ function Tile({
   value,
   sublabel,
   tone = 'default',
+  hint,
+  slot,
 }: {
   label: string;
   value: string;
   sublabel?: string;
   tone?: 'default' | 'warning';
+  hint?: string;
+  slot?: string;
 }): ReactElement {
   const toneClass = tone === 'warning' ? 'text-warning-700' : 'text-foreground';
   return (
-    <div className="card card-body !py-3">
-      <span className="text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
+    <div className={`card card-body !py-3${slot ? ' relative' : ''}`}>
+      {slot && (
+        <span
+          data-booked-slot={slot}
+          className="absolute top-2 right-2 flex items-center"
+        />
+      )}
+      <span
+        className={`text-xs uppercase tracking-wide text-muted-foreground${
+          hint ? ' cursor-help' : ''
+        }`}
+        title={hint}
+      >
+        {label}
+      </span>
       <span className={`text-2xl font-semibold ${toneClass} mt-1 block`}>{value}</span>
       {sublabel && (
         <span className="text-xs text-muted-foreground mt-0.5 block truncate">{sublabel}</span>

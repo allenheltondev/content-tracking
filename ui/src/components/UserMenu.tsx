@@ -63,19 +63,16 @@ export default function UserMenu({ user, onSignOut }: Props): ReactElement {
           role="menu"
           className="absolute right-0 mt-2 w-64 card overflow-hidden z-50"
         >
-          <div className="px-4 py-3 border-b border-border">
+          <Link
+            to="/profile"
+            role="menuitem"
+            className="block px-4 py-3 border-b border-border hover:bg-muted"
+            onClick={() => setOpen(false)}
+          >
             {displayName && (
               <div className="text-sm font-medium text-foreground truncate">{displayName}</div>
             )}
             <div className="text-xs text-muted-foreground truncate">{user.email || user.username}</div>
-          </div>
-          <Link
-            to="/profile"
-            role="menuitem"
-            className="block px-4 py-2 text-sm text-foreground hover:bg-muted"
-            onClick={() => setOpen(false)}
-          >
-            Profile
           </Link>
           <Link
             to="/settings"

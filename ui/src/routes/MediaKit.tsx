@@ -35,7 +35,7 @@ export default function MediaKit(): ReactElement {
 
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
-  const [latest, setLatest] = useState<{ url: string; shortUrl: string | null } | null>(null);
+  const [latest, setLatest] = useState<{ url: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
   const [publishState, setPublishState] = useState<MediaKitPublishState | null>(null);
@@ -64,7 +64,7 @@ export default function MediaKit(): ReactElement {
     setCopied(false);
     try {
       const res = await generateMediaKit(apiFetch);
-      setLatest({ url: res.url, shortUrl: res.shortUrl ?? null });
+      setLatest({ url: res.url });
       await load();
     } catch (err) {
       setGenError(err instanceof ApiError ? err.message : (err as Error).message);
@@ -73,7 +73,10 @@ export default function MediaKit(): ReactElement {
     }
   };
 
-  const shareUrl = latest?.shortUrl ?? latest?.url ?? '';
+  // Share the signed CloudFront URL directly. The minted shortlink wraps it
+  // via a newsletter-service redirect that mangles the signed query string, so
+  // the short link 403s — the long URL is the one that actually works.
+  const shareUrl = latest?.url ?? '';
   const copy = (): void => {
     if (!shareUrl) return;
     void navigator.clipboard.writeText(shareUrl).then(() => {

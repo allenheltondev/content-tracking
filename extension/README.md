@@ -13,7 +13,7 @@ a floating button on Medium and dev.to (shown only when you have a tracked
 post on that platform). LinkedIn, Medium, and dev.to hide their counts
 behind a separate analytics/stats page, so for those the worker opens that
 page in a background tab, syncs, and closes it — your current tab is left
-alone. This is also what the dashboard's **Refresh stale** button drives.
+alone. This is also what the dashboard's **Refresh Stats** button drives.
 
 ## How it works
 
