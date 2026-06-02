@@ -1068,10 +1068,12 @@ paths:
 
   /profile:
     get:
-      summary: Read account-level integration settings
+      summary: Read the account profile
       description: |
-        Returns whether the Google Analytics 4 and Core Web Vitals
-        integrations are configured. Secrets are never returned — only the
+        Returns the full account profile: brand, personal site, creator
+        identity, social accounts, audience, rate card, testimonials,
+        featured collaborations, public media-kit state, and the GA4 / Core
+        Web Vitals integration status. Secrets are never returned — only the
         GA4 property id, the service-account email, and per-integration
         `configured` flags.
       tags:
@@ -1093,13 +1095,14 @@ paths:
         httpMethod: POST
         type: aws_proxy
     put:
-      summary: Update account-level integration settings
+      summary: Update the account profile
       description: |
-        Stores the Google credentials used by GET /campaigns/{id}/web-analytics.
-        The GA4 service account and CrUX API key are written to SSM
-        SecureStrings; the GA4 property id is stored in DynamoDB. All fields
-        are optional — only those present are applied. The response is the
-        same shape as GET /profile and never echoes the secrets back.
+        Stores integration settings and creator-profile fields. The GA4
+        service account and CrUX API key are written to SSM SecureStrings;
+        everything else is stored in DynamoDB. All fields are optional — only
+        those present are applied (partial update); an explicit null clears a
+        nullable field and arrays replace wholesale. The response is the same
+        shape as GET /profile and never echoes the secrets back.
       tags:
         - Profile
       security:
@@ -2086,9 +2089,11 @@ components:
     UpdateProfileRequest:
       type: object
       description: |
-        Account-level integration settings. All properties optional; only
-        those present are applied. Secrets (service account, API key) are
-        write-only.
+        Account-level settings: GA4 / CrUX integration (secrets are
+        write-only) plus the brand and creator-profile fields the media kit
+        and shared reports render from. All properties optional; only those
+        present are applied (partial update). For nullable fields an explicit
+        null clears the value; arrays replace the prior value wholesale.
       properties:
         ga4_property_id:
           type: string
@@ -2105,13 +2110,191 @@ components:
           description: |
             A Google API key with the CrUX API and PageSpeed Insights API
             enabled. Written to an SSM SecureString.
+        brand_name:
+          type: string
+          maxLength: 80
+          description: Brand name shown on shared reports.
+        website_url:
+          type: string
+          maxLength: 200
+          description: Brand website. A bare host is accepted (https assumed).
+        personal_site_url:
+          type: string
+          maxLength: 200
+          description: |
+            The creator's own site. A bare host is accepted (https assumed).
+            Content posts published on this host have their prebuilt plaintext
+            (`<url>/index.txt`) pulled when generating engagement
+            recommendations.
+        display_name:
+          type: string
+          maxLength: 80
+          nullable: true
+        tagline:
+          type: string
+          maxLength: 160
+          nullable: true
+        bio:
+          type: string
+          maxLength: 2000
+          nullable: true
+        location:
+          type: string
+          maxLength: 120
+          nullable: true
+        contact_email:
+          type: string
+          format: email
+          maxLength: 320
+          nullable: true
+        accent_color:
+          type: string
+          pattern: '^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$'
+          nullable: true
+          description: Hex color applied to the media kit (#abc or #aabbcc).
+        public_slug:
+          type: string
+          nullable: true
+          description: |
+            Vanity slug for the public media kit: 3-40 chars of lowercase
+            letters, digits, or single hyphens (no leading/trailing/doubled
+            hyphen).
+        niches:
+          type: array
+          nullable: true
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 40
+          description: Topic/niche tags; deduped case-insensitively.
+        avatar_key:
+          type: string
+          nullable: true
+          description: A key returned by POST /profile/images/upload-url with kind=avatar.
+        logo_key:
+          type: string
+          nullable: true
+          description: A key returned by POST /profile/images/upload-url with kind=logo.
+        social_accounts:
+          type: array
+          nullable: true
+          maxItems: 30
+          items:
+            $ref: "#/components/schemas/SocialAccount"
+          description: Each item needs at least a handle or a url.
+        audience:
+          allOf:
+            - $ref: "#/components/schemas/AudienceInput"
+          nullable: true
+        rate_card:
+          type: array
+          nullable: true
+          maxItems: 30
+          items:
+            $ref: "#/components/schemas/RateCardItem"
+        testimonials:
+          type: array
+          nullable: true
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/Testimonial"
+        featured_collaborations:
+          type: array
+          nullable: true
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/FeaturedCollaboration"
 
     Profile:
       type: object
+      description: |
+        The full account profile. Secrets are never returned — the ga4 and
+        core_web_vitals blocks only report whether each integration is
+        configured.
       required:
+        - brand
+        - identity
+        - social_accounts
+        - rate_card
+        - testimonials
+        - featured_collaborations
+        - public_media_kit
         - ga4
         - core_web_vitals
       properties:
+        brand:
+          type: object
+          properties:
+            name:
+              type: string
+              nullable: true
+            website_url:
+              type: string
+              nullable: true
+        personal_site_url:
+          type: string
+          nullable: true
+          description: The creator's own site; drives prebuilt-plaintext fetching for content recommendations.
+        identity:
+          type: object
+          properties:
+            display_name:
+              type: string
+              nullable: true
+            tagline:
+              type: string
+              nullable: true
+            bio:
+              type: string
+              nullable: true
+            location:
+              type: string
+              nullable: true
+            contact_email:
+              type: string
+              nullable: true
+            accent_color:
+              type: string
+              nullable: true
+            niches:
+              type: array
+              items:
+                type: string
+            avatar_key:
+              type: string
+              nullable: true
+            avatar_url:
+              type: string
+              nullable: true
+              description: Signed avatar preview URL; null if unset or signing is unavailable.
+            logo_key:
+              type: string
+              nullable: true
+            logo_url:
+              type: string
+              nullable: true
+        social_accounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/SocialAccount"
+        audience:
+          allOf:
+            - $ref: "#/components/schemas/Audience"
+          nullable: true
+        rate_card:
+          type: array
+          items:
+            $ref: "#/components/schemas/RateCardItem"
+        testimonials:
+          type: array
+          items:
+            $ref: "#/components/schemas/Testimonial"
+        featured_collaborations:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeaturedCollaboration"
+        public_media_kit:
+          $ref: "#/components/schemas/PublicMediaKit"
         ga4:
           type: object
           properties:
@@ -2132,6 +2315,180 @@ components:
               type: boolean
               description: True when a CrUX/PageSpeed API key is stored.
         updated_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    SocialAccount:
+      type: object
+      required:
+        - platform
+      properties:
+        platform:
+          type: string
+          maxLength: 40
+        handle:
+          type: string
+          maxLength: 80
+          nullable: true
+        url:
+          type: string
+          format: uri
+          maxLength: 300
+          nullable: true
+        followers:
+          type: integer
+          minimum: 0
+          nullable: true
+
+    RateCardItem:
+      type: object
+      required:
+        - deliverable
+      properties:
+        deliverable:
+          type: string
+          maxLength: 80
+        description:
+          type: string
+          maxLength: 300
+          nullable: true
+        price:
+          type: number
+          minimum: 0
+          nullable: true
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          description: ISO 4217 code; defaults to USD when omitted.
+
+    Testimonial:
+      type: object
+      required:
+        - quote
+      properties:
+        quote:
+          type: string
+          maxLength: 1000
+        author:
+          type: string
+          maxLength: 120
+          nullable: true
+        role:
+          type: string
+          maxLength: 120
+          nullable: true
+        company:
+          type: string
+          maxLength: 120
+          nullable: true
+
+    FeaturedCollaboration:
+      type: object
+      required:
+        - brand
+      properties:
+        brand:
+          type: string
+          maxLength: 120
+        description:
+          type: string
+          maxLength: 300
+          nullable: true
+        url:
+          type: string
+          format: uri
+          maxLength: 300
+          nullable: true
+        year:
+          type: integer
+          minimum: 1900
+          maximum: 2999
+          nullable: true
+
+    AudienceCountry:
+      type: object
+      required:
+        - country
+        - percent
+      properties:
+        country:
+          type: string
+          maxLength: 60
+        percent:
+          type: number
+          minimum: 0
+          maximum: 100
+
+    Audience:
+      type: object
+      description: Audience demographics as stored (camelCase keys).
+      properties:
+        ageBrackets:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: number
+            minimum: 0
+            maximum: 100
+          description: Label -> percent (e.g. "25-34" -> 45).
+        gender:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: number
+            minimum: 0
+            maximum: 100
+        topCountries:
+          type: array
+          items:
+            $ref: "#/components/schemas/AudienceCountry"
+        note:
+          type: string
+          maxLength: 500
+          nullable: true
+
+    AudienceInput:
+      type: object
+      description: Audience demographics on input (snake_case keys; percentages 0-100).
+      properties:
+        age_brackets:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: number
+            minimum: 0
+            maximum: 100
+        gender:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: number
+            minimum: 0
+            maximum: 100
+        top_countries:
+          type: array
+          maxItems: 30
+          items:
+            $ref: "#/components/schemas/AudienceCountry"
+        note:
+          type: string
+          maxLength: 500
+          nullable: true
+
+    PublicMediaKit:
+      type: object
+      properties:
+        slug:
+          type: string
+          nullable: true
+        published:
+          type: boolean
+        url:
+          type: string
+          nullable: true
+          description: Public media-kit URL; null unless a slug is set and the kit is published.
+        published_at:
           type: string
           format: date-time
           nullable: true
