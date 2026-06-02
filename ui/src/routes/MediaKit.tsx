@@ -91,7 +91,7 @@ export default function MediaKit(): ReactElement {
           <h1 className="text-2xl font-semibold text-foreground">Media kit</h1>
           <p className="text-sm text-muted-foreground">
             A one-pager for brands, built from your{' '}
-            <Link to="/settings" className="text-primary-700 hover:underline">
+            <Link to="/profile" className="text-primary-700 hover:underline">
               profile
             </Link>{' '}
             and live campaign performance. Generate a private link to send a specific brand, or
@@ -256,7 +256,7 @@ function PublicKitPanel({
       {!hasSlug ? (
         <p className="text-sm text-muted-foreground">
           Set a{' '}
-          <Link to="/settings" className="text-primary-700 hover:underline">
+          <Link to="/profile" className="text-primary-700 hover:underline">
             public media-kit URL
           </Link>{' '}
           in your profile first, then publish here.

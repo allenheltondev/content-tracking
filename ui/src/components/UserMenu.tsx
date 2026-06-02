@@ -70,6 +70,14 @@ export default function UserMenu({ user, onSignOut }: Props): ReactElement {
             <div className="text-xs text-muted-foreground truncate">{user.email || user.username}</div>
           </div>
           <Link
+            to="/profile"
+            role="menuitem"
+            className="block px-4 py-2 text-sm text-foreground hover:bg-muted"
+            onClick={() => setOpen(false)}
+          >
+            Profile
+          </Link>
+          <Link
             to="/settings"
             role="menuitem"
             className="block px-4 py-2 text-sm text-foreground hover:bg-muted"
