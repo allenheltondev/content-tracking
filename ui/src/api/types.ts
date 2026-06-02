@@ -665,3 +665,49 @@ export interface WebAnalyticsResponse {
   ga4: Ga4Section;
   core_web_vitals: CoreWebVitalsSection;
 }
+
+// Account-wide Trends & Insights (GET /insights). Cumulative engagement
+// levels over time plus top performers and period-over-period deltas.
+export interface InsightsMetricTriple {
+  views: number;
+  impressions: number;
+  engagements: number;
+}
+
+export interface InsightsTimeseriesPoint extends InsightsMetricTriple {
+  date: string;
+}
+
+export interface InsightsTopPost extends InsightsMetricTriple {
+  platform: string | null;
+  kind: 'social' | 'content';
+  url: string | null;
+  campaignId: string;
+  campaignName: string | null;
+  lastCaptured: string | null;
+}
+
+export interface InsightsPlatformRow extends InsightsMetricTriple {
+  platform: string;
+}
+
+export interface InsightsResponse {
+  range: { startDate: string; endDate: string; days: number };
+  totals: InsightsMetricTriple & {
+    reach: number;
+    engagementRate: number | null;
+    postsTracked: number;
+  };
+  deltas: {
+    thisPeriod: InsightsMetricTriple;
+    priorPeriod: InsightsMetricTriple;
+    changePct: {
+      views: number | null;
+      impressions: number | null;
+      engagements: number | null;
+    };
+  };
+  timeseries: InsightsTimeseriesPoint[];
+  topPosts: InsightsTopPost[];
+  byPlatform: InsightsPlatformRow[];
+}

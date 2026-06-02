@@ -822,6 +822,79 @@ Example success body (grouping=month):
 
 ---
 
+## Insights
+
+Account-wide Trends & Insights over the creator's tracked content. Read-side
+aggregation over the daily engagement snapshots already captured for social
+and content posts — no new data is written.
+
+### GET /insights
+
+Roll up cumulative engagement levels across every tracked post into a daily
+time series, top-performing posts, a per-platform split, and
+period-over-period deltas.
+
+**Authentication:** Cognito.
+
+**Query parameters:**
+
+| Name | Type | Notes |
+| --- | --- | --- |
+| `startDate` | string (date) | ISO 8601 inclusive. Both-or-neither with `endDate`. Defaults to 90 days ago |
+| `endDate` | string (date) | ISO 8601 inclusive. Defaults to today. Range capped at 730 days |
+
+**Responses:**
+
+- `200 OK` - [InsightsResponse](#insightsresponse-object).
+- `400 Bad Request` - only one of `startDate`/`endDate` given, malformed/invalid date, inverted range, or range over 730 days.
+- `500 Internal Server Error`.
+
+Notes:
+
+- Snapshots are **cumulative levels** (each day is a post's running total as
+  of that day). The series carries the last known level forward across days
+  with no capture rather than zero-filling, so it's robust to irregular
+  extension capture. Clients derive day-over-day deltas from it.
+- `deltas` compares the engagement *gained* in the window against the
+  immediately preceding window of equal length. `changePct` is `null` when
+  the prior window had no gain to compare against.
+- `topPosts[].lastCaptured` is the date of the post's most recent snapshot —
+  surfaces stale data so a flat trend can be read as "not captured" rather
+  than "no activity".
+
+Example success body (abbreviated):
+
+```json
+{
+  "range": { "startDate": "2026-03-02", "endDate": "2026-05-31", "days": 91 },
+  "totals": {
+    "views": 120000, "impressions": 80000, "engagements": 9500,
+    "reach": 200000, "engagementRate": 0.0475, "postsTracked": 24
+  },
+  "deltas": {
+    "thisPeriod": { "views": 30000, "impressions": 20000, "engagements": 2400 },
+    "priorPeriod": { "views": 25000, "impressions": 18000, "engagements": 2000 },
+    "changePct": { "views": 0.2, "impressions": 0.111, "engagements": 0.2 }
+  },
+  "timeseries": [
+    { "date": "2026-03-02", "views": 90000, "impressions": 60000, "engagements": 7100 }
+  ],
+  "topPosts": [
+    {
+      "platform": "x", "kind": "social", "url": "https://x.com/you/status/1",
+      "campaignId": "01HZ...", "campaignName": "Q3 Launch",
+      "views": 12000, "impressions": 0, "engagements": 850,
+      "lastCaptured": "2026-05-30"
+    }
+  ],
+  "byPlatform": [
+    { "platform": "x", "views": 60000, "impressions": 0, "engagements": 5200 }
+  ]
+}
+```
+
+---
+
 ## Profile
 
 The single shared account profile. It carries two concerns: **integration
@@ -1629,3 +1702,16 @@ additional `campaign_name` field.
 | `core_web_vitals.strategy` | string | `psi` only (e.g. `mobile`) |
 | `core_web_vitals.performance_score` | number \| null | `psi` only, 0-1 |
 | `core_web_vitals.metrics` | object | `lcp_ms`, `cls`, `inp_ms`, `fcp_ms` (all nullable); `ttfb_ms` for `crux`, `tbt_ms` for `psi`. `inp_ms` is null for `psi` |
+
+### InsightsResponse object
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `range` | object | `{ startDate, endDate, days }` — the resolved window |
+| `totals` | object | Cumulative `views`, `impressions`, `engagements`; plus `reach` (views+impressions), `engagementRate` (0-1 or null), `postsTracked` |
+| `deltas.thisPeriod` | object | `{ views, impressions, engagements }` gained in the window |
+| `deltas.priorPeriod` | object | Same shape, for the immediately preceding window of equal length |
+| `deltas.changePct` | object | Per-metric fractional change vs. the prior period; each is `null` when the prior period had no gain |
+| `timeseries` | array | Per-day `{ date, views, impressions, engagements }` cumulative levels, carried forward across capture gaps |
+| `topPosts` | array | Posts ranked by engagement: `{ platform, kind, url, campaignId, campaignName, views, impressions, engagements, lastCaptured }` |
+| `byPlatform` | array | Per-platform totals: `{ platform, views, impressions, engagements }` |

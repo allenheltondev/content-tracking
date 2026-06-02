@@ -38,6 +38,9 @@ export default function App(): ReactElement {
             <NavLink to="/revenue" className={navLinkClass}>
               Revenue
             </NavLink>
+            <NavLink to="/insights" className={navLinkClass}>
+              Insights
+            </NavLink>
             <NavLink to="/media-kit" className={navLinkClass}>
               Media kit
             </NavLink>
