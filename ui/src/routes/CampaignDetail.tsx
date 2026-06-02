@@ -37,6 +37,7 @@ import CampaignBriefSection from '../components/CampaignBriefSection';
 import CampaignDraftTab from '../components/CampaignDraftTab';
 import CampaignReportsTab from '../components/CampaignReportsTab';
 import ContentEngagementSection from '../components/ContentEngagementSection';
+import EngagementRecommendationsSection from '../components/EngagementRecommendationsSection';
 import InstallExtensionModal from '../components/InstallExtensionModal';
 import Modal from '../components/Modal';
 import SocialEngagementSection from '../components/SocialEngagementSection';
@@ -65,17 +66,30 @@ interface CampaignBundle {
 
 export default function CampaignDetail(): ReactElement {
   const { campaignId } = useParams<{ campaignId: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const apiFetch = useApiFetch();
 
-  // Honor ?tab=brief (etc) on first render so the "create then upload brief"
-  // flow can land users straight on the brief tab. Falls back to overview.
-  const initialTab: CampaignTab = (() => {
-    const candidate = searchParams.get('tab');
-    return CAMPAIGN_TABS.includes(candidate as CampaignTab)
-      ? (candidate as CampaignTab)
-      : 'overview';
-  })();
+  // The active tab is driven by ?tab= so a tab is deep-linkable and shareable
+  // and survives reloads / back-forward. Unknown or missing values fall back
+  // to overview. Switching tabs rewrites the param in place (replace, so tab
+  // clicks don't pile up history entries).
+  const tabParam = searchParams.get('tab');
+  const activeTab: CampaignTab = CAMPAIGN_TABS.includes(tabParam as CampaignTab)
+    ? (tabParam as CampaignTab)
+    : 'overview';
+  const selectTab = useCallback(
+    (tab: CampaignTab): void => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('tab', tab);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
 
   const [bundle, setBundle] = useState<CampaignBundle | null>(null);
   const [analytics, setAnalytics] = useState<CampaignAnalyticsResponse | null>(null);
@@ -97,7 +111,6 @@ export default function CampaignDetail(): ReactElement {
   const [contentError, setContentError] = useState<string | null>(null);
   const [showContentForm, setShowContentForm] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<CampaignTab>(initialTab);
   const [extensionModalOpen, setExtensionModalOpen] = useState(false);
 
   // Campaign metadata + links. Cheap; fires on mount.
@@ -332,32 +345,32 @@ export default function CampaignDetail(): ReactElement {
         <TabButton
           label="Overview"
           active={activeTab === 'overview'}
-          onClick={() => setActiveTab('overview')}
+          onClick={() => selectTab('overview')}
         />
         <TabButton
           label="Brief"
           active={activeTab === 'brief'}
-          onClick={() => setActiveTab('brief')}
+          onClick={() => selectTab('brief')}
         />
         <TabButton
           label="Draft"
           active={activeTab === 'draft'}
-          onClick={() => setActiveTab('draft')}
+          onClick={() => selectTab('draft')}
         />
         <TabButton
           label="Promotion"
           active={activeTab === 'promotion'}
-          onClick={() => setActiveTab('promotion')}
+          onClick={() => selectTab('promotion')}
         />
         <TabButton
           label="Analytics"
           active={activeTab === 'analytics'}
-          onClick={() => setActiveTab('analytics')}
+          onClick={() => selectTab('analytics')}
         />
         <TabButton
           label="Reports"
           active={activeTab === 'reports'}
-          onClick={() => setActiveTab('reports')}
+          onClick={() => selectTab('reports')}
         />
       </nav>
 
@@ -678,6 +691,14 @@ export default function CampaignDetail(): ReactElement {
 
           {campaignId && (
             <ContentEngagementSection
+              apiFetch={apiFetch}
+              campaignId={campaignId}
+              posts={contentPosts}
+            />
+          )}
+
+          {campaignId && (
+            <EngagementRecommendationsSection
               apiFetch={apiFetch}
               campaignId={campaignId}
               posts={contentPosts}

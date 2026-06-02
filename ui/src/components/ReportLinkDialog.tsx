@@ -25,9 +25,10 @@ export default function ReportLinkDialog({
 
   if (!report) return null;
 
-  // Prefer the shortlink — it's the customer-facing URL. Fall back to the
-  // signed URL when minting failed (older reports never had a shortUrl).
-  const shareUrl = report.shortUrl ?? report.url;
+  // Share the signed CloudFront URL directly. The minted shortlink wraps it
+  // via a newsletter-service redirect that doesn't survive the signed URL's
+  // query string, so the short link 403s — the long URL is the one that works.
+  const shareUrl = report.url;
 
   const copy = (): void => {
     void navigator.clipboard.writeText(shareUrl).then(() => {

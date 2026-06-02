@@ -711,3 +711,26 @@ export interface InsightsResponse {
   topPosts: InsightsTopPost[];
   byPlatform: InsightsPlatformRow[];
 }
+
+// On-demand engagement recommendations for a single content post: where else
+// to cross-post or promote it to boost reach. Generated via Bedrock, stored
+// on the post, and re-readable without re-spending on the model.
+export type RecommendationAction = 'cross_post' | 'promote';
+export type RecommendationPriority = 'high' | 'medium' | 'low';
+
+export interface EngagementRecommendationItem {
+  channel: string;
+  action: RecommendationAction;
+  priority: RecommendationPriority;
+  rationale: string;
+  suggested_message: string;
+}
+
+export interface EngagementRecommendation {
+  campaign_id: string;
+  post_id: string;
+  summary: string | null;
+  recommendations: EngagementRecommendationItem[];
+  already_covered: string[];
+  generated_at: string;
+}

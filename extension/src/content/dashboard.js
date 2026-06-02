@@ -1,71 +1,49 @@
-// Injects a "Refresh stale" button onto the Booked dashboard's campaign
-// detail page. When clicked, the button asks the background worker to
-// re-scrape every LinkedIn post in this campaign whose analytics weren't
-// fetched today. Background reuses the auto-scrape pipeline so each tab
-// opens, scrapes, syncs, and closes on its own.
+// Injects Booked refresh controls onto the dashboard's campaign detail page:
+// a "Refresh Stats" button in the Promotion tab's actions slot, and a compact
+// refresh icon on the Analytics tab's "Needs refresh" tiles. Both ask the
+// background worker to re-scrape every tracked post in this campaign whose
+// analytics weren't fetched today; the scrape-and-close pipeline (handleScraped
+// / handleCaptured) closes each tab once its post syncs.
 //
-// Anchors on a `data-booked-slot="social-posts-actions"` element rendered
-// by the dashboard's Promotion tab. The slot mounts/unmounts with the tab,
-// so a MutationObserver re-runs mount whenever the slot enters the DOM.
+// Each control anchors on a `data-booked-slot=...` element the dashboard
+// renders. Those slots mount/unmount with their tab, so a MutationObserver
+// re-runs mount whenever a slot enters the DOM.
 
 (function () {
-  const FEED_KEY = "booked_feed";
-
-  let feed = [];
-  let currentBtn = null;
   let busy = false;
 
-  function todayKey() {
-    return new Date().toISOString().slice(0, 10);
-  }
+  // Mounted controls, split by kind so a busy-state change can re-render every
+  // one of them in lockstep without re-querying the DOM.
+  const textButtons = new Set();
+  const iconButtons = new Set();
+
+  // Heroicons "arrow-path" (solid, 20x20). Static markup — no injection risk.
+  const REFRESH_ICON_SVG =
+    '<svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14" aria-hidden="true">' +
+    '<path fill-rule="evenodd" clip-rule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H3.989a.75.75 0 00-.75.75v4.242a.75.75 0 001.5 0v-2.43l.31.31a7 7 0 0011.712-3.138.75.75 0 00-1.449-.39zm1.23-3.723a.75.75 0 00.219-.53V2.929a.75.75 0 00-1.5 0V5.36l-.31-.31A7 7 0 003.239 8.188a.75.75 0 101.448.389A5.5 5.5 0 0113.89 6.11l.311.31h-2.432a.75.75 0 000 1.5h4.243a.75.75 0 00.53-.219z" />' +
+    '</svg>';
 
   function currentCampaignId() {
     const m = /\/campaigns\/([^/?#]+)/.exec(location.pathname);
     return m ? m[1] : null;
   }
 
-  // Every tracked platform refreshes through the same background pipeline:
-  // LinkedIn via the analytics-page DOM scrape, Twitter/Instagram via the
-  // MAIN-world API interceptor on the post URL. The background decides
-  // which URL to open per platform.
-  function stalePostsForCampaign() {
-    const cid = currentCampaignId();
-    if (!cid) return [];
-    const today = todayKey();
-    return feed.filter((p) => {
-      if (p.campaign_id !== cid) return false;
-      if (!p.last_fetched) return true;
-      return String(p.last_fetched).slice(0, 10) !== today;
-    });
-  }
-
-  async function loadFeed() {
-    const data = await chrome.storage.local.get(FEED_KEY);
-    feed = (data[FEED_KEY] && data[FEED_KEY].posts) || [];
-  }
-
-  function findSlot() {
-    return document.querySelector('[data-booked-slot="social-posts-actions"]');
-  }
-
-  function renderButton(btn) {
-    if (busy) {
-      btn.textContent = "Refreshing…";
-      btn.disabled = true;
-      return;
+  function renderAll() {
+    for (const b of textButtons) {
+      b.disabled = busy;
+      b.textContent = busy ? "Refreshing…" : "Refresh Stats";
     }
-    const count = stalePostsForCampaign().length;
-    btn.disabled = count === 0;
-    btn.textContent = count === 0
-      ? "Analytics up to date"
-      : `Refresh stale (${count})`;
+    for (const b of iconButtons) {
+      b.disabled = busy;
+      b.classList.toggle("opacity-60", busy);
+    }
   }
 
   async function onClick() {
     const cid = currentCampaignId();
     if (!cid || busy) return;
     busy = true;
-    if (currentBtn) renderButton(currentBtn);
+    renderAll();
     try {
       await chrome.runtime.sendMessage({
         type: "booked:refreshStale",
@@ -74,53 +52,77 @@
     } catch (err) {
       console.warn("[booked] refreshStale failed:", err);
     } finally {
-      // Background scrapes update the feed in storage; storage.onChanged
-      // re-renders the count. Hold the busy state briefly so the user
-      // sees acknowledgement even if the first sync lands instantly.
+      // Background scrapes run in their own tabs and sync on their own. Hold
+      // the busy state briefly so the user sees acknowledgement even if the
+      // first sync lands instantly.
       setTimeout(() => {
         busy = false;
-        if (currentBtn) renderButton(currentBtn);
+        renderAll();
       }, 4000);
     }
   }
 
-  function buildButton() {
+  function buildButton(kind) {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.dataset.bookedRefreshStale = "1";
-    // Match the styling of the sibling "+ Add post" / "Install extension"
-    // buttons in CampaignDetail.tsx.
-    btn.className = "btn-secondary py-1 px-2 text-sm";
+    if (kind === "icon") {
+      // Compact, square icon button that sits in the corner of the tile.
+      btn.className = "btn-secondary !p-1.5 leading-none";
+      btn.title = "Refresh stats";
+      btn.setAttribute("aria-label", "Refresh stats");
+      btn.innerHTML = REFRESH_ICON_SVG;
+    } else {
+      // Match the styling of the sibling "+ Add post" / "Install extension"
+      // buttons in CampaignDetail.tsx.
+      btn.className = "btn-secondary py-1 px-2 text-sm";
+    }
     btn.addEventListener("click", () => void onClick());
     return btn;
   }
 
+  // Find every slot of each kind, inject our control once (idempotent via the
+  // per-kind marker attribute), and re-render so busy state is current.
   function mount() {
-    const slot = findSlot();
-    if (!slot) {
-      currentBtn = null;
-      return;
-    }
-    const existing = slot.querySelector('[data-booked-refresh-stale="1"]');
-    if (existing) {
-      currentBtn = existing;
-    } else {
-      currentBtn = buildButton();
-      // Prepend so it sits to the left of the existing buttons.
-      slot.insertBefore(currentBtn, slot.firstChild);
-    }
-    renderButton(currentBtn);
+    textButtons.clear();
+    iconButtons.clear();
+
+    document
+      .querySelectorAll('[data-booked-slot="social-posts-actions"]')
+      .forEach((slot) => {
+        let btn = slot.querySelector('[data-booked-refresh-stale="1"]');
+        if (!btn) {
+          btn = buildButton("text");
+          btn.setAttribute("data-booked-refresh-stale", "1");
+          // Prepend so it sits to the left of the existing buttons.
+          slot.insertBefore(btn, slot.firstChild);
+        }
+        textButtons.add(btn);
+      });
+
+    document
+      .querySelectorAll('[data-booked-slot="needs-refresh"]')
+      .forEach((slot) => {
+        let btn = slot.querySelector('[data-booked-refresh-icon="1"]');
+        if (!btn) {
+          btn = buildButton("icon");
+          btn.setAttribute("data-booked-refresh-icon", "1");
+          slot.appendChild(btn);
+        }
+        iconButtons.add(btn);
+      });
+
+    renderAll();
   }
 
-  // The slot swaps in and out on tab switches and SPA navigations, so we
-  // watch document.body for it. The catch is that mount() writes into that
-  // same observed subtree (it inserts the button and sets its textContent),
-  // so a naive observer re-fires on its own writes and loops until the tab
-  // freezes. We defend two ways: affectsSlot ignores mutations that don't
-  // add or remove the slot itself, and safeMount() disconnects the observer
-  // for the duration of mount() so its writes can never feed back in,
-  // regardless of how the dashboard re-renders around them.
-  const SLOT_SELECTOR = '[data-booked-slot="social-posts-actions"]';
+  // The slots swap in and out on tab switches and SPA navigations, so we watch
+  // document.body for them. The catch is that mount() writes into that same
+  // observed subtree (it inserts controls and sets their content), so a naive
+  // observer re-fires on its own writes and loops until the tab freezes. We
+  // defend two ways: affectsSlot ignores mutations that don't add or remove a
+  // slot itself, and safeMount() disconnects the observer for the duration of
+  // mount() so its writes can never feed back in.
+  const SLOT_SELECTOR =
+    '[data-booked-slot="social-posts-actions"],[data-booked-slot="needs-refresh"]';
   function affectsSlot(nodes) {
     for (const node of nodes) {
       if (node.nodeType !== 1) continue;
@@ -140,9 +142,9 @@
     }
   });
 
-  // Run mount() with the observer disconnected so none of its DOM writes
-  // can re-trigger the observer. takeRecords() drops the mutations those
-  // writes queued while disconnected so they aren't delivered on reconnect.
+  // Run mount() with the observer disconnected so none of its DOM writes can
+  // re-trigger the observer. takeRecords() drops the mutations those writes
+  // queued while disconnected so they aren't delivered on reconnect.
   function safeMount() {
     obs.disconnect();
     try {
@@ -155,27 +157,8 @@
 
   obs.observe(document.body, OBSERVE_OPTS);
 
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local") return;
-    if (!changes[FEED_KEY]) return;
-    feed = (changes[FEED_KEY].newValue && changes[FEED_KEY].newValue.posts) || [];
-    if (currentBtn) renderButton(currentBtn);
-  });
-
-  // Cold-start the service worker so its feed refresh runs. The
-  // storage.onChanged listener above picks up the result.
-  function nudgeBackground() {
-    try {
-      chrome.runtime.sendMessage({ type: "booked:status" }).catch(() => {});
-    } catch {
-      /* ignore */
-    }
-  }
-
-  async function init() {
-    await loadFeed();
+  function init() {
     safeMount();
-    nudgeBackground();
   }
 
   if (document.readyState === "loading") {
