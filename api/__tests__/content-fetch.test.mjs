@@ -1,6 +1,7 @@
 import { jest } from "@jest/globals";
 
-const { fetchContentText, htmlToText, isPublicHttpUrl } = await import("../services/content-fetch.mjs");
+const { fetchContentText, htmlToText, isPublicHttpUrl, rscPlaintextUrl } =
+  await import("../services/content-fetch.mjs");
 
 function htmlResponse(body, { ok = true, status = 200, contentType = "text/html; charset=utf-8" } = {}) {
   return {
@@ -9,6 +10,10 @@ function htmlResponse(body, { ok = true, status = 200, contentType = "text/html;
     headers: { get: (h) => (h.toLowerCase() === "content-type" ? contentType : null) },
     text: async () => body,
   };
+}
+
+function textResponse(body, opts = {}) {
+  return htmlResponse(body, { contentType: "text/plain; charset=utf-8", ...opts });
 }
 
 describe("services/content-fetch htmlToText", () => {
@@ -92,6 +97,32 @@ describe("services/content-fetch isPublicHttpUrl", () => {
   });
 });
 
+describe("services/content-fetch rscPlaintextUrl", () => {
+  test("maps an RSC page to its /index.txt sibling", () => {
+    expect(rscPlaintextUrl("https://www.readysetcloud.io/blog/my-post")).toBe(
+      "https://www.readysetcloud.io/blog/my-post/index.txt",
+    );
+    expect(rscPlaintextUrl("https://readysetcloud.io/blog/my-post/")).toBe(
+      "https://readysetcloud.io/blog/my-post/index.txt",
+    );
+  });
+
+  test("drops query and fragment before appending", () => {
+    expect(rscPlaintextUrl("https://www.readysetcloud.io/blog/my-post?utm=x#h")).toBe(
+      "https://www.readysetcloud.io/blog/my-post/index.txt",
+    );
+  });
+
+  test("returns null for non-RSC hosts", () => {
+    expect(rscPlaintextUrl("https://medium.com/@me/post")).toBeNull();
+    expect(rscPlaintextUrl("https://dev.to/me/post")).toBeNull();
+  });
+
+  test("leaves an already-plaintext URL alone", () => {
+    expect(rscPlaintextUrl("https://www.readysetcloud.io/blog/my-post/index.txt")).toBeNull();
+  });
+});
+
 describe("services/content-fetch fetchContentText", () => {
   let originalFetch;
 
@@ -113,6 +144,39 @@ describe("services/content-fetch fetchContentText", () => {
     const opts = global.fetch.mock.calls[0][1];
     expect(opts.headers["user-agent"]).toMatch(/Mozilla/);
     expect(opts.signal).toBeDefined();
+  });
+
+  test("uses RSC prebuilt plaintext as-is (no HTML stripping)", async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      textResponse("# My Post\n\nFirst para.\n\nSecond   para keeps   spacing."),
+    );
+
+    const text = await fetchContentText("https://www.readysetcloud.io/blog/my-post");
+
+    // Fetched the /index.txt sibling, not the original page.
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(global.fetch.mock.calls[0][0]).toBe(
+      "https://www.readysetcloud.io/blog/my-post/index.txt",
+    );
+    // Returned verbatim (trimmed) — internal spacing is not collapsed the way
+    // htmlToText would.
+    expect(text).toBe("# My Post\n\nFirst para.\n\nSecond   para keeps   spacing.");
+  });
+
+  test("falls back to HTML scrape when the RSC plaintext is missing", async () => {
+    global.fetch = jest.fn().mockImplementation((u) => {
+      if (u.endsWith("/index.txt")) return Promise.resolve(textResponse("nope", { ok: false, status: 404 }));
+      return Promise.resolve(htmlResponse("<article><p>Scraped body.</p></article>"));
+    });
+
+    const text = await fetchContentText("https://www.readysetcloud.io/blog/my-post");
+
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(global.fetch.mock.calls[0][0]).toBe(
+      "https://www.readysetcloud.io/blog/my-post/index.txt",
+    );
+    expect(global.fetch.mock.calls[1][0]).toBe("https://www.readysetcloud.io/blog/my-post");
+    expect(text).toBe("Scraped body.");
   });
 
   test("returns null (non-fatal) when the request throws", async () => {

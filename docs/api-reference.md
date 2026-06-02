@@ -668,11 +668,13 @@ Example success body:
 
 On-demand AI suggestions for where else to cross-post or promote a content
 post (the campaign's published "work item") to boost engagement. When
-generating, the agent makes a best-effort GET of the post's URL and feeds the
-extracted page text to the model so recommendations key off what the piece
-actually says — this works for the typical case of a blog on a static,
-server-rendered site, and is skipped silently when the page can't be fetched
-(paywall, bot block, JS-only render, timeout). It also reads the campaign's
+generating, the agent makes a best-effort fetch of the post's text and feeds
+it to the model so recommendations key off what the piece actually says. For
+ReadySetCloud pages it pulls the prebuilt plaintext (`<url>/index.txt`); for
+other URLs it does a plain GET and strips the HTML to text. Fetching is
+skipped silently when the page can't be retrieved (paywall, bot block,
+JS-only render, missing `.txt`, timeout), and an RSC page whose `.txt` is
+missing falls back to HTML scraping. It also reads the campaign's
 distribution history — the brief, where the piece is already cross-posted
 (cross-post [links](#links) and the campaign's other content posts), and
 what's already been said about it on social ([social posts](#social-posts)
