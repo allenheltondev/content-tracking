@@ -669,12 +669,14 @@ Example success body:
 On-demand AI suggestions for where else to cross-post or promote a content
 post (the campaign's published "work item") to boost engagement. When
 generating, the agent makes a best-effort fetch of the post's text and feeds
-it to the model so recommendations key off what the piece actually says. For
-ReadySetCloud pages it pulls the prebuilt plaintext (`<url>/index.txt`); for
-other URLs it does a plain GET and strips the HTML to text. Fetching is
-skipped silently when the page can't be retrieved (paywall, bot block,
-JS-only render, missing `.txt`, timeout), and an RSC page whose `.txt` is
-missing falls back to HTML scraping. It also reads the campaign's
+it to the model so recommendations key off what the piece actually says. When
+the post is on the creator's configured
+[`personal_site_url`](#put-profile), it pulls that site's prebuilt plaintext
+(`<url>/index.txt`); for other URLs it does a plain GET and strips the HTML to
+text. Fetching is skipped silently when the page can't be retrieved (paywall,
+bot block, JS-only render, missing `.txt`, timeout), and a personal-site page
+whose `.txt` is missing falls back to HTML scraping. It also reads the
+campaign's
 distribution history — the brief, where the piece is already cross-posted
 (cross-post [links](#links) and the campaign's other content posts), and
 what's already been said about it on social ([social posts](#social-posts)
@@ -853,6 +855,7 @@ Example success body:
 ```json
 {
   "brand": { "name": "Ready, Set, Cloud!", "website_url": "https://readysetcloud.io" },
+  "personal_site_url": "https://www.readysetcloud.io",
   "identity": {
     "display_name": "Allen Helton",
     "tagline": "Serverless educator & developer advocate",
@@ -913,7 +916,8 @@ echoes the secrets back.
 | `ga4_service_account` | string | The Google service-account JSON key, as a string (contents of the downloaded key file). The service account needs Viewer on the GA4 property |
 | `crux_api_key` | string | A Google API key with the CrUX API and PageSpeed Insights API enabled. <=200 chars |
 | `brand_name` | string | <=80 chars. Shown on shared reports |
-| `website_url` | string | <=200 chars. Bare host accepted (https assumed) |
+| `website_url` | string | <=200 chars. Bare host accepted (https assumed). Brand site shown on shared reports |
+| `personal_site_url` | string | <=200 chars. Bare host accepted (https assumed). The creator's own site; content posts published here have their prebuilt plaintext (`<url>/index.txt`) pulled for [recommendations](#content-post-recommendations) |
 | `display_name` | string \| null | <=80 chars |
 | `tagline` | string \| null | <=160 chars |
 | `bio` | string \| null | <=2000 chars |
@@ -1560,6 +1564,7 @@ additional `campaign_name` field.
 | --- | --- | --- |
 | `brand.name` | string \| null | Brand name shown on shared reports |
 | `brand.website_url` | string \| null | Brand website |
+| `personal_site_url` | string \| null | The creator's own site; drives prebuilt-plaintext fetching for content recommendations |
 | `identity.display_name` | string \| null | Creator's display name |
 | `identity.tagline` | string \| null | Short one-line tagline |
 | `identity.bio` | string \| null | Longer about paragraph |

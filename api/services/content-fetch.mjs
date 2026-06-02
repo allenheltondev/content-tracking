@@ -4,10 +4,11 @@ import { logger } from "./logger.mjs";
 // agent can reason over what the piece actually says, not just its URL and
 // notes.
 //
-// When the URL is a ReadySetCloud page we fetch its prebuilt plaintext
-// (`<url>/index.txt`) — RSC generates a clean text rendering of every page,
-// which beats scraping HTML. For everything else (Medium, dev.to, other
-// blogs) we fall back to a plain GET of the HTML and strip it to text.
+// When the URL is on the creator's own site (their configured personal site,
+// passed in as `plaintextHosts`) we fetch its prebuilt plaintext rendering
+// (`<url>/index.txt`) — a clean text version beats scraping HTML. For
+// everything else (Medium, dev.to, other blogs) we fall back to a plain GET
+// of the HTML and strip it to text.
 //
 // This is deliberately non-fatal: a paywall, a bot block, a JS-only render,
 // a missing .txt, or a timeout just means the agent works from the metadata
@@ -25,15 +26,11 @@ const FETCH_TIMEOUT_MS = 8_000;
 const USER_AGENT =
   "Mozilla/5.0 (compatible; BookedContentBot/1.0; +https://readysetcloud.io)";
 
-// Hosts whose pages expose a prebuilt `/index.txt` plaintext rendering.
-// Defaults to ReadySetCloud; override (e.g. for a staging blog domain) with a
-// comma-separated RSC_PLAINTEXT_HOSTS env var.
-const PLAINTEXT_HOSTS = (process.env.RSC_PLAINTEXT_HOSTS || "readysetcloud.io")
-  .split(",")
-  .map((h) => h.trim().toLowerCase())
-  .filter(Boolean);
-
-export async function fetchContentText(url) {
+// `plaintextHosts` is the set of host(s) — derived from the creator's
+// configured personal site URL — whose pages expose a `/index.txt` plaintext
+// rendering. Empty (no personal site configured) means every URL takes the
+// HTML-scrape path.
+export async function fetchContentText(url, { plaintextHosts = [] } = {}) {
   // The URL is user-supplied (stored on the content post), so this GET is an
   // SSRF vector. Skip anything that isn't a public http(s) target before we
   // make the request. Not bulletproof against DNS rebinding, but it blocks
@@ -43,13 +40,13 @@ export async function fetchContentText(url) {
     return null;
   }
 
-  // ReadySetCloud pages: prefer the prebuilt plaintext. If it isn't there
+  // Self-published pages: prefer the prebuilt plaintext. If it isn't there
   // (e.g. an older page not yet rebuilt), fall through to scraping the HTML.
-  const plaintextUrl = rscPlaintextUrl(url);
+  const plaintextUrl = plaintextUrlFor(url, plaintextHosts);
   if (plaintextUrl) {
     const text = await fetchAndExtract(plaintextUrl, { plainText: true });
     if (text) return text;
-    logger.warn("RSC plaintext unavailable; falling back to HTML scrape", {
+    logger.warn("Personal-site plaintext unavailable; falling back to HTML scrape", {
       url,
       plaintextUrl,
     });
@@ -117,11 +114,14 @@ async function fetchAndExtract(url, { plainText }) {
   return text.length > MAX_CONTENT_CHARS ? text.slice(0, MAX_CONTENT_CHARS) : text;
 }
 
-// Maps a ReadySetCloud page URL to its `/index.txt` plaintext sibling, or
-// returns null when the URL isn't an RSC page. Query and fragment are dropped
-// and a trailing slash is normalized so the suffix lands cleanly:
+// Maps a page URL on one of `plaintextHosts` to its `/index.txt` plaintext
+// sibling, or returns null when the URL's host isn't one of them. Query and
+// fragment are dropped and a trailing slash is normalized so the suffix lands
+// cleanly:
 //   https://www.readysetcloud.io/blog/my-post  ->  .../blog/my-post/index.txt
-export function rscPlaintextUrl(url) {
+export function plaintextUrlFor(url, plaintextHosts = []) {
+  if (!Array.isArray(plaintextHosts) || plaintextHosts.length === 0) return null;
+
   let parsed;
   try {
     parsed = new URL(url);
@@ -129,9 +129,8 @@ export function rscPlaintextUrl(url) {
     return null;
   }
 
-  const host = parsed.hostname.toLowerCase();
-  const isRsc = PLAINTEXT_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
-  if (!isRsc) return null;
+  const host = parsed.hostname;
+  if (!plaintextHosts.some((h) => hostMatches(host, h))) return null;
 
   // Already pointing at the plaintext rendering — leave it alone.
   if (/\/index\.txt$/.test(parsed.pathname) || /\.txt$/.test(parsed.pathname)) {
@@ -143,6 +142,18 @@ export function rscPlaintextUrl(url) {
   if (!parsed.pathname.endsWith("/")) parsed.pathname += "/";
   parsed.pathname += "index.txt";
   return parsed.toString();
+}
+
+// Host equality that's lenient about a leading www. and subdomains, so a
+// personal site configured as "readysetcloud.io" matches posts on
+// "www.readysetcloud.io" (and vice versa) and any subdomain of it.
+function hostMatches(contentHost, siteHost) {
+  if (typeof contentHost !== "string" || typeof siteHost !== "string") return false;
+  const norm = (h) => h.toLowerCase().replace(/^www\./, "");
+  const c = norm(contentHost);
+  const s = norm(siteHost);
+  if (s.length === 0) return false;
+  return c === s || c.endsWith(`.${s}`);
 }
 
 // Lightweight HTML-to-text extraction. No DOM parser dependency — a few

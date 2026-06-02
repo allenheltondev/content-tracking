@@ -398,9 +398,10 @@ paths:
       description: |
         On-demand AI suggestions for boosting a content post's engagement.
         When generating, the agent makes a best-effort fetch of the post's
-        text and feeds it to the model: ReadySetCloud pages use the prebuilt
-        plaintext (`<url>/index.txt`), other URLs are fetched and stripped from
-        HTML (skipped silently when the page can't be retrieved). It also reads
+        text and feeds it to the model: posts on the creator's configured
+        personal_site_url use that site's prebuilt plaintext
+        (`<url>/index.txt`), other URLs are fetched and stripped from HTML
+        (skipped silently when the page can't be retrieved). It also reads
         the work item's distribution
         history — the campaign brief, where it's already cross-posted
         (cross-post links and the campaign's other content posts), and what's

@@ -1,7 +1,9 @@
 import { jest } from "@jest/globals";
 
-const { fetchContentText, htmlToText, isPublicHttpUrl, rscPlaintextUrl } =
+const { fetchContentText, htmlToText, isPublicHttpUrl, plaintextUrlFor } =
   await import("../services/content-fetch.mjs");
+
+const RSC_HOSTS = ["readysetcloud.io"];
 
 function htmlResponse(body, { ok = true, status = 200, contentType = "text/html; charset=utf-8" } = {}) {
   return {
@@ -97,29 +99,48 @@ describe("services/content-fetch isPublicHttpUrl", () => {
   });
 });
 
-describe("services/content-fetch rscPlaintextUrl", () => {
-  test("maps an RSC page to its /index.txt sibling", () => {
-    expect(rscPlaintextUrl("https://www.readysetcloud.io/blog/my-post")).toBe(
+describe("services/content-fetch plaintextUrlFor", () => {
+  test("maps a personal-site page to its /index.txt sibling", () => {
+    expect(plaintextUrlFor("https://www.readysetcloud.io/blog/my-post", RSC_HOSTS)).toBe(
       "https://www.readysetcloud.io/blog/my-post/index.txt",
     );
-    expect(rscPlaintextUrl("https://readysetcloud.io/blog/my-post/")).toBe(
+    expect(plaintextUrlFor("https://readysetcloud.io/blog/my-post/", RSC_HOSTS)).toBe(
       "https://readysetcloud.io/blog/my-post/index.txt",
     );
   });
 
   test("drops query and fragment before appending", () => {
-    expect(rscPlaintextUrl("https://www.readysetcloud.io/blog/my-post?utm=x#h")).toBe(
+    expect(plaintextUrlFor("https://www.readysetcloud.io/blog/my-post?utm=x#h", RSC_HOSTS)).toBe(
       "https://www.readysetcloud.io/blog/my-post/index.txt",
     );
   });
 
-  test("returns null for non-RSC hosts", () => {
-    expect(rscPlaintextUrl("https://medium.com/@me/post")).toBeNull();
-    expect(rscPlaintextUrl("https://dev.to/me/post")).toBeNull();
+  test("matches leniently across www and subdomains", () => {
+    // Site configured with www still matches the apex, and vice versa.
+    expect(plaintextUrlFor("https://readysetcloud.io/blog/x", ["www.readysetcloud.io"])).toBe(
+      "https://readysetcloud.io/blog/x/index.txt",
+    );
+    expect(plaintextUrlFor("https://blog.readysetcloud.io/x", ["readysetcloud.io"])).toBe(
+      "https://blog.readysetcloud.io/x/index.txt",
+    );
+  });
+
+  test("returns null when the host isn't a configured personal site", () => {
+    expect(plaintextUrlFor("https://medium.com/@me/post", RSC_HOSTS)).toBeNull();
+    expect(plaintextUrlFor("https://dev.to/me/post", RSC_HOSTS)).toBeNull();
+    // A different personal site doesn't match.
+    expect(plaintextUrlFor("https://readysetcloud.io/blog/x", ["someoneelse.com"])).toBeNull();
+  });
+
+  test("returns null when no personal-site hosts are configured", () => {
+    expect(plaintextUrlFor("https://readysetcloud.io/blog/x", [])).toBeNull();
+    expect(plaintextUrlFor("https://readysetcloud.io/blog/x")).toBeNull();
   });
 
   test("leaves an already-plaintext URL alone", () => {
-    expect(rscPlaintextUrl("https://www.readysetcloud.io/blog/my-post/index.txt")).toBeNull();
+    expect(
+      plaintextUrlFor("https://www.readysetcloud.io/blog/my-post/index.txt", RSC_HOSTS),
+    ).toBeNull();
   });
 });
 
@@ -146,12 +167,14 @@ describe("services/content-fetch fetchContentText", () => {
     expect(opts.signal).toBeDefined();
   });
 
-  test("uses RSC prebuilt plaintext as-is (no HTML stripping)", async () => {
+  test("uses personal-site prebuilt plaintext as-is (no HTML stripping)", async () => {
     global.fetch = jest.fn().mockResolvedValue(
       textResponse("# My Post\n\nFirst para.\n\nSecond   para keeps   spacing."),
     );
 
-    const text = await fetchContentText("https://www.readysetcloud.io/blog/my-post");
+    const text = await fetchContentText("https://www.readysetcloud.io/blog/my-post", {
+      plaintextHosts: RSC_HOSTS,
+    });
 
     // Fetched the /index.txt sibling, not the original page.
     expect(global.fetch).toHaveBeenCalledTimes(1);
@@ -163,13 +186,28 @@ describe("services/content-fetch fetchContentText", () => {
     expect(text).toBe("# My Post\n\nFirst para.\n\nSecond   para keeps   spacing.");
   });
 
-  test("falls back to HTML scrape when the RSC plaintext is missing", async () => {
+  test("scrapes HTML when the URL isn't on the configured personal site", async () => {
+    global.fetch = jest.fn().mockResolvedValue(htmlResponse("<article><p>Medium body.</p></article>"));
+
+    const text = await fetchContentText("https://medium.com/@me/post", {
+      plaintextHosts: RSC_HOSTS,
+    });
+
+    // No /index.txt attempt — straight to the HTML fetch of the original URL.
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(global.fetch.mock.calls[0][0]).toBe("https://medium.com/@me/post");
+    expect(text).toBe("Medium body.");
+  });
+
+  test("falls back to HTML scrape when the personal-site plaintext is missing", async () => {
     global.fetch = jest.fn().mockImplementation((u) => {
       if (u.endsWith("/index.txt")) return Promise.resolve(textResponse("nope", { ok: false, status: 404 }));
       return Promise.resolve(htmlResponse("<article><p>Scraped body.</p></article>"));
     });
 
-    const text = await fetchContentText("https://www.readysetcloud.io/blog/my-post");
+    const text = await fetchContentText("https://www.readysetcloud.io/blog/my-post", {
+      plaintextHosts: RSC_HOSTS,
+    });
 
     expect(global.fetch).toHaveBeenCalledTimes(2);
     expect(global.fetch.mock.calls[0][0]).toBe(

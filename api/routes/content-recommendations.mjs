@@ -3,6 +3,7 @@ import { jsonResponse } from "../services/http-handler.mjs";
 import { recommendEngagement } from "../services/bedrock.mjs";
 import { fetchContentText } from "../services/content-fetch.mjs";
 import { getCampaignWithLinks } from "../domain/campaign.mjs";
+import { getProfileSettings } from "../domain/profile.mjs";
 import {
   getEngagementRecommendation,
   saveEngagementRecommendation,
@@ -27,10 +28,11 @@ export function registerContentRecommendationRoutes(app) {
 
     // One Query pulls the campaign and everything under it: the work item,
     // where it's already cross-posted, sibling content pieces, the social
-    // posts that already promoted it, and the brief. Throws NotFound when the
-    // campaign doesn't exist.
-    const { metadata, links, socialPosts, contentPosts, brief } =
-      await getCampaignWithLinks(campaignId);
+    // posts that already promoted it, and the brief. The profile read runs
+    // alongside it to learn the creator's personal site. getCampaignWithLinks
+    // throws NotFound when the campaign doesn't exist.
+    const [{ metadata, links, socialPosts, contentPosts, brief }, profile] =
+      await Promise.all([getCampaignWithLinks(campaignId), getProfileSettings()]);
 
     const contentPost = contentPosts.find((p) => p.postId === postId);
     if (!contentPost) {
@@ -41,10 +43,11 @@ export function registerContentRecommendationRoutes(app) {
     const otherContentPosts = contentPosts.filter((p) => p.postId !== postId);
 
     // Best-effort fetch of the published page so the agent reasons over the
-    // actual prose. Blogs are typically static sites that render server-side,
-    // so a plain GET usually works; when it doesn't, fetchContentText returns
-    // null and the agent falls back to the URL, notes, and brief.
-    const contentText = await fetchContentText(contentPost.url);
+    // actual prose. When the post is on the creator's configured personal
+    // site, we pull its prebuilt plaintext; otherwise we scrape the HTML. A
+    // failed fetch returns null and the agent falls back to URL, notes, brief.
+    const plaintextHosts = personalSiteHosts(profile?.personalSiteUrl);
+    const contentText = await fetchContentText(contentPost.url, { plaintextHosts });
 
     // Bedrock errors propagate as UpstreamError → 502; nothing is persisted on
     // failure, so a retry simply re-runs.
@@ -72,6 +75,18 @@ export function registerContentRecommendationRoutes(app) {
     }
     return jsonResponse(200, formatEngagementRecommendation(stored));
   });
+}
+
+// Derives the host(s) whose pages expose a /index.txt plaintext rendering
+// from the creator's configured personal site URL. Returns [] when it's
+// unset or unparseable, which means every URL takes the HTML-scrape path.
+function personalSiteHosts(personalSiteUrl) {
+  if (!personalSiteUrl) return [];
+  try {
+    return [new URL(personalSiteUrl).hostname];
+  } catch {
+    return [];
+  }
 }
 
 function parseBody(event, { optional = false } = {}) {
