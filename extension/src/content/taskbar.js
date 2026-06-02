@@ -15,6 +15,8 @@
       return "twitter";
     }
     if (host === "linkedin.com" || host.endsWith(".linkedin.com")) return "linkedin";
+    if (host === "medium.com" || host.endsWith(".medium.com")) return "medium";
+    if (host === "dev.to" || host.endsWith(".dev.to")) return "devto";
     return null;
   }
 
@@ -79,10 +81,34 @@
   // the post URL as-is; posts-linkedin.js resolves the activity URN on
   // arrival and background opens an analytics scrape tab from there.
   function destinationUrl(post) {
-    if (post.platform !== "linkedin") return post.url;
-    const m = /urn:li:activity:(\d+)/.exec(post.url);
-    if (!m) return post.url;
-    return `https://www.linkedin.com/analytics/post-summary/urn:li:activity:${m[1]}/`;
+    if (post.platform === "linkedin") {
+      const m = /urn:li:activity:(\d+)/.exec(post.url);
+      return m
+        ? `https://www.linkedin.com/analytics/post-summary/urn:li:activity:${m[1]}/`
+        : post.url;
+    }
+    // Content platforms expose stats on a dedicated page the interceptor
+    // captures: Medium's per-post stats detail, dev.to's article /stats.
+    // Send the user straight there so a menu click both opens the stats
+    // view and triggers a fresh sync.
+    if (post.platform === "medium") {
+      const m =
+        /\/(?:p|post)\/([0-9a-f]+)/i.exec(post.url) ||
+        /-([0-9a-f]{6,})(?:[/?#]|$)/i.exec(post.url);
+      return m ? `https://medium.com/me/stats/post/${m[1].toLowerCase()}` : post.url;
+    }
+    if (post.platform === "devto") {
+      try {
+        const u = new URL(post.url);
+        u.search = "";
+        u.hash = "";
+        u.pathname = u.pathname.replace(/\/$/, "").replace(/\/stats$/, "") + "/stats";
+        return u.toString();
+      } catch {
+        return post.url;
+      }
+    }
+    return post.url;
   }
 
   function normalizeUrl(u) {
@@ -111,6 +137,46 @@
       <rect x="10.25" y="9" width="3.5" height="11" rx="0.5"></rect>
       <rect x="16.5" y="5" width="3.5" height="15" rx="0.5"></rect>
     </svg>`;
+
+  // Content platforms (Medium, dev.to) have no stable host nav to clone an
+  // item into, and their DOM rotates as readily as LinkedIn's. Inject a
+  // self-styled floating button instead — it depends on nothing but the page
+  // <body>, so a platform redesign can't strand it. It opens the same
+  // shadow-DOM menu the cloned nav items use.
+  function buildFloatingButton(onClick) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.dataset.bookedTaskbar = "1";
+    btn.setAttribute("aria-label", "Booked");
+    btn.style.cssText = [
+      "position:fixed",
+      "bottom:20px",
+      "right:20px",
+      "z-index:2147483646",
+      "display:flex",
+      "align-items:center",
+      "gap:8px",
+      "padding:10px 14px",
+      "border:0",
+      "border-radius:9999px",
+      "background:#2563eb",
+      "color:#fff",
+      "font:600 14px/1 system-ui,-apple-system,'Segoe UI',sans-serif",
+      "box-shadow:0 4px 14px rgba(0,0,0,0.25)",
+      "cursor:pointer",
+    ].join(";");
+    btn.innerHTML = `
+      <span data-booked-icon-wrap style="position:relative;display:inline-flex;width:20px;height:20px;align-items:center;justify-content:center;">
+        ${ICON_SVG}
+        <span data-booked-badge style="${BADGE_STYLE}"></span>
+      </span>
+      <span>Booked</span>`;
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      onClick(btn);
+    });
+    return btn;
+  }
 
   const PLATFORM_TARGETS = {
     twitter: {
@@ -163,10 +229,28 @@
       },
     },
     linkedin: {
-      // LinkedIn ships hashed utility classes that rotate; the componentkey
-      // attribute is stable. Anchor on it, then clone a sibling <li> so our
+      // LinkedIn rotates both the componentkey and the hashed utility classes
+      // on every nav redesign, so neither is a safe anchor (the componentkey
+      // that worked in May 2026 was gone by June). The primary nav's product
+      // destinations — /mynetwork, /notifications/, /messaging/, /jobs/ — are
+      // stable across redesigns, so find one of those links and climb to the
+      // <ul> that holds the nav items. We then clone a sibling <li> so our
       // button inherits whatever styling the current build hands the others.
-      navSelector: 'nav[componentkey="primaryNavLinksComponentRef"] ul',
+      // The old componentkey selector stays as a fast path for builds that
+      // still expose it.
+      findNav() {
+        const byKey = document.querySelector(
+          'nav[componentkey="primaryNavLinksComponentRef"] ul',
+        );
+        if (byKey) return byKey;
+        const PRIMARY_HREFS = ["/mynetwork", "/notifications/", "/messaging/", "/jobs/"];
+        for (const href of PRIMARY_HREFS) {
+          const link = document.querySelector(`nav a[href*="${href}"]`);
+          const ul = link && link.closest("ul");
+          if (ul) return ul;
+        }
+        return null;
+      },
       buildButton(onClick, ul) {
         const sample = ul && ul.querySelector("li");
         const li = sample
@@ -236,6 +320,20 @@
       },
       insert(ul, el) {
         ul.appendChild(el);
+      },
+    },
+    medium: {
+      floating: true,
+      buildButton: buildFloatingButton,
+      insert(host, el) {
+        host.appendChild(el);
+      },
+    },
+    devto: {
+      floating: true,
+      buildButton: buildFloatingButton,
+      insert(host, el) {
+        host.appendChild(el);
       },
     },
   };
@@ -347,7 +445,12 @@
     const mh = menu.offsetHeight;
     const margin = 8;
     let top, left;
-    if (platform === "linkedin") {
+    if (PLATFORM_TARGETS[platform].floating) {
+      // Floating button sits at the bottom-right; open the menu just above
+      // it, right-aligned to the button.
+      top = Math.max(margin, rect.top - mh - 6);
+      left = Math.min(window.innerWidth - mw - margin, Math.max(margin, rect.right - mw));
+    } else if (platform === "linkedin") {
       // Below the header nav, right-aligned to the anchor.
       top = Math.min(window.innerHeight - mh - margin, rect.bottom + 6);
       left = Math.min(window.innerWidth - mw - margin, Math.max(margin, rect.right - mw));
@@ -442,7 +545,25 @@
   // ---- button mount / render ------------------------------------------------
 
   function findNav() {
-    return document.querySelector(PLATFORM_TARGETS[platform].navSelector);
+    const target = PLATFORM_TARGETS[platform];
+    if (target.floating) return document.body || document.documentElement;
+    if (typeof target.findNav === "function") return target.findNav();
+    return document.querySelector(target.navSelector);
+  }
+
+  // Mount/unmount the button to match current state. The cloned nav items on
+  // X/LinkedIn always show; the floating content-platform button only shows
+  // when there's something to list, so it doesn't sit on every Medium page
+  // you read when nothing is tracked.
+  function ensureMounted() {
+    const target = PLATFORM_TARGETS[platform];
+    if (target.floating && !posts.length) {
+      if (buttonEl && buttonEl.parentNode) buttonEl.remove();
+      buttonEl = null;
+      if (menuOpen) closeMenu();
+      return;
+    }
+    if (!buttonEl || !document.contains(buttonEl)) mount();
   }
 
   function mount() {
@@ -483,9 +604,7 @@
   // A 2s poll is cheap and avoids a deep MutationObserver subtree watch.
   function watchForNavSwap() {
     if (mountWatchTimer) return;
-    mountWatchTimer = setInterval(() => {
-      if (!buttonEl || !document.contains(buttonEl)) mount();
-    }, 2000);
+    mountWatchTimer = setInterval(ensureMounted, 2000);
   }
 
   // ---- lifecycle ------------------------------------------------------------
@@ -502,7 +621,10 @@
       visitedMap = pruneVisited(changes[VISITED_KEY].newValue || {});
       changed = true;
     }
-    if (changed) render();
+    if (changed) {
+      ensureMounted();
+      render();
+    }
   });
 
   // Wake the background worker so it ensures the feed is fresh. The
@@ -521,7 +643,7 @@
   async function init() {
     await loadState();
     autoMarkIfOnTrackedPost();
-    mount();
+    ensureMounted();
     watchForNavSwap();
     nudgeBackground();
   }

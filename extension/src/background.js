@@ -289,12 +289,13 @@ async function handleResolvedPost({ url, activityId }) {
 
 // ---- automatic background-tab scrape -------------------------------------
 //
-// When the user lands on a tracked LinkedIn post via LinkedIn's own UI (a
-// feed click, a notification, a saved permalink), our scraper can't run on
-// that page — the counts live on the post-summary analytics page, not the
-// feed page. Open the analytics URL in a background tab so the scraper
-// fires there, sync the data, then close the tab. The user stays on the
-// page they actually wanted to read.
+// When the user lands on a tracked post via the platform's own UI (a feed
+// click, a notification, a saved permalink), the page they're on often
+// can't yield the counts: LinkedIn keeps them on the post-summary analytics
+// page, Medium on the per-post stats page, dev.to on the article's /stats
+// page. Open that capture-triggering URL in a background tab so the
+// interceptor fires there, sync the data, then close the tab. The user
+// stays on the page they actually wanted to read.
 
 const RECENT_AUTO_SCRAPES = new Map(); // post_id -> timestamp
 const ACTIVE_SCRAPE_TABS = new Map(); // post_id -> { tabId, timeoutHandle }
@@ -322,23 +323,60 @@ async function openScrapeTab(post, url) {
   ACTIVE_SCRAPE_TABS.set(post.post_id, { tabId: newTab.id, timeoutHandle });
 }
 
-async function maybeAutoScrape(tabUrl) {
-  if (!tabUrl || !tabUrl.includes("linkedin.com")) return;
-  // Don't recurse on tabs we opened ourselves.
-  if (tabUrl.includes("/analytics/post-summary/")) return;
+// Which tracked-post platform a freshly-loaded tab belongs to, if any.
+function platformForTabUrl(url) {
+  if (url.includes("linkedin.com")) return "linkedin";
+  if (url.includes("medium.com")) return "medium";
+  if (url.includes("dev.to")) return "devto";
+  return null;
+}
 
-  // Activity id may be embedded directly in the URL (feed/update form)
-  // or only available via the slug→activity cache populated by
-  // posts-linkedin.js. If neither resolves, we'll get another shot when
-  // the content script reports back via booked:resolvedPost.
-  let activityId = /urn:li:activity:(\d+)/.exec(tabUrl)?.[1] || null;
-  const urnMap = await getLinkedInUrnMap();
-  if (!activityId) activityId = urnMap[stripUrlQuery(tabUrl)] || null;
-  if (!activityId) return;
+// True when the tab is already on the capture-triggering page for its
+// platform. Those pages capture passively, so re-opening would just recurse
+// on the very background tab we open ourselves.
+function isScrapeDestination(platform, url) {
+  if (platform === "linkedin") return url.includes("/analytics/post-summary/");
+  if (platform === "medium") return url.includes("/me/stats");
+  if (platform === "devto") {
+    try {
+      return new URL(url).pathname.replace(/\/$/, "").endsWith("/stats");
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+async function maybeAutoScrape(tabUrl) {
+  if (!tabUrl) return;
+  const platform = platformForTabUrl(tabUrl);
+  if (!platform) return;
+  if (isScrapeDestination(platform, tabUrl)) return;
 
   await ensureFeed();
   if (!feed?.length) return;
-  const tracked = findLinkedInPostByActivityId(feed, activityId, urnMap);
+
+  const urnMap = platform === "linkedin" ? await getLinkedInUrnMap() : {};
+  let tracked = null;
+  if (platform === "linkedin") {
+    // Activity id may be embedded directly in the URL (feed/update form)
+    // or only available via the slug→activity cache populated by
+    // posts-linkedin.js. If neither resolves, we'll get another shot when
+    // the content script reports back via booked:resolvedPost.
+    let activityId = /urn:li:activity:(\d+)/.exec(tabUrl)?.[1] || null;
+    if (!activityId) activityId = urnMap[stripUrlQuery(tabUrl)] || null;
+    if (!activityId) return;
+    tracked = findLinkedInPostByActivityId(feed, activityId, urnMap);
+  } else {
+    // Medium/dev.to: match the tracked content post by the platform-native
+    // id parsed out of both the tab URL and each stored post URL.
+    const adapter = adapters[platform];
+    const id = adapter?.parsePostId(tabUrl);
+    if (!id) return;
+    tracked = feed.find(
+      (p) => p.platform === platform && String(adapter.parsePostId(p.url)) === String(id),
+    );
+  }
   if (!tracked) return;
 
   // Dedupe: skip if we synced this post in the last few minutes or there's
@@ -346,24 +384,40 @@ async function maybeAutoScrape(tabUrl) {
   const recent = RECENT_AUTO_SCRAPES.get(tracked.post_id);
   if (recent && Date.now() - recent < AUTO_SCRAPE_TTL_MS) return;
   if (ACTIVE_SCRAPE_TABS.has(tracked.post_id)) return;
-  RECENT_AUTO_SCRAPES.set(tracked.post_id, Date.now());
 
-  await openScrapeTab(
-    tracked,
-    `https://www.linkedin.com/analytics/post-summary/urn:li:activity:${activityId}/`,
-  );
+  const url = await scrapeUrlForPost(tracked, urnMap);
+  if (!url) return;
+  RECENT_AUTO_SCRAPES.set(tracked.post_id, Date.now());
+  await openScrapeTab(tracked, url);
 }
 
 // Build the URL to open in a background tab for a given tracked post so
 // the right capture path fires. LinkedIn needs the analytics post-summary
-// page (DOM scrape); Twitter/Instagram just need the post URL — their
-// MAIN-world interceptor catches the platform's own API responses.
+// page (DOM scrape); Medium needs the per-post stats detail page and dev.to
+// the article's /stats page (both fire the internal stats request the
+// MAIN-world interceptor catches); Twitter/Instagram just need the post
+// URL, where the interceptor catches the platform's own API responses.
 async function scrapeUrlForPost(post, urnMap) {
   if (post.platform === "linkedin") {
     let activityId = /urn:li:activity:(\d+)/.exec(post.url)?.[1] || null;
     if (!activityId) activityId = urnMap[stripUrlQuery(post.url)] || null;
     if (!activityId) return null;
     return `https://www.linkedin.com/analytics/post-summary/urn:li:activity:${activityId}/`;
+  }
+  if (post.platform === "medium") {
+    const id = adapters.medium.parsePostId(post.url);
+    return id ? `https://medium.com/me/stats/post/${id}` : null;
+  }
+  if (post.platform === "devto") {
+    try {
+      const u = new URL(post.url);
+      u.search = "";
+      u.hash = "";
+      u.pathname = u.pathname.replace(/\/$/, "").replace(/\/stats$/, "") + "/stats";
+      return u.toString();
+    } catch {
+      return null;
+    }
   }
   if (post.platform === "twitter" || post.platform === "instagram") {
     return post.url;
