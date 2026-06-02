@@ -112,10 +112,14 @@
     renderButton(currentBtn);
   }
 
-  // Tab switches and SPA navigations swap the slot in and out. Only react
-  // when the slot itself enters or leaves the DOM — reacting to any subtree
-  // mutation would loop, because mount() sets the button's textContent,
-  // and that childList mutation would re-fire the observer indefinitely.
+  // The slot swaps in and out on tab switches and SPA navigations, so we
+  // watch document.body for it. The catch is that mount() writes into that
+  // same observed subtree (it inserts the button and sets its textContent),
+  // so a naive observer re-fires on its own writes and loops until the tab
+  // freezes. We defend two ways: affectsSlot ignores mutations that don't
+  // add or remove the slot itself, and safeMount() disconnects the observer
+  // for the duration of mount() so its writes can never feed back in,
+  // regardless of how the dashboard re-renders around them.
   const SLOT_SELECTOR = '[data-booked-slot="social-posts-actions"]';
   function affectsSlot(nodes) {
     for (const node of nodes) {
@@ -125,15 +129,31 @@
     }
     return false;
   }
+
+  const OBSERVE_OPTS = { childList: true, subtree: true };
   const obs = new MutationObserver((records) => {
     for (const r of records) {
       if (affectsSlot(r.addedNodes) || affectsSlot(r.removedNodes)) {
-        mount();
+        safeMount();
         return;
       }
     }
   });
-  obs.observe(document.body, { childList: true, subtree: true });
+
+  // Run mount() with the observer disconnected so none of its DOM writes
+  // can re-trigger the observer. takeRecords() drops the mutations those
+  // writes queued while disconnected so they aren't delivered on reconnect.
+  function safeMount() {
+    obs.disconnect();
+    try {
+      mount();
+    } finally {
+      obs.takeRecords();
+      obs.observe(document.body, OBSERVE_OPTS);
+    }
+  }
+
+  obs.observe(document.body, OBSERVE_OPTS);
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
@@ -154,7 +174,7 @@
 
   async function init() {
     await loadFeed();
-    mount();
+    safeMount();
     nudgeBackground();
   }
 
