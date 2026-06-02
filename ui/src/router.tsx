@@ -13,6 +13,7 @@ import VendorDetail from './routes/VendorDetail';
 import VendorNew from './routes/VendorNew';
 import VendorEdit from './routes/VendorEdit';
 import Revenue from './routes/Revenue';
+import Insights from './routes/Insights';
 import MediaKit from './routes/MediaKit';
 import Profile from './routes/Profile';
 import Settings from './routes/Settings';
@@ -56,6 +57,7 @@ export const router = createBrowserRouter([
       { path: 'vendors/:vendorId', element: <VendorDetail /> },
       { path: 'vendors/:vendorId/edit', element: <VendorEdit /> },
       { path: 'revenue', element: <Revenue /> },
+      { path: 'insights', element: <Insights /> },
       { path: 'media-kit', element: <MediaKit /> },
       { path: 'profile', element: <Profile /> },
       { path: 'settings', element: <Settings /> },

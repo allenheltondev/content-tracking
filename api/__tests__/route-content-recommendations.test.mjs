@@ -15,6 +15,9 @@ jest.unstable_mockModule("../services/content-fetch.mjs", () => ({
 jest.unstable_mockModule("../domain/campaign.mjs", () => ({
   getCampaignWithLinks: jest.fn(),
 }));
+jest.unstable_mockModule("../domain/profile.mjs", () => ({
+  getProfileSettings: jest.fn(),
+}));
 jest.unstable_mockModule("../domain/engagement-recommendation.mjs", () => ({
   saveEngagementRecommendation: jest.fn(),
   getEngagementRecommendation: jest.fn(),
@@ -23,6 +26,7 @@ jest.unstable_mockModule("../domain/engagement-recommendation.mjs", () => ({
 const { recommendEngagement } = await import("../services/bedrock.mjs");
 const { fetchContentText } = await import("../services/content-fetch.mjs");
 const { getCampaignWithLinks } = await import("../domain/campaign.mjs");
+const { getProfileSettings } = await import("../domain/profile.mjs");
 const { saveEngagementRecommendation, getEngagementRecommendation } = await import(
   "../domain/engagement-recommendation.mjs"
 );
@@ -71,6 +75,8 @@ describe("routes/content-recommendations", () => {
     jest.clearAllMocks();
     // Default: the page fetch succeeds. Individual tests override.
     fetchContentText.mockResolvedValue("The full blog post body.");
+    // Default: a personal site is configured.
+    getProfileSettings.mockResolvedValue({ personalSiteUrl: "https://www.readysetcloud.io" });
   });
 
   test("registers the POST and GET routes", () => {
@@ -116,8 +122,11 @@ describe("routes/content-recommendations", () => {
       expect(arg.socialPosts).toHaveLength(1);
       expect(arg.goal).toBe("developer signups");
 
-      // The page was fetched from the work item URL and handed to the agent.
-      expect(fetchContentText).toHaveBeenCalledWith("https://medium.com/p/abc");
+      // The page was fetched from the work item URL — with the personal-site
+      // host derived from the profile so plaintext detection can kick in.
+      expect(fetchContentText).toHaveBeenCalledWith("https://medium.com/p/abc", {
+        plaintextHosts: ["www.readysetcloud.io"],
+      });
       expect(arg.contentText).toBe("The full blog post body.");
 
       expect(saveEngagementRecommendation).toHaveBeenCalledWith(
@@ -144,6 +153,21 @@ describe("routes/content-recommendations", () => {
 
       expect(res.statusCode).toBe(201);
       expect(recommendEngagement.mock.calls[0][0].goal).toBeUndefined();
+    });
+
+    test("passes no plaintext hosts when the profile has no personal site", async () => {
+      getCampaignWithLinks.mockResolvedValue(makeCampaignBundle());
+      getProfileSettings.mockResolvedValue(null);
+      recommendEngagement.mockResolvedValue({ summary: "x", recommendations: [] });
+      saveEngagementRecommendation.mockResolvedValue({
+        campaignId: CAMPAIGN_ID, postId: POST_ID, summary: "x", recommendations: [], alreadyCovered: [], generatedAt: "t",
+      });
+
+      await postRecs({ event: { body: null }, params: { campaignId: CAMPAIGN_ID, postId: POST_ID } });
+
+      expect(fetchContentText).toHaveBeenCalledWith("https://medium.com/p/abc", {
+        plaintextHosts: [],
+      });
     });
 
     test("still generates when the page fetch comes back empty", async () => {

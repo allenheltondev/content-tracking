@@ -2,13 +2,18 @@ import { logger } from "./logger.mjs";
 
 // Best-effort fetch of a content post's body text so the recommendation
 // agent can reason over what the piece actually says, not just its URL and
-// notes. Blog posts overwhelmingly live on static sites, so a plain GET
-// returns server-rendered HTML we can strip to text.
+// notes.
+//
+// When the URL is on the creator's own site (their configured personal site,
+// passed in as `plaintextHosts`) we fetch its prebuilt plaintext rendering
+// (`<url>/index.txt`) — a clean text version beats scraping HTML. For
+// everything else (Medium, dev.to, other blogs) we fall back to a plain GET
+// of the HTML and strip it to text.
 //
 // This is deliberately non-fatal: a paywall, a bot block, a JS-only render,
-// or a timeout just means the agent works from the metadata it already has.
-// Callers get null on any failure rather than an exception — the
-// recommendation must still generate.
+// a missing .txt, or a timeout just means the agent works from the metadata
+// it already has. Callers get null on any failure rather than an exception —
+// the recommendation must still generate.
 
 // Generous enough for a long blog post, bounded so a runaway page (or an
 // accidental file download) can't blow up token usage.
@@ -21,7 +26,11 @@ const FETCH_TIMEOUT_MS = 8_000;
 const USER_AGENT =
   "Mozilla/5.0 (compatible; BookedContentBot/1.0; +https://readysetcloud.io)";
 
-export async function fetchContentText(url) {
+// `plaintextHosts` is the set of host(s) — derived from the creator's
+// configured personal site URL — whose pages expose a `/index.txt` plaintext
+// rendering. Empty (no personal site configured) means every URL takes the
+// HTML-scrape path.
+export async function fetchContentText(url, { plaintextHosts = [] } = {}) {
   // The URL is user-supplied (stored on the content post), so this GET is an
   // SSRF vector. Skip anything that isn't a public http(s) target before we
   // make the request. Not bulletproof against DNS rebinding, but it blocks
@@ -31,12 +40,34 @@ export async function fetchContentText(url) {
     return null;
   }
 
+  // Self-published pages: prefer the prebuilt plaintext. If it isn't there
+  // (e.g. an older page not yet rebuilt), fall through to scraping the HTML.
+  const plaintextUrl = plaintextUrlFor(url, plaintextHosts);
+  if (plaintextUrl) {
+    const text = await fetchAndExtract(plaintextUrl, { plainText: true });
+    if (text) return text;
+    logger.warn("Personal-site plaintext unavailable; falling back to HTML scrape", {
+      url,
+      plaintextUrl,
+    });
+  }
+
+  return fetchAndExtract(url, { plainText: false });
+}
+
+// Fetches a URL and returns its text, capped. When `plainText` is set the
+// body is used as-is (just trimmed); otherwise it's stripped from HTML.
+// Returns null on any failure so the caller can fall back.
+async function fetchAndExtract(url, { plainText }) {
   let response;
   try {
     response = await fetch(url, {
       redirect: "follow",
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      headers: { "user-agent": USER_AGENT, accept: "text/html,*/*" },
+      headers: {
+        "user-agent": USER_AGENT,
+        accept: plainText ? "text/plain,*/*" : "text/html,*/*",
+      },
     });
   } catch (err) {
     logger.warn("Content fetch failed; proceeding without body text", {
@@ -74,13 +105,55 @@ export async function fetchContentText(url) {
     return null;
   }
 
-  const text = htmlToText(body);
+  const text = plainText ? body.trim() : htmlToText(body);
   if (text.length === 0) {
     logger.warn("Content fetch yielded no extractable text", { url });
     return null;
   }
 
   return text.length > MAX_CONTENT_CHARS ? text.slice(0, MAX_CONTENT_CHARS) : text;
+}
+
+// Maps a page URL on one of `plaintextHosts` to its `/index.txt` plaintext
+// sibling, or returns null when the URL's host isn't one of them. Query and
+// fragment are dropped and a trailing slash is normalized so the suffix lands
+// cleanly:
+//   https://www.readysetcloud.io/blog/my-post  ->  .../blog/my-post/index.txt
+export function plaintextUrlFor(url, plaintextHosts = []) {
+  if (!Array.isArray(plaintextHosts) || plaintextHosts.length === 0) return null;
+
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+
+  const host = parsed.hostname;
+  if (!plaintextHosts.some((h) => hostMatches(host, h))) return null;
+
+  // Already pointing at the plaintext rendering — leave it alone.
+  if (/\/index\.txt$/.test(parsed.pathname) || /\.txt$/.test(parsed.pathname)) {
+    return null;
+  }
+
+  parsed.search = "";
+  parsed.hash = "";
+  if (!parsed.pathname.endsWith("/")) parsed.pathname += "/";
+  parsed.pathname += "index.txt";
+  return parsed.toString();
+}
+
+// Host equality that's lenient about a leading www. and subdomains, so a
+// personal site configured as "readysetcloud.io" matches posts on
+// "www.readysetcloud.io" (and vice versa) and any subdomain of it.
+function hostMatches(contentHost, siteHost) {
+  if (typeof contentHost !== "string" || typeof siteHost !== "string") return false;
+  const norm = (h) => h.toLowerCase().replace(/^www\./, "");
+  const c = norm(contentHost);
+  const s = norm(siteHost);
+  if (s.length === 0) return false;
+  return c === s || c.endsWith(`.${s}`);
 }
 
 // Lightweight HTML-to-text extraction. No DOM parser dependency — a few

@@ -8,6 +8,9 @@ import { BadRequestError } from "../services/errors.mjs";
 //   cruxApiKey       -> secret, written to SSM
 //   brandName        -> non-secret, stored in DynamoDB; shown on shared reports
 //   websiteUrl       -> non-secret, stored in DynamoDB; shown on shared reports
+//   personalSiteUrl  -> non-secret, stored in DynamoDB; the creator's own site
+//                       (used to detect self-published posts and pull their
+//                       prebuilt plaintext for AI analysis)
 
 const GA4_PROPERTY_ID_RE = /^\d{1,20}$/;
 const CRUX_KEY_MAX = 200;
@@ -19,7 +22,7 @@ export function validateProfileUpdate(body) {
     throw new BadRequestError("request body must be a JSON object");
   }
 
-  const { ga4_property_id, ga4_service_account, crux_api_key, brand_name, website_url } = body;
+  const { ga4_property_id, ga4_service_account, crux_api_key, brand_name, website_url, personal_site_url } = body;
   const out = {};
 
   if (ga4_property_id !== undefined && ga4_property_id !== null && ga4_property_id !== "") {
@@ -53,7 +56,11 @@ export function validateProfileUpdate(body) {
   }
 
   if (website_url !== undefined && website_url !== null && website_url !== "") {
-    out.websiteUrl = validateWebsiteUrl(website_url);
+    out.websiteUrl = normalizeUrlField(website_url, "website_url");
+  }
+
+  if (personal_site_url !== undefined && personal_site_url !== null && personal_site_url !== "") {
+    out.personalSiteUrl = normalizeUrlField(personal_site_url, "personal_site_url");
   }
 
   return out;
@@ -61,9 +68,11 @@ export function validateProfileUpdate(body) {
 
 // Accepts a full URL or a bare host (readysetcloud.io); a missing scheme is
 // assumed to be https so the stored value is always a usable absolute URL.
-function validateWebsiteUrl(input) {
+// `field` names the property in error messages so callers get specific
+// feedback (website_url vs personal_site_url).
+function normalizeUrlField(input, field) {
   if (typeof input !== "string" || input.trim().length === 0) {
-    throw new BadRequestError("website_url must be a non-empty string");
+    throw new BadRequestError(`${field} must be a non-empty string`);
   }
   let value = input.trim();
   // Only assume https for a bare host. An explicit non-http scheme (ftp://,
@@ -73,16 +82,16 @@ function validateWebsiteUrl(input) {
     value = `https://${value}`;
   }
   if (value.length > WEBSITE_URL_MAX) {
-    throw new BadRequestError(`website_url must be at most ${WEBSITE_URL_MAX} chars`);
+    throw new BadRequestError(`${field} must be at most ${WEBSITE_URL_MAX} chars`);
   }
   let url;
   try {
     url = new URL(value);
   } catch {
-    throw new BadRequestError("website_url must be a valid URL");
+    throw new BadRequestError(`${field} must be a valid URL`);
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new BadRequestError("website_url must be an http(s) URL");
+    throw new BadRequestError(`${field} must be an http(s) URL`);
   }
   return value;
 }

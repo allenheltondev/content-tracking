@@ -70,6 +70,7 @@ export function registerProfileRoutes(app) {
     if (fields.ga4PropertyId) nonSecret.ga4PropertyId = fields.ga4PropertyId;
     if (fields.brandName) nonSecret.brandName = fields.brandName;
     if (fields.websiteUrl) nonSecret.websiteUrl = fields.websiteUrl;
+    if (fields.personalSiteUrl) nonSecret.personalSiteUrl = fields.personalSiteUrl;
     Object.assign(nonSecret, creator);
     if (Object.keys(nonSecret).length > 0) {
       await saveProfileSettings(nonSecret);
@@ -129,6 +130,10 @@ async function buildProfileView({ forceFetch = false } = {}) {
       name: s.brandName ?? null,
       website_url: s.websiteUrl ?? null,
     },
+    // The creator's own site. When a content post is published here, the
+    // engagement recommender pulls its prebuilt plaintext (<url>/index.txt)
+    // instead of scraping HTML.
+    personal_site_url: s.personalSiteUrl ?? null,
     identity: {
       display_name: s.displayName ?? null,
       tagline: s.tagline ?? null,
