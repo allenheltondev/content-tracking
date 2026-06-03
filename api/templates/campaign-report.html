@@ -8,31 +8,46 @@
   <title>Campaign Report</title>
   <style>
     :root {
-      --bg: #f4f6f8;
+      --bg: #eef1f6;
       --surface: #ffffff;
-      --ink: #1a2230;
+      --ink: #161d2b;
       --muted: #5b6675;
       --faint: #8a94a3;
-      --line: #e3e8ee;
-      --accent: #2256c7;
-      --accent-soft: #e8efff;
-      --bar: #2256c7;
+      --line: #e6eaf0;
+      --line-soft: #f0f3f7;
+
+      /* Brand accent. Overridden at runtime from the profile's configured
+         accent color when present (see the theme block in the script). */
+      --accent: #4f46e5;
+      --accent-2: #7c3aed;
+      --accent-soft: #eef0ff;
+
+      /* Metric palette */
+      --c-views: #2563eb;
+      --c-views-soft: #e8f0ff;
+      --c-impr: #7c3aed;
+      --c-impr-soft: #f1eaff;
+      --c-eng: #0d9488;
+      --c-eng-soft: #e2f5f2;
+      --c-clicks: #d97706;
+      --c-clicks-soft: #fdf0dd;
+
       --warn-bg: #fff7e6;
       --warn-ink: #8a5d00;
       --warn-line: #f0dcae;
-      --radius: 10px;
-      --shadow: 0 1px 3px rgba(20, 32, 54, 0.08), 0 1px 2px rgba(20, 32, 54, 0.04);
+
+      --radius: 14px;
+      --shadow: 0 1px 2px rgba(20, 32, 54, 0.04), 0 10px 30px rgba(20, 32, 54, 0.06);
     }
 
     * { box-sizing: border-box; }
 
-    html, body {
-      margin: 0;
-      padding: 0;
-    }
+    html, body { margin: 0; padding: 0; }
 
     body {
-      background: var(--bg);
+      background:
+        radial-gradient(1200px 480px at 50% -160px, rgba(79, 70, 229, 0.10), transparent 70%),
+        var(--bg);
       color: var(--ink);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
       font-size: 15px;
@@ -41,8 +56,8 @@
     }
 
     .sheet {
-      max-width: 960px;
-      margin: 24px auto;
+      max-width: 980px;
+      margin: 32px auto;
       background: var(--surface);
       border: 1px solid var(--line);
       border-radius: var(--radius);
@@ -54,52 +69,65 @@
     .brand-bar {
       display: flex;
       flex-wrap: wrap;
-      align-items: baseline;
+      align-items: center;
       justify-content: space-between;
       gap: 6px 16px;
-      padding: 16px 32px;
-      background: var(--ink);
+      padding: 18px 36px;
+      background: linear-gradient(120deg, var(--accent) 0%, var(--accent-2) 100%);
       color: #fff;
     }
     .brand-bar .brand-name {
-      font-size: 18px;
+      font-size: 19px;
       font-weight: 700;
       letter-spacing: -0.01em;
     }
     .brand-bar .brand-site {
       font-size: 13px;
-      color: #cdd6e4;
+      color: rgba(255, 255, 255, 0.82);
       text-decoration: none;
     }
     .brand-bar .brand-site:hover { color: #fff; text-decoration: underline; }
 
     /* Header */
     .doc-header {
-      padding: 28px 32px;
-      border-bottom: 2px solid var(--ink);
+      position: relative;
+      padding: 30px 36px 26px;
+      background: linear-gradient(180deg, #f7f8fd 0%, var(--surface) 100%);
+      border-bottom: 1px solid var(--line);
       display: flex;
       flex-wrap: wrap;
       justify-content: space-between;
       gap: 20px;
       align-items: flex-start;
     }
+    .doc-header::before {
+      content: "";
+      position: absolute;
+      left: 0; right: 0; top: 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    }
 
     .doc-header .lead { min-width: 240px; }
 
     .doc-kicker {
+      display: inline-block;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.1em;
       font-size: 11px;
       font-weight: 700;
       color: var(--accent);
-      margin: 0 0 6px;
+      background: var(--accent-soft);
+      padding: 3px 10px;
+      border-radius: 999px;
+      margin: 0 0 12px;
     }
 
     .campaign-name {
-      font-size: 26px;
-      font-weight: 700;
+      font-size: 28px;
+      font-weight: 800;
       margin: 0 0 4px;
-      letter-spacing: -0.01em;
+      letter-spacing: -0.02em;
     }
 
     .period-label {
@@ -119,24 +147,21 @@
     .campaign-meta li { margin: 2px 0; }
     .campaign-meta b { color: var(--ink); font-weight: 600; }
 
-    .stamp {
-      text-align: right;
-      min-width: 180px;
-    }
+    .stamp { text-align: right; min-width: 180px; }
 
     .stamp .stamp-box {
       display: inline-block;
-      border: 1.5px solid var(--accent);
-      color: var(--accent);
-      border-radius: 8px;
-      padding: 10px 14px;
-      background: var(--accent-soft);
+      border-radius: 12px;
+      padding: 12px 16px;
+      color: #fff;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 6px 16px rgba(79, 70, 229, 0.28);
     }
 
     .stamp .stamp-label {
       display: block;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.1em;
       font-size: 10px;
       font-weight: 700;
       opacity: 0.85;
@@ -144,7 +169,7 @@
 
     .stamp .stamp-date {
       display: block;
-      font-size: 18px;
+      font-size: 19px;
       font-weight: 700;
       margin-top: 2px;
     }
@@ -156,35 +181,35 @@
       margin-top: 8px;
     }
 
-    .pill {
-      display: inline-block;
-      font-size: 11px;
-      font-weight: 600;
-      border-radius: 999px;
-      padding: 1px 8px;
-      background: var(--accent-soft);
-      color: var(--accent);
-      text-transform: capitalize;
-    }
-
     /* Sections */
     .section {
-      padding: 24px 32px;
+      padding: 26px 36px;
       border-bottom: 1px solid var(--line);
     }
-    .section:last-child { border-bottom: 0; }
+    .section:last-of-type { border-bottom: 0; }
 
     .section-title {
+      display: flex;
+      align-items: center;
+      gap: 9px;
       font-size: 12px;
       text-transform: uppercase;
-      letter-spacing: 0.07em;
+      letter-spacing: 0.08em;
       font-weight: 700;
-      color: var(--faint);
-      margin: 0 0 16px;
+      color: var(--muted);
+      margin: 0 0 18px;
+    }
+    .section-title::before {
+      content: "";
+      width: 12px;
+      height: 12px;
+      border-radius: 4px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      flex: none;
     }
 
     .section-lead {
-      margin: -8px 0 16px;
+      margin: -10px 0 16px;
       font-size: 13px;
       color: var(--muted);
     }
@@ -199,56 +224,68 @@
     }
 
     .card {
+      position: relative;
       border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 16px;
+      border-radius: 12px;
+      padding: 16px 16px 15px 19px;
       background: var(--surface);
+      overflow: hidden;
     }
-
-    .card.is-primary { border-color: var(--accent); background: var(--accent-soft); }
+    .card::before {
+      content: "";
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 5px;
+      background: var(--card-accent, var(--accent));
+    }
 
     .card .card-label {
       font-size: 12px;
       color: var(--muted);
-      margin: 0 0 6px;
+      margin: 0 0 7px;
       font-weight: 600;
     }
 
     .card .card-value {
-      font-size: 22px;
-      font-weight: 700;
-      letter-spacing: -0.01em;
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
       margin: 0;
+      color: var(--card-accent, var(--ink));
       font-variant-numeric: tabular-nums;
     }
 
+    .card.m-views   { --card-accent: var(--c-views);  background: linear-gradient(180deg, var(--c-views-soft), var(--surface) 70%); }
+    .card.m-impr    { --card-accent: var(--c-impr);   background: linear-gradient(180deg, var(--c-impr-soft), var(--surface) 70%); }
+    .card.m-eng     { --card-accent: var(--c-eng);    background: linear-gradient(180deg, var(--c-eng-soft), var(--surface) 70%); }
+    .card.m-clicks  { --card-accent: var(--c-clicks); background: linear-gradient(180deg, var(--c-clicks-soft), var(--surface) 70%); }
+
     /* Chart */
     .chart-wrap { width: 100%; overflow-x: auto; }
-    svg .axis-line { stroke: var(--line); stroke-width: 1; }
+    .chart-legend {
+      display: flex;
+      gap: 16px;
+      margin: -6px 0 14px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .chart-legend .key { display: inline-flex; align-items: center; gap: 7px; }
+    .chart-legend .swatch { width: 12px; height: 12px; border-radius: 4px; background: var(--accent); }
+    svg .grid-line { stroke: var(--line); stroke-width: 1; }
     svg .axis-label { fill: var(--faint); font-size: 11px; }
     svg .day-label { fill: var(--muted); font-size: 10px; }
-    svg .bar { fill: var(--bar); }
-
-    /* Controls */
-    .controls {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      align-items: center;
-      margin-bottom: 14px;
-    }
-    .controls input[type="search"] {
-      flex: 1 1 220px;
-      min-width: 160px;
-      padding: 8px 12px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      font-size: 14px;
-      color: var(--ink);
-    }
+    svg .area { fill: url(#trafficGrad); }
+    svg .trend-line { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+    svg .dot { fill: #fff; stroke: var(--accent); stroke-width: 2; }
+    svg .hot { fill: transparent; }
 
     /* Tables */
-    .table-wrap { width: 100%; overflow-x: auto; }
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
     table.data {
       width: 100%;
       border-collapse: collapse;
@@ -256,76 +293,60 @@
     }
     table.data th, table.data td {
       text-align: left;
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--line);
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line-soft);
       white-space: nowrap;
     }
-    table.data th {
+    table.data thead th {
       font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.05em;
       color: var(--faint);
+      background: #f8f9fc;
+      border-bottom: 1px solid var(--line);
     }
-    table.data.sortable th.sortable {
-      cursor: pointer;
-      user-select: none;
-    }
-    table.data.sortable th.sortable::after {
-      content: "";
-      opacity: 0.4;
-      margin-left: 4px;
-    }
-    table.data th[aria-sort="ascending"]::after { content: "\25B2"; opacity: 1; }
-    table.data th[aria-sort="descending"]::after { content: "\25BC"; opacity: 1; }
+    table.data tbody tr:last-child td { border-bottom: 0; }
     table.data td.num, table.data th.num {
       text-align: right;
       font-variant-numeric: tabular-nums;
     }
-    table.data td.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
     table.data td a { color: var(--accent); text-decoration: none; }
     table.data td a:hover { text-decoration: underline; }
-    table.data tbody tr:nth-child(even) { background: #fafbfc; }
+    table.data tbody tr:hover { background: #f8f9fd; }
     .muted-cell { color: var(--muted); }
 
-    /* Pagination */
-    .pagination {
-      display: flex;
+    /* Channel + platform badges */
+    .badge {
+      display: inline-flex;
       align-items: center;
-      justify-content: flex-end;
-      gap: 12px;
-      margin-top: 12px;
-      font-size: 13px;
-      color: var(--muted);
-    }
-    .pagination button {
-      border: 1px solid var(--line);
-      background: var(--surface);
+      gap: 8px;
+      font-weight: 600;
       color: var(--ink);
-      font-size: 13px;
-      padding: 6px 12px;
-      border-radius: 8px;
-      cursor: pointer;
     }
-    .pagination button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-    .pagination button:disabled { opacity: 0.45; cursor: default; }
-
-    .empty-row td {
-      text-align: center;
-      color: var(--faint);
-      padding: 28px 12px;
-      font-style: italic;
+    .badge .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex: none;
     }
 
-    .empty-state {
-      border: 1px dashed var(--line);
-      border-radius: 8px;
-      padding: 32px;
-      text-align: center;
-      color: var(--muted);
-      background: #fafbfc;
+    /* Share bar inside source table */
+    .share-cell { min-width: 120px; }
+    .share-track {
+      position: relative;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--line);
+      overflow: hidden;
     }
-    .empty-state h3 { margin: 0 0 4px; color: var(--ink); }
-    .empty-state p { margin: 0; font-size: 13px; }
+    .share-fill {
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    }
+    .share-num { font-size: 12px; color: var(--muted); margin-top: 4px; display: block; }
 
     .skipped-note {
       margin-top: 14px;
@@ -333,36 +354,38 @@
       background: var(--warn-bg);
       color: var(--warn-ink);
       border: 1px solid var(--warn-line);
-      border-radius: 8px;
+      border-radius: 10px;
       padding: 10px 14px;
     }
 
     .doc-footer {
-      padding: 18px 32px;
+      padding: 18px 36px;
       font-size: 11px;
       color: var(--faint);
       display: flex;
       justify-content: space-between;
       flex-wrap: wrap;
       gap: 8px;
+      background: #fafbfd;
     }
 
     .btn {
-      border: 1px solid var(--accent);
-      background: var(--accent);
+      border: 1px solid transparent;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
       color: #fff;
       font-size: 14px;
       font-weight: 600;
-      padding: 9px 16px;
-      border-radius: 8px;
+      padding: 9px 18px;
+      border-radius: 10px;
       cursor: pointer;
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
     }
-    .btn:hover { filter: brightness(0.95); }
+    .btn:hover { filter: brightness(1.05); }
 
     .toolbar {
       display: flex;
       justify-content: flex-end;
-      padding: 16px 32px 0;
+      padding: 18px 36px 0;
     }
 
     /* Responsive */
@@ -370,7 +393,7 @@
       .sheet { margin: 0; border-radius: 0; border-left: 0; border-right: 0; }
       .cards { grid-template-columns: repeat(2, 1fr); }
       .brand-bar { padding: 14px 20px; }
-      .doc-header { padding: 20px; }
+      .doc-header { padding: 22px 20px; }
       .section { padding: 20px; }
       .stamp { text-align: left; }
     }
@@ -388,24 +411,20 @@
         box-shadow: none;
         border-radius: 0;
       }
-      .no-print, .toolbar, .controls, .pagination { display: none !important; }
-      .brand-bar {
-        background: #fff;
-        color: var(--ink);
-        padding: 0 0 10px;
-        border-bottom: 2px solid var(--ink);
-      }
-      .brand-bar .brand-site { color: var(--muted); }
-      .section { padding: 14px 0; page-break-inside: avoid; }
+      .no-print, .toolbar { display: none !important; }
+      .brand-bar,
+      .stamp .stamp-box,
+      .btn,
+      .share-fill,
+      svg .area { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .doc-header { padding: 0 0 14px; }
+      .doc-header::before { display: none; }
+      .section { padding: 14px 0; page-break-inside: avoid; }
       .cards { grid-template-columns: repeat(4, 1fr); gap: 8px; }
-      .card { box-shadow: none; }
       table.data { font-size: 11px; }
-      table.data th { cursor: default; }
       table.data td, table.data th { white-space: normal; }
       .chart-wrap { overflow: visible; }
       tr { page-break-inside: avoid; }
-      .stamp .stamp-box { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       a[href]::after { content: ""; }
     }
   </style>
@@ -450,9 +469,22 @@
     </section>
 
     <section class="section" id="main-content-section" hidden>
-      <h2 class="section-title">Main content</h2>
+      <h2 class="section-title">Featured content</h2>
       <p class="section-lead" id="main-content-lead"></p>
       <div class="cards" id="main-content-cards"></div>
+    </section>
+
+    <section class="section" id="content-posts-section" hidden>
+      <h2 class="section-title">Cross posts</h2>
+      <div class="table-wrap" id="content-posts-wrap"></div>
+    </section>
+
+    <section class="section" id="chart-section">
+      <h2 class="section-title">Traffic over time</h2>
+      <div class="chart-legend">
+        <span class="key"><span class="swatch"></span>Clicks per day</span>
+      </div>
+      <div class="chart-wrap" id="chart-wrap"></div>
     </section>
 
     <section class="section" id="source-section">
@@ -460,27 +492,15 @@
       <div class="table-wrap" id="source-wrap"></div>
     </section>
 
-    <section class="section" id="chart-section">
-      <h2 class="section-title">Daily clicks</h2>
-      <div class="chart-wrap" id="chart-wrap"></div>
-    </section>
-
-    <section class="section">
-      <h2 class="section-title">Links</h2>
-      <div class="controls no-print">
-        <input type="search" id="search" placeholder="Search links..." aria-label="Search links">
-      </div>
-      <div id="links-region"></div>
+    <section class="section" id="content-links-section" hidden>
+      <h2 class="section-title">Content links</h2>
+      <p class="section-lead">Clicks on individual links tracked inside your content.</p>
+      <div class="table-wrap" id="content-links-wrap"></div>
     </section>
 
     <section class="section" id="social-posts-section" hidden>
       <h2 class="section-title">Social posts</h2>
       <div class="table-wrap" id="social-posts-wrap"></div>
-    </section>
-
-    <section class="section" id="content-posts-section" hidden>
-      <h2 class="section-title">Content posts</h2>
-      <div class="table-wrap" id="content-posts-wrap"></div>
     </section>
 
     <footer class="doc-footer">
@@ -505,6 +525,7 @@
 
       var report = snapshot.report || {};
       var campaign = snapshot.campaign || {};
+      var theme = snapshot.theme || {};
       var brand = snapshot.brand || null;
       var summary = snapshot.summary || {};
       var reach = snapshot.reach || null;
@@ -526,8 +547,6 @@
       function fmtDate(s) {
         if (!s || typeof s !== "string") return "—";
         var date = s.slice(0, 10);
-        // Validate YYYY-MM-DD shape without a trailing regex anchor, so the
-        // served document never contains a currency-like character.
         return /^[0-9]{4}-[0-9]{2}-[0-9]{2}/.test(date) && date.length === 10 ? date : "—";
       }
 
@@ -577,10 +596,117 @@
         return start || end || "—";
       }
 
-      // Show a website as its bare host (readysetcloud.io), falling back to
-      // the raw value if it can't be parsed.
       function siteLabel(u) {
         try { return new URL(u).host; } catch (e) { return u; }
+      }
+
+      // Derive a readable label from a content URL: the last path segment,
+      // de-slugified and title-cased (e.g. /blog/spring-serverless ->
+      // "Spring Serverless"). Falls back to the host so the link is never
+      // the bare URL.
+      function pageTitleFromUrl(u) {
+        try {
+          var url = new URL(u);
+          var segs = url.pathname.split("/").filter(Boolean);
+          var last = segs.length ? decodeURIComponent(segs[segs.length - 1]) : "";
+          // Drop a short trailing file extension (.html, .php, …) without a
+          // regex end anchor, so the served document never contains a
+          // currency-like character.
+          var dot = last.lastIndexOf(".");
+          if (dot > 0) {
+            var ext = last.slice(dot + 1);
+            if (ext.length <= 5 && !/[^a-z0-9]/i.test(ext)) last = last.slice(0, dot);
+          }
+          last = last.replace(/[-_]+/g, " ").trim();
+          if (!last) return url.host;
+          return last.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+        } catch (e) {
+          return u;
+        }
+      }
+
+      // ---- Theme accent ----
+      // Apply the profile's configured accent color when present. We set the
+      // base accent and derive a second stop + soft tint so every accented
+      // surface (header, buttons, chart, share bars) recolors together.
+      // Anything invalid leaves the template's built-in accent in place.
+      var accentColor = "#4f46e5";
+      (function applyAccent() {
+        var hex = typeof theme.accentColor === "string" ? theme.accentColor.trim() : "";
+        var rgb = hexToRgb(hex);
+        if (!rgb) return;
+        accentColor = "#" + toHex(rgb.r) + toHex(rgb.g) + toHex(rgb.b);
+        var root = document.documentElement;
+        root.style.setProperty("--accent", accentColor);
+        root.style.setProperty("--accent-2", rgbStr(shade(rgb, -0.18)));
+        root.style.setProperty("--accent-soft", rgbStr(mixWhite(rgb, 0.90)));
+      })();
+
+      function hexToRgb(hex) {
+        // Validate without a regex end anchor so the served document never
+        // contains a currency-like character (the renderer forbids them).
+        if (typeof hex !== "string" || hex.charAt(0) !== "#") return null;
+        var h = hex.slice(1);
+        if (h.length !== 3 && h.length !== 6) return null;
+        if (/[^0-9a-fA-F]/.test(h)) return null;
+        if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+        return {
+          r: parseInt(h.slice(0, 2), 16),
+          g: parseInt(h.slice(2, 4), 16),
+          b: parseInt(h.slice(4, 6), 16)
+        };
+      }
+      function clamp255(n) { return Math.max(0, Math.min(255, Math.round(n))); }
+      function toHex(n) { var s = clamp255(n).toString(16); return s.length === 1 ? "0" + s : s; }
+      function rgbStr(c) { return "rgb(" + clamp255(c.r) + "," + clamp255(c.g) + "," + clamp255(c.b) + ")"; }
+      // Darken (amount < 0) toward black; mixWhite lightens toward white.
+      function shade(c, amount) {
+        var f = 1 + amount;
+        return { r: c.r * f, g: c.g * f, b: c.b * f };
+      }
+      function mixWhite(c, t) {
+        return { r: c.r + (255 - c.r) * t, g: c.g + (255 - c.g) * t, b: c.b + (255 - c.b) * t };
+      }
+
+      // ---- Platform presentation ----
+      // Map raw platform slugs to their proper casing, plus a brand-ish dot
+      // colour so the social/cross-post tables read at a glance.
+      var PLATFORM_LABELS = {
+        linkedin: "LinkedIn", twitter: "Twitter", x: "X", facebook: "Facebook",
+        instagram: "Instagram", youtube: "YouTube", tiktok: "TikTok", threads: "Threads",
+        bluesky: "Bluesky", mastodon: "Mastodon", reddit: "Reddit", medium: "Medium",
+        devto: "Dev.to", hashnode: "Hashnode", substack: "Substack", github: "GitHub",
+        pinterest: "Pinterest", discord: "Discord", slack: "Slack", newsletter: "Newsletter"
+      };
+      var PLATFORM_COLORS = {
+        linkedin: "#0a66c2", twitter: "#1d9bf0", x: "#111111", facebook: "#1877f2",
+        instagram: "#e1306c", youtube: "#ff0000", tiktok: "#111111", threads: "#111111",
+        bluesky: "#1185fe", mastodon: "#6364ff", reddit: "#ff4500", medium: "#00ab6c",
+        devto: "#0a0a0a", hashnode: "#2962ff", substack: "#ff6719", github: "#24292f",
+        pinterest: "#e60023", discord: "#5865f2", slack: "#4a154b", newsletter: "#0d9488"
+      };
+      function platformKey(p) {
+        return String(p == null ? "" : p).toLowerCase().replace(/[^a-z0-9]/g, "");
+      }
+      function platformLabel(p) {
+        if (!p) return "—";
+        var key = platformKey(p);
+        if (PLATFORM_LABELS[key]) return PLATFORM_LABELS[key];
+        // Title-case unknown platforms word by word.
+        return String(p).replace(/[_-]+/g, " ").replace(/\b\w/g, function (c) {
+          return c.toUpperCase();
+        });
+      }
+      function platformColor(p) {
+        return PLATFORM_COLORS[platformKey(p)] || "#6366f1";
+      }
+      function platformBadge(p) {
+        var span = el("span", { "class": "badge" });
+        var dot = el("span", { "class": "dot" });
+        dot.style.background = platformColor(p);
+        span.appendChild(dot);
+        span.appendChild(document.createTextNode(platformLabel(p)));
+        return span;
       }
 
       // ---- Brand ----
@@ -628,17 +754,17 @@
 
       // ---- Summary cards ----
       var cardsRoot = document.getElementById("summary-cards");
-      function addCard(label, value, primary) {
-        var card = el("div", { "class": "card" + (primary ? " is-primary" : "") });
+      function addCard(label, value, variant) {
+        var card = el("div", { "class": "card" + (variant ? " " + variant : "") });
         card.appendChild(el("p", { "class": "card-label" }, label));
         card.appendChild(el("p", { "class": "card-value" }, value));
         cardsRoot.appendChild(card);
       }
       var reachTotals = (reach && reach.totals) || { views: 0, impressions: 0, engagements: 0 };
-      addCard("Views", fmtInt(reachTotals.views), true);
-      addCard("Impressions", fmtInt(reachTotals.impressions), true);
-      addCard("Engagements", fmtInt(reachTotals.engagements), false);
-      addCard("Clicks", fmtInt(summary.totalClicks), false);
+      addCard("Views", fmtInt(reachTotals.views), "m-views");
+      addCard("Impressions", fmtInt(reachTotals.impressions), "m-impr");
+      addCard("Engagements", fmtInt(reachTotals.engagements), "m-eng");
+      addCard("Clicks", fmtInt(summary.totalClicks), "m-clicks");
 
       if (summary.upstreamFailures > 0) {
         var note = document.getElementById("skipped-note");
@@ -648,13 +774,13 @@
           ") and are excluded from the totals above.";
       }
 
-      // ---- Reach & engagement buckets ----
+      // ---- Reach & engagement ----
       renderReach();
       function renderReach() {
         if (!reach) return;
         var rows = [
-          { label: "Content", data: reach.content },
-          { label: "Social", data: reach.social }
+          { label: "Content", color: "var(--c-views)", data: reach.content },
+          { label: "Social", color: "var(--c-impr)", data: reach.social }
         ];
         var hasAny = rows.some(function (r) {
           var d = r.data || {};
@@ -666,7 +792,7 @@
         var table = el("table", { "class": "data" });
         var thead = el("thead");
         var htr = el("tr");
-        htr.appendChild(el("th", { scope: "col" }, "Bucket"));
+        htr.appendChild(el("th", { scope: "col" }, "Channel"));
         htr.appendChild(el("th", { "class": "num", scope: "col" }, "Views"));
         htr.appendChild(el("th", { "class": "num", scope: "col" }, "Impressions"));
         htr.appendChild(el("th", { "class": "num", scope: "col" }, "Engagements"));
@@ -677,7 +803,14 @@
         rows.forEach(function (r) {
           var d = r.data || {};
           var tr = el("tr");
-          tr.appendChild(el("td", null, r.label));
+          var labelTd = el("td");
+          var badge = el("span", { "class": "badge" });
+          var dot = el("span", { "class": "dot" });
+          dot.style.background = r.color;
+          badge.appendChild(dot);
+          badge.appendChild(document.createTextNode(r.label));
+          labelTd.appendChild(badge);
+          tr.appendChild(labelTd);
           tr.appendChild(el("td", { "class": "num" }, fmtInt(d.views)));
           tr.appendChild(el("td", { "class": "num" }, fmtInt(d.impressions)));
           tr.appendChild(el("td", { "class": "num" }, fmtInt(d.engagements)));
@@ -695,8 +828,8 @@
         section.hidden = false;
 
         var cards = document.getElementById("main-content-cards");
-        function addContentCard(label, value, primary) {
-          var card = el("div", { "class": "card" + (primary ? " is-primary" : "") });
+        function addContentCard(label, value, variant) {
+          var card = el("div", { "class": "card" + (variant ? " " + variant : "") });
           card.appendChild(el("p", { "class": "card-label" }, label));
           card.appendChild(el("p", { "class": "card-value" }, value));
           cards.appendChild(card);
@@ -717,11 +850,11 @@
             lead.appendChild(yt);
             lead.appendChild(document.createTextNode("."));
           }
-          addContentCard("Views", fmtInt(mainContent.views), true);
-          addContentCard("Likes", fmtInt(mainContent.likes), false);
-          addContentCard("Comments", fmtInt(mainContent.comments), false);
+          addContentCard("Views", fmtInt(mainContent.views), "m-views");
+          addContentCard("Likes", fmtInt(mainContent.likes), "m-impr");
+          addContentCard("Comments", fmtInt(mainContent.comments), "m-eng");
           if (mainContent.publishedAt) {
-            addContentCard("Published", fmtDate(mainContent.publishedAt), false);
+            addContentCard("Published", fmtDate(mainContent.publishedAt), "m-clicks");
           }
           return;
         }
@@ -732,7 +865,7 @@
             href: mainContent.blogUrl,
             rel: "noreferrer noopener",
             target: "_blank"
-          }, truncate(String(mainContent.blogUrl), 80));
+          }, pageTitleFromUrl(String(mainContent.blogUrl)));
           lead.appendChild(a);
           if (mainContent.range && mainContent.range.startDate && mainContent.range.endDate) {
             lead.appendChild(document.createTextNode(
@@ -743,10 +876,69 @@
           }
         }
 
-        addContentCard("Views", fmtInt(mainContent.pageviews), true);
-        addContentCard("Unique visitors", fmtInt(mainContent.users), false);
-        addContentCard("Avg read time", fmtDuration(mainContent.avgSessionDurationSeconds), false);
-        addContentCard("Engagement rate", fmtPercent(mainContent.engagementRate), false);
+        addContentCard("Views", fmtInt(mainContent.pageviews), "m-views");
+        addContentCard("Unique visitors", fmtInt(mainContent.users), "m-impr");
+        addContentCard("Avg read time", fmtDuration(mainContent.avgSessionDurationSeconds), "m-eng");
+        addContentCard("Engagement rate", fmtPercent(mainContent.engagementRate), "m-clicks");
+      }
+
+      // ---- Cross posts (content) ----
+      renderPostTable("content-posts-section", "content-posts-wrap", contentPosts, false);
+      // ---- Social posts ----
+      renderPostTable("social-posts-section", "social-posts-wrap", socialPosts, true);
+      function renderPostTable(sectionId, wrapId, posts, consolidateReach) {
+        if (!posts.length) return;
+        document.getElementById(sectionId).hidden = false;
+
+        var table = el("table", { "class": "data" });
+        var thead = el("thead");
+        var htr = el("tr");
+        htr.appendChild(el("th", { scope: "col" }, "Platform"));
+        htr.appendChild(el("th", { scope: "col" }, "Post"));
+        if (consolidateReach) {
+          htr.appendChild(el("th", { "class": "num", scope: "col" }, "Impressions"));
+        } else {
+          htr.appendChild(el("th", { "class": "num", scope: "col" }, "Views"));
+          htr.appendChild(el("th", { "class": "num", scope: "col" }, "Impressions"));
+        }
+        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Engagement"));
+        htr.appendChild(el("th", { scope: "col" }, "As of"));
+        thead.appendChild(htr);
+        table.appendChild(thead);
+
+        var tbody = el("tbody");
+        posts.forEach(function (p) {
+          var tr = el("tr");
+
+          var platTd = el("td");
+          platTd.appendChild(platformBadge(p.platform));
+          tr.appendChild(platTd);
+
+          var urlTd = el("td");
+          if (p.url) {
+            var a = el("a", { href: p.url, rel: "noreferrer noopener", target: "_blank" },
+              truncate(String(p.url), 60));
+            urlTd.appendChild(a);
+          } else {
+            urlTd.textContent = "—";
+          }
+          tr.appendChild(urlTd);
+
+          if (consolidateReach) {
+            // Views and impressions both describe reach; on social they overlap,
+            // so collapse them into a single Impressions figure.
+            var reachVal = (p.views || 0) + (p.impressions || 0);
+            tr.appendChild(el("td", { "class": "num" }, fmtInt(reachVal)));
+          } else {
+            tr.appendChild(el("td", { "class": "num" }, fmtInt(p.views)));
+            tr.appendChild(el("td", { "class": "num" }, fmtInt(p.impressions)));
+          }
+          tr.appendChild(el("td", { "class": "num" }, fmtInt(p.engagements)));
+          tr.appendChild(el("td", { "class": "muted-cell" }, fmtDate(p.lastFetched)));
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        document.getElementById(wrapId).appendChild(table);
       }
 
       // ---- Clicks by source ----
@@ -764,7 +956,7 @@
         var htr = el("tr");
         htr.appendChild(el("th", { scope: "col" }, "Source"));
         htr.appendChild(el("th", { "class": "num", scope: "col" }, "Clicks"));
-        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Share"));
+        htr.appendChild(el("th", { scope: "col" }, "Share"));
         thead.appendChild(htr);
         table.appendChild(thead);
         var tbody = el("tbody");
@@ -772,15 +964,86 @@
           var tr = el("tr");
           tr.appendChild(el("td", null, r.source != null ? String(r.source) : "—"));
           tr.appendChild(el("td", { "class": "num" }, fmtInt(r.clicks)));
-          var share = typeof r.share === "number" ? (r.share * 100).toFixed(1) + "%" : "—";
-          tr.appendChild(el("td", { "class": "num" }, share));
+
+          var shareTd = el("td", { "class": "share-cell" });
+          var pct = typeof r.share === "number" ? Math.max(0, Math.min(1, r.share)) : 0;
+          var track = el("div", { "class": "share-track" });
+          var fill = el("div", { "class": "share-fill" });
+          fill.style.width = (pct * 100).toFixed(1) + "%";
+          track.appendChild(fill);
+          shareTd.appendChild(track);
+          shareTd.appendChild(el("span", { "class": "share-num" },
+            typeof r.share === "number" ? (r.share * 100).toFixed(1) + "%" : "—"));
+          tr.appendChild(shareTd);
+
           tbody.appendChild(tr);
         });
         table.appendChild(tbody);
         document.getElementById("source-wrap").appendChild(table);
       }
 
-      // ---- Daily clicks chart ----
+      // ---- Content links ----
+      // Per-link click attribution for links tracked inside the content
+      // (anything carrying a source). Hidden until such links exist, then
+      // rendered in the same share-bar layout as Clicks by source. Share is
+      // each link's slice of the clicks across these links.
+      renderContentLinks();
+      function renderContentLinks() {
+        var rows = links.filter(function (l) {
+          return l.source != null && String(l.source).trim() !== "";
+        });
+        if (!rows.length) return;
+        rows = rows.slice().sort(function (a, b) {
+          return (b.totalClicks || 0) - (a.totalClicks || 0);
+        });
+        document.getElementById("content-links-section").hidden = false;
+
+        var sum = rows.reduce(function (s, l) { return s + (l.totalClicks || 0); }, 0);
+
+        var table = el("table", { "class": "data" });
+        var thead = el("thead");
+        var htr = el("tr");
+        htr.appendChild(el("th", { scope: "col" }, "Destination"));
+        htr.appendChild(el("th", { scope: "col" }, "Source"));
+        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Clicks"));
+        htr.appendChild(el("th", { scope: "col" }, "Share"));
+        thead.appendChild(htr);
+        table.appendChild(thead);
+
+        var tbody = el("tbody");
+        rows.forEach(function (l) {
+          var tr = el("tr");
+
+          var destTd = el("td");
+          if (l.url) {
+            var a = el("a", { href: l.url, rel: "noreferrer noopener", target: "_blank" },
+              truncate(String(l.url), 52));
+            destTd.appendChild(a);
+          } else {
+            destTd.textContent = "—";
+          }
+          tr.appendChild(destTd);
+
+          tr.appendChild(el("td", null, l.source != null ? String(l.source) : "—"));
+          tr.appendChild(el("td", { "class": "num" }, fmtInt(l.totalClicks)));
+
+          var shareTd = el("td", { "class": "share-cell" });
+          var pct = sum > 0 ? (l.totalClicks || 0) / sum : 0;
+          var track = el("div", { "class": "share-track" });
+          var fill = el("div", { "class": "share-fill" });
+          fill.style.width = (pct * 100).toFixed(1) + "%";
+          track.appendChild(fill);
+          shareTd.appendChild(track);
+          shareTd.appendChild(el("span", { "class": "share-num" }, (pct * 100).toFixed(1) + "%"));
+          tr.appendChild(shareTd);
+
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        document.getElementById("content-links-wrap").appendChild(table);
+      }
+
+      // ---- Traffic over time chart ----
       renderChart();
       function renderChart() {
         var wrap = document.getElementById("chart-wrap");
@@ -789,10 +1052,11 @@
           return;
         }
 
-        var W = 880, H = 280;
-        var pad = { top: 12, right: 12, bottom: 40, left: 56 };
+        var W = 880, H = 300;
+        var pad = { top: 16, right: 18, bottom: 42, left: 56 };
         var plotW = W - pad.left - pad.right;
         var plotH = H - pad.top - pad.bottom;
+        var n = byDay.length;
 
         var maxVal = 0;
         byDay.forEach(function (d) { maxVal = Math.max(maxVal, d.clicks || 0); });
@@ -804,41 +1068,64 @@
           viewBox: "0 0 " + W + " " + H,
           width: "100%",
           role: "img",
-          "aria-label": "Daily clicks",
+          "aria-label": "Clicks per day over time",
           preserveAspectRatio: "xMidYMid meet"
         });
-        svg.style.minWidth = byDay.length > 14 ? "720px" : "0";
+        svg.style.minWidth = n > 14 ? "720px" : "0";
 
+        // Gradient fill for the area under the line.
+        var defs = svgEl("defs");
+        var grad = svgEl("linearGradient", {
+          id: "trafficGrad", x1: "0", y1: "0", x2: "0", y2: "1"
+        });
+        grad.appendChild(svgEl("stop", { offset: "0", "stop-color": accentColor, "stop-opacity": "0.32" }));
+        grad.appendChild(svgEl("stop", { offset: "1", "stop-color": accentColor, "stop-opacity": "0.02" }));
+        defs.appendChild(grad);
+        svg.appendChild(defs);
+
+        var baseY = pad.top + plotH;
+        function xFor(i) {
+          return n === 1 ? pad.left + plotW / 2 : pad.left + (plotW * i) / (n - 1);
+        }
+        function yFor(v) {
+          return pad.top + plotH - ((v || 0) / niceMax) * plotH;
+        }
+
+        // Gridlines + y-axis labels.
         var ticks = 4;
         for (var t = 0; t <= ticks; t++) {
           var val = (niceMax / ticks) * t;
-          var y = pad.top + plotH - (val / niceMax) * plotH;
+          var y = yFor(val);
           svg.appendChild(svgEl("line", {
-            "class": "axis-line", x1: pad.left, y1: y, x2: pad.left + plotW, y2: y
+            "class": "grid-line", x1: pad.left, y1: y, x2: pad.left + plotW, y2: y
           }));
           var lbl = svgEl("text", {
-            "class": "axis-label", x: pad.left - 8, y: y + 4, "text-anchor": "end"
+            "class": "axis-label", x: pad.left - 10, y: y + 4, "text-anchor": "end"
           });
           lbl.textContent = fmtInt(Math.round(val));
           svg.appendChild(lbl);
         }
 
-        var groupW = plotW / byDay.length;
-        var barW = Math.max(3, Math.min(40, groupW - 6));
-        // Label at most ~12 ticks so the axis stays readable.
-        var labelEvery = Math.ceil(byDay.length / 12);
+        // Build the area + line paths.
+        var linePts = byDay.map(function (d, i) {
+          return xFor(i) + "," + yFor(d.clicks || 0);
+        });
+        var areaD = "M " + xFor(0) + " " + baseY +
+          " L " + linePts.join(" L ") +
+          " L " + xFor(n - 1) + " " + baseY + " Z";
+        svg.appendChild(svgEl("path", { "class": "area", d: areaD }));
+        svg.appendChild(svgEl("path", { "class": "trend-line", d: "M " + linePts.join(" L ") }));
 
+        // Dots + hover targets with native tooltips.
+        var labelEvery = Math.ceil(n / 12);
         byDay.forEach(function (d, i) {
-          var cx = pad.left + groupW * i + groupW / 2;
-          var clicks = d.clicks || 0;
-          var bh = (clicks / niceMax) * plotH;
-          var rect = svgEl("rect", {
-            "class": "bar",
-            x: cx - barW / 2, y: pad.top + plotH - bh, width: barW, height: bh, rx: 2
-          });
-          rect.appendChild(svgEl("title", {})).textContent =
-            (d.day || "") + ": " + fmtInt(clicks) + " clicks";
-          svg.appendChild(rect);
+          var cx = xFor(i);
+          var cy = yFor(d.clicks || 0);
+          var dot = svgEl("circle", { "class": "dot", cx: cx, cy: cy, r: n > 30 ? 2 : 3.5 });
+          var title = svgEl("title", {});
+          title.textContent = (d.day || "") + ": " + fmtInt(d.clicks || 0) + " clicks";
+          dot.appendChild(title);
+          svg.appendChild(dot);
 
           if (i % labelEvery === 0) {
             var dl = svgEl("text", {
@@ -849,260 +1136,17 @@
           }
         });
 
+        // Baseline axis.
         svg.appendChild(svgEl("line", {
-          "class": "axis-line",
-          x1: pad.left, y1: pad.top + plotH, x2: pad.left + plotW, y2: pad.top + plotH
+          "class": "grid-line", x1: pad.left, y1: baseY, x2: pad.left + plotW, y2: baseY
         }));
 
         wrap.appendChild(svg);
       }
 
-      // ---- Links table ----
-      var region = document.getElementById("links-region");
-      var searchInput = document.getElementById("search");
-
-      var state = {
-        search: "",
-        sortKey: "totalClicks",
-        sortDir: "desc",
-        page: 1,
-        pageSize: 5,
-        printing: false
-      };
-
-      var columns = [
-        { key: "url", label: "Destination", num: false },
-        { key: "totalClicks", label: "Clicks", num: true }
-      ];
-
-      if (!links.length) {
-        var empty = el("div", { "class": "empty-state" });
-        empty.appendChild(el("h3", null, "No links to report"));
-        empty.appendChild(el("p", null, "There are no tracked links with activity for this campaign."));
-        region.appendChild(empty);
-        var ctrl = document.querySelector(".controls");
-        if (ctrl) ctrl.style.display = "none";
-      } else {
-        buildTable();
-        searchInput.addEventListener("input", function () {
-          state.search = searchInput.value.trim().toLowerCase();
-          state.page = 1;
-          renderRows();
-        });
-      }
-
-      var tbody;
-      var pager;
-      function buildTable() {
-        var wrap = el("div", { "class": "table-wrap" });
-        var table = el("table", { "class": "data sortable" });
-        var thead = el("thead");
-        var tr = el("tr");
-        columns.forEach(function (col) {
-          var th = el("th", {
-            "class": "sortable" + (col.num ? " num" : ""),
-            "data-key": col.key,
-            scope: "col",
-            role: "button",
-            tabindex: "0"
-          }, col.label);
-          th.addEventListener("click", function () { sortBy(col.key); });
-          th.addEventListener("keydown", function (ev) {
-            if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); sortBy(col.key); }
-          });
-          tr.appendChild(th);
-        });
-        thead.appendChild(tr);
-        table.appendChild(thead);
-        tbody = el("tbody");
-        table.appendChild(tbody);
-        wrap.appendChild(table);
-        region.appendChild(wrap);
-        pager = el("div", { "class": "pagination no-print" });
-        region.appendChild(pager);
-        renderRows();
-        updateSortIndicators();
-      }
-
-      function sortBy(key) {
-        if (state.sortKey === key) {
-          state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
-        } else {
-          state.sortKey = key;
-          state.sortDir = key === "totalClicks" ? "desc" : "asc";
-        }
-        state.page = 1;
-        updateSortIndicators();
-        renderRows();
-      }
-
-      function updateSortIndicators() {
-        var ths = tbody ? tbody.parentNode.querySelectorAll("th") : [];
-        Array.prototype.forEach.call(ths, function (th) {
-          if (th.getAttribute("data-key") === state.sortKey) {
-            th.setAttribute("aria-sort", state.sortDir === "asc" ? "ascending" : "descending");
-          } else {
-            th.removeAttribute("aria-sort");
-          }
-        });
-      }
-
-      function compareVals(a, b, key) {
-        var va = a[key], vb = b[key];
-        if (key === "totalClicks") {
-          return (va || 0) - (vb || 0);
-        }
-        var sa = va == null ? "" : String(va).toLowerCase();
-        var sb = vb == null ? "" : String(vb).toLowerCase();
-        if (sa < sb) return -1;
-        if (sa > sb) return 1;
-        return 0;
-      }
-
-      function filteredRows() {
-        var rows = links.filter(function (l) {
-          if (state.search) {
-            var hay = ((l.url || "") + " " +
-              (l.role || "") + " " + (l.platform || "")).toLowerCase();
-            if (hay.indexOf(state.search) === -1) return false;
-          }
-          return true;
-        });
-        var dir = state.sortDir === "asc" ? 1 : -1;
-        rows.sort(function (a, b) {
-          var cmp = compareVals(a, b, state.sortKey);
-          if (cmp === 0) cmp = compareVals(a, b, "url");
-          return cmp * dir;
-        });
-        return rows;
-      }
-
-      function renderRows() {
-        if (!tbody) return;
-        tbody.textContent = "";
-        var rows = filteredRows();
-        if (!rows.length) {
-          var tr = el("tr", { "class": "empty-row" });
-          var td = el("td", { colspan: String(columns.length) }, "No links match your search.");
-          tr.appendChild(td);
-          tbody.appendChild(tr);
-          renderPagination(0, 0);
-          return;
-        }
-
-        // Page through 5 links at a time. Printing renders the full list so
-        // the PDF isn't truncated to a single page.
-        var pageCount = Math.max(1, Math.ceil(rows.length / state.pageSize));
-        if (state.page > pageCount) state.page = pageCount;
-        var visible = state.printing
-          ? rows
-          : rows.slice((state.page - 1) * state.pageSize, state.page * state.pageSize);
-
-        visible.forEach(function (l) {
-          var tr = el("tr");
-
-          var destTd = el("td");
-          if (l.url) {
-            var a = el("a", { href: l.url, rel: "noreferrer noopener", target: "_blank" },
-              truncate(String(l.url), 60));
-            destTd.appendChild(a);
-          } else {
-            destTd.textContent = "—";
-          }
-          tr.appendChild(destTd);
-
-          tr.appendChild(el("td", { "class": "num" }, fmtInt(l.totalClicks)));
-          tbody.appendChild(tr);
-        });
-
-        renderPagination(rows.length, pageCount);
-      }
-
-      function renderPagination(total, pageCount) {
-        if (!pager) return;
-        pager.textContent = "";
-        // One page (or printing) needs no controls.
-        if (state.printing || total <= state.pageSize) return;
-
-        var prev = el("button", { type: "button" }, "Prev");
-        prev.disabled = state.page <= 1;
-        prev.addEventListener("click", function () {
-          if (state.page > 1) { state.page--; renderRows(); }
-        });
-
-        var label = el("span", null, "Page " + state.page + " of " + pageCount);
-
-        var next = el("button", { type: "button" }, "Next");
-        next.disabled = state.page >= pageCount;
-        next.addEventListener("click", function () {
-          if (state.page < pageCount) { state.page++; renderRows(); }
-        });
-
-        pager.appendChild(prev);
-        pager.appendChild(label);
-        pager.appendChild(next);
-      }
-
-      // ---- Social / content posts ----
-      renderPostTable("social-posts-section", "social-posts-wrap", socialPosts);
-      renderPostTable("content-posts-section", "content-posts-wrap", contentPosts);
-      function renderPostTable(sectionId, wrapId, posts) {
-        if (!posts.length) return;
-        document.getElementById(sectionId).hidden = false;
-
-        var table = el("table", { "class": "data" });
-        var thead = el("thead");
-        var htr = el("tr");
-        htr.appendChild(el("th", { scope: "col" }, "Platform"));
-        htr.appendChild(el("th", { scope: "col" }, "Post"));
-        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Views"));
-        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Impressions"));
-        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Engagement"));
-        htr.appendChild(el("th", { scope: "col" }, "Last fetched"));
-        thead.appendChild(htr);
-        table.appendChild(thead);
-
-        var tbody = el("tbody");
-        posts.forEach(function (p) {
-          var tr = el("tr");
-          tr.appendChild(el("td", null, p.platform ? String(p.platform) : "—"));
-
-          var urlTd = el("td");
-          if (p.url) {
-            var a = el("a", { href: p.url, rel: "noreferrer noopener", target: "_blank" },
-              truncate(String(p.url), 60));
-            urlTd.appendChild(a);
-          } else {
-            urlTd.textContent = "—";
-          }
-          tr.appendChild(urlTd);
-
-          tr.appendChild(el("td", { "class": "num" }, fmtInt(p.views)));
-          tr.appendChild(el("td", { "class": "num" }, fmtInt(p.impressions)));
-          tr.appendChild(el("td", { "class": "num" }, fmtInt(p.engagements)));
-          tr.appendChild(el("td", { "class": "muted-cell" }, fmtDate(p.lastFetched)));
-          tbody.appendChild(tr);
-        });
-        table.appendChild(tbody);
-        document.getElementById(wrapId).appendChild(table);
-      }
-
       // ---- Print ----
       document.getElementById("download-pdf").addEventListener("click", function () {
         window.print();
-      });
-
-      // Render every link (not just the visible page) into the PDF, then
-      // restore the paged view afterward.
-      window.addEventListener("beforeprint", function () {
-        if (!links.length) return;
-        state.printing = true;
-        renderRows();
-      });
-      window.addEventListener("afterprint", function () {
-        if (!links.length) return;
-        state.printing = false;
-        renderRows();
       });
     })();
   </script>

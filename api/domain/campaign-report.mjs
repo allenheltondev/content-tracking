@@ -42,11 +42,15 @@ export async function buildCampaignReportSnapshot({ campaignId }) {
 
   // Drop short_url from the public snapshot — the customer report shows the
   // destination URL and the click count, not our internal redirect URLs.
+  // `source` rides along when present so per-link click attribution (links
+  // tracked inside the content itself, not just distribution channels) can
+  // surface in the report; it's null until upstream analytics provide it.
   const links = analytics.links
     .map((l) => ({
       url: l.url,
       role: l.role,
       platform: l.platform,
+      source: l.source ?? l.src ?? null,
       totalClicks: l.total_clicks,
     }))
     .sort((a, b) => b.totalClicks - a.totalClicks);
@@ -67,6 +71,7 @@ export async function buildCampaignReportSnapshot({ campaignId }) {
       kind: "campaign",
     },
     brand: buildBrand(profile),
+    theme: buildTheme(profile),
     campaign: {
       id: metadata.campaignId,
       name: metadata.name,
@@ -96,6 +101,18 @@ function buildBrand(profile) {
   const name = profile?.brandName ?? null;
   if (!name) return null;
   return { name, websiteUrl: profile?.websiteUrl ?? null };
+}
+
+// The creator's optional brand accent color, applied to the report chrome
+// (header accents, buttons, chart, share bars). Independent of the brand
+// bar so the accent still applies when no brand name is set. The renderer
+// falls back to its built-in accent when this is null. Validated as a hex
+// string on save (see validation/creator-profile.mjs); re-checked here so
+// only a clean #rgb / #rrggbb value reaches the template.
+function buildTheme(profile) {
+  const raw = typeof profile?.accentColor === "string" ? profile.accentColor.trim() : "";
+  const accentColor = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(raw) ? raw : null;
+  return { accentColor };
 }
 
 // Maps the GA4 section into the snapshot shape. Returns null when GA4
