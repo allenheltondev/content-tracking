@@ -111,6 +111,24 @@ describe("domain/campaign-report buildCampaignReportSnapshot", () => {
       expect(snap.brand).toEqual({ name: "Solo", websiteUrl: null });
     });
 
+    test("theme carries the profile accent color, only when a valid hex", async () => {
+      let snap = await buildCampaignReportSnapshot({ campaignId: "C1" });
+      expect(snap.theme).toEqual({ accentColor: null });
+
+      profileDomain.getProfileSettings.mockResolvedValue({ accentColor: "#1a2b3c" });
+      snap = await buildCampaignReportSnapshot({ campaignId: "C1" });
+      expect(snap.theme).toEqual({ accentColor: "#1a2b3c" });
+
+      // Shorthand hex is accepted; anything non-hex is dropped to null.
+      profileDomain.getProfileSettings.mockResolvedValue({ accentColor: "#abc" });
+      snap = await buildCampaignReportSnapshot({ campaignId: "C1" });
+      expect(snap.theme).toEqual({ accentColor: "#abc" });
+
+      profileDomain.getProfileSettings.mockResolvedValue({ accentColor: "blue" });
+      snap = await buildCampaignReportSnapshot({ campaignId: "C1" });
+      expect(snap.theme).toEqual({ accentColor: null });
+    });
+
     test("missing optional campaign fields become null", async () => {
       campaignDomain.getCampaignWithLinks.mockResolvedValue({
         metadata: { campaignId: "C2", name: "Bare", status: "draft" },
@@ -168,13 +186,31 @@ describe("domain/campaign-report buildCampaignReportSnapshot", () => {
       // report intentionally drops short_url + first/last clicked.
       expect(snap.links.map((l) => l.url)).toEqual(["https://b", "https://a", "https://c"]);
       expect(snap.links[0]).toEqual({
-        url: "https://b", role: "secondary", platform: "twitter", totalClicks: 15,
+        url: "https://b", role: "secondary", platform: "twitter", source: null, totalClicks: 15,
       });
       // summary no longer carries click bounds — just the click totals.
       expect(snap.summary).toEqual({
         totalClicks: 20,
         linkCount: 3,
         upstreamFailures: 1,
+      });
+    });
+
+    test("link source rides through when present (source or src), null otherwise", async () => {
+      analyticsService.getCampaignAnalytics.mockResolvedValue(analytics({
+        total_clicks: 30,
+        links: [
+          { url: "https://a", role: null, platform: null, source: "in-article", total_clicks: 20 },
+          { url: "https://b", role: null, platform: null, src: "footer", total_clicks: 10 },
+          { url: "https://c", role: null, platform: null, total_clicks: 0 },
+        ],
+      }));
+      const snap = await buildCampaignReportSnapshot({ campaignId: "C1" });
+      const bySource = Object.fromEntries(snap.links.map((l) => [l.url, l.source]));
+      expect(bySource).toEqual({
+        "https://a": "in-article",
+        "https://b": "footer",
+        "https://c": null,
       });
     });
 

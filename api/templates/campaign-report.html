@@ -16,6 +16,8 @@
       --line: #e6eaf0;
       --line-soft: #f0f3f7;
 
+      /* Brand accent. Overridden at runtime from the profile's configured
+         accent color when present (see the theme block in the script). */
       --accent: #4f46e5;
       --accent-2: #7c3aed;
       --accent-soft: #eef0ff;
@@ -71,7 +73,7 @@
       justify-content: space-between;
       gap: 6px 16px;
       padding: 18px 36px;
-      background: linear-gradient(120deg, #4f46e5 0%, #7c3aed 55%, #9333ea 100%);
+      background: linear-gradient(120deg, var(--accent) 0%, var(--accent-2) 100%);
       color: #fff;
     }
     .brand-bar .brand-name {
@@ -103,7 +105,7 @@
       position: absolute;
       left: 0; right: 0; top: 0;
       height: 4px;
-      background: linear-gradient(90deg, var(--accent), var(--accent-2), #9333ea);
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
     }
 
     .doc-header .lead { min-width: 240px; }
@@ -467,7 +469,7 @@
     </section>
 
     <section class="section" id="main-content-section" hidden>
-      <h2 class="section-title">Main content</h2>
+      <h2 class="section-title">Featured content</h2>
       <p class="section-lead" id="main-content-lead"></p>
       <div class="cards" id="main-content-cards"></div>
     </section>
@@ -488,6 +490,12 @@
     <section class="section" id="source-section">
       <h2 class="section-title">Clicks by source</h2>
       <div class="table-wrap" id="source-wrap"></div>
+    </section>
+
+    <section class="section" id="content-links-section" hidden>
+      <h2 class="section-title">Content links</h2>
+      <p class="section-lead">Clicks on individual links tracked inside your content.</p>
+      <div class="table-wrap" id="content-links-wrap"></div>
     </section>
 
     <section class="section" id="social-posts-section" hidden>
@@ -517,12 +525,14 @@
 
       var report = snapshot.report || {};
       var campaign = snapshot.campaign || {};
+      var theme = snapshot.theme || {};
       var brand = snapshot.brand || null;
       var summary = snapshot.summary || {};
       var reach = snapshot.reach || null;
       var mainContent = snapshot.mainContent || null;
       var bySrc = Array.isArray(snapshot.bySrc) ? snapshot.bySrc : [];
       var byDay = Array.isArray(snapshot.byDay) ? snapshot.byDay : [];
+      var links = Array.isArray(snapshot.links) ? snapshot.links : [];
       var socialPosts = Array.isArray(snapshot.socialPosts) ? snapshot.socialPosts : [];
       var contentPosts = Array.isArray(snapshot.contentPosts) ? snapshot.contentPosts : [];
 
@@ -588,6 +598,74 @@
 
       function siteLabel(u) {
         try { return new URL(u).host; } catch (e) { return u; }
+      }
+
+      // Derive a readable label from a content URL: the last path segment,
+      // de-slugified and title-cased (e.g. /blog/spring-serverless ->
+      // "Spring Serverless"). Falls back to the host so the link is never
+      // the bare URL.
+      function pageTitleFromUrl(u) {
+        try {
+          var url = new URL(u);
+          var segs = url.pathname.split("/").filter(Boolean);
+          var last = segs.length ? decodeURIComponent(segs[segs.length - 1]) : "";
+          // Drop a short trailing file extension (.html, .php, …) without a
+          // regex end anchor, so the served document never contains a
+          // currency-like character.
+          var dot = last.lastIndexOf(".");
+          if (dot > 0) {
+            var ext = last.slice(dot + 1);
+            if (ext.length <= 5 && !/[^a-z0-9]/i.test(ext)) last = last.slice(0, dot);
+          }
+          last = last.replace(/[-_]+/g, " ").trim();
+          if (!last) return url.host;
+          return last.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+        } catch (e) {
+          return u;
+        }
+      }
+
+      // ---- Theme accent ----
+      // Apply the profile's configured accent color when present. We set the
+      // base accent and derive a second stop + soft tint so every accented
+      // surface (header, buttons, chart, share bars) recolors together.
+      // Anything invalid leaves the template's built-in accent in place.
+      var accentColor = "#4f46e5";
+      (function applyAccent() {
+        var hex = typeof theme.accentColor === "string" ? theme.accentColor.trim() : "";
+        var rgb = hexToRgb(hex);
+        if (!rgb) return;
+        accentColor = "#" + toHex(rgb.r) + toHex(rgb.g) + toHex(rgb.b);
+        var root = document.documentElement;
+        root.style.setProperty("--accent", accentColor);
+        root.style.setProperty("--accent-2", rgbStr(shade(rgb, -0.18)));
+        root.style.setProperty("--accent-soft", rgbStr(mixWhite(rgb, 0.90)));
+      })();
+
+      function hexToRgb(hex) {
+        // Validate without a regex end anchor so the served document never
+        // contains a currency-like character (the renderer forbids them).
+        if (typeof hex !== "string" || hex.charAt(0) !== "#") return null;
+        var h = hex.slice(1);
+        if (h.length !== 3 && h.length !== 6) return null;
+        if (/[^0-9a-fA-F]/.test(h)) return null;
+        if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+        return {
+          r: parseInt(h.slice(0, 2), 16),
+          g: parseInt(h.slice(2, 4), 16),
+          b: parseInt(h.slice(4, 6), 16)
+        };
+      }
+      function clamp255(n) { return Math.max(0, Math.min(255, Math.round(n))); }
+      function toHex(n) { var s = clamp255(n).toString(16); return s.length === 1 ? "0" + s : s; }
+      function rgbStr(c) { return "rgb(" + clamp255(c.r) + "," + clamp255(c.g) + "," + clamp255(c.b) + ")"; }
+      // Darken (amount < 0) toward black; mixWhite lightens toward white.
+      function shade(c, amount) {
+        var f = 1 + amount;
+        return { r: c.r * f, g: c.g * f, b: c.b * f };
+      }
+      function mixWhite(c, t) {
+        return { r: c.r + (255 - c.r) * t, g: c.g + (255 - c.g) * t, b: c.b + (255 - c.b) * t };
       }
 
       // ---- Platform presentation ----
@@ -756,7 +834,7 @@
             href: mainContent.blogUrl,
             rel: "noreferrer noopener",
             target: "_blank"
-          }, truncate(String(mainContent.blogUrl), 80));
+          }, pageTitleFromUrl(String(mainContent.blogUrl)));
           lead.appendChild(a);
           if (mainContent.range && mainContent.range.startDate && mainContent.range.endDate) {
             lead.appendChild(document.createTextNode(
@@ -880,6 +958,67 @@
         document.getElementById("source-wrap").appendChild(table);
       }
 
+      // ---- Content links ----
+      // Per-link click attribution for links tracked inside the content
+      // (anything carrying a source). Hidden until such links exist, then
+      // rendered in the same share-bar layout as Clicks by source. Share is
+      // each link's slice of the clicks across these links.
+      renderContentLinks();
+      function renderContentLinks() {
+        var rows = links.filter(function (l) {
+          return l.source != null && String(l.source).trim() !== "";
+        });
+        if (!rows.length) return;
+        rows = rows.slice().sort(function (a, b) {
+          return (b.totalClicks || 0) - (a.totalClicks || 0);
+        });
+        document.getElementById("content-links-section").hidden = false;
+
+        var sum = rows.reduce(function (s, l) { return s + (l.totalClicks || 0); }, 0);
+
+        var table = el("table", { "class": "data" });
+        var thead = el("thead");
+        var htr = el("tr");
+        htr.appendChild(el("th", { scope: "col" }, "Destination"));
+        htr.appendChild(el("th", { scope: "col" }, "Source"));
+        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Clicks"));
+        htr.appendChild(el("th", { scope: "col" }, "Share"));
+        thead.appendChild(htr);
+        table.appendChild(thead);
+
+        var tbody = el("tbody");
+        rows.forEach(function (l) {
+          var tr = el("tr");
+
+          var destTd = el("td");
+          if (l.url) {
+            var a = el("a", { href: l.url, rel: "noreferrer noopener", target: "_blank" },
+              truncate(String(l.url), 52));
+            destTd.appendChild(a);
+          } else {
+            destTd.textContent = "—";
+          }
+          tr.appendChild(destTd);
+
+          tr.appendChild(el("td", null, l.source != null ? String(l.source) : "—"));
+          tr.appendChild(el("td", { "class": "num" }, fmtInt(l.totalClicks)));
+
+          var shareTd = el("td", { "class": "share-cell" });
+          var pct = sum > 0 ? (l.totalClicks || 0) / sum : 0;
+          var track = el("div", { "class": "share-track" });
+          var fill = el("div", { "class": "share-fill" });
+          fill.style.width = (pct * 100).toFixed(1) + "%";
+          track.appendChild(fill);
+          shareTd.appendChild(track);
+          shareTd.appendChild(el("span", { "class": "share-num" }, (pct * 100).toFixed(1) + "%"));
+          tr.appendChild(shareTd);
+
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        document.getElementById("content-links-wrap").appendChild(table);
+      }
+
       // ---- Traffic over time chart ----
       renderChart();
       function renderChart() {
@@ -915,8 +1054,8 @@
         var grad = svgEl("linearGradient", {
           id: "trafficGrad", x1: "0", y1: "0", x2: "0", y2: "1"
         });
-        grad.appendChild(svgEl("stop", { offset: "0", "stop-color": "#4f46e5", "stop-opacity": "0.32" }));
-        grad.appendChild(svgEl("stop", { offset: "1", "stop-color": "#4f46e5", "stop-opacity": "0.02" }));
+        grad.appendChild(svgEl("stop", { offset: "0", "stop-color": accentColor, "stop-opacity": "0.32" }));
+        grad.appendChild(svgEl("stop", { offset: "1", "stop-color": accentColor, "stop-opacity": "0.02" }));
         defs.appendChild(grad);
         svg.appendChild(defs);
 
