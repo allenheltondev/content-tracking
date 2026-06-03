@@ -6,17 +6,20 @@ import { getProfileSettings } from "../domain/profile.mjs";
 import { readCruxApiKey, readGa4ServiceAccount } from "../services/ga-secrets.mjs";
 import { fetchPageMetrics } from "../services/google-analytics.mjs";
 import { fetchWebVitals } from "../services/core-web-vitals.mjs";
+import { loadCampaignYoutube } from "../services/campaign-youtube.mjs";
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_RANGE_DAYS = 28;
 
 // GET /campaigns/:campaignId/web-analytics
 //
-// Pulls GA4 traffic + Core Web Vitals for the campaign's blogUrl. GA4 is
-// filtered by the URL's path; CWV uses the full URL. Each source is fetched
-// independently and a failure (or missing config) in one is reported inline
-// rather than failing the whole call — mirrors the partial-failure handling
-// in routes/analytics.mjs.
+// Pulls per-deliverable web analytics. For a blog campaign that's GA4
+// traffic (filtered by the URL's path) + Core Web Vitals (the full URL);
+// for a YouTube campaign it's public video stats from the YouTube Data API.
+// The response carries `deliverable_type` so the caller knows which section
+// to read. Each source is fetched independently and a failure (or missing
+// config) is reported inline rather than failing the whole call — mirrors
+// the partial-failure handling in routes/analytics.mjs.
 export function registerWebAnalyticsRoutes(app) {
   app.get("/campaigns/:campaignId/web-analytics", async ({ event, params }) => {
     const { campaignId } = params;
@@ -24,6 +27,22 @@ export function registerWebAnalyticsRoutes(app) {
     if (!campaign) {
       return jsonResponse(404, { message: `Campaign ${campaignId} not found` });
     }
+
+    if ((campaign.deliverableType ?? "blog") === "youtube") {
+      if (!campaign.youtubeUrl) {
+        throw new BadRequestError("Campaign has no youtube_url. Set one to pull video analytics.");
+      }
+      const youtube = await loadCampaignYoutube(campaign);
+      if (!youtube) {
+        throw new BadRequestError(`Campaign youtube_url is not a valid YouTube URL: ${campaign.youtubeUrl}`);
+      }
+      return jsonResponse(200, {
+        campaign_id: campaignId,
+        deliverable_type: "youtube",
+        youtube,
+      });
+    }
+
     if (!campaign.blogUrl) {
       throw new BadRequestError("Campaign has no blogUrl. Set one to pull web analytics.");
     }
@@ -50,6 +69,7 @@ export function registerWebAnalyticsRoutes(app) {
 
     return jsonResponse(200, {
       campaign_id: campaignId,
+      deliverable_type: "blog",
       blog_url: campaign.blogUrl,
       page_path: pagePath,
       range: { startDate, endDate },

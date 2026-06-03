@@ -61,7 +61,10 @@ export async function createLink(campaignId, fields) {
   // published URL. Adopt it as the campaign's blog_url when the campaign
   // doesn't have one yet, so the Overview, GA4 lookup, and Core Web
   // Vitals fetch all start working off that link without a second edit.
-  const shouldAdoptBlogUrl = fields.role === "main" && !campaign.blogUrl;
+  // Skip this for YouTube campaigns — their main deliverable is the video
+  // (youtube_url), not a blog post, so a "main" link shouldn't seed blog_url.
+  const isYoutubeCampaign = (campaign.deliverableType ?? "blog") === "youtube";
+  const shouldAdoptBlogUrl = fields.role === "main" && !campaign.blogUrl && !isYoutubeCampaign;
   if (shouldAdoptBlogUrl) {
     await ddb.send(new TransactWriteCommand({
       TransactItems: [

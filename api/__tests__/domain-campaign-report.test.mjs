@@ -14,6 +14,9 @@ jest.unstable_mockModule("../services/campaign-analytics.mjs", () => ({
 jest.unstable_mockModule("../services/campaign-ga4.mjs", () => ({
   loadCampaignGa4: jest.fn(),
 }));
+jest.unstable_mockModule("../services/campaign-youtube.mjs", () => ({
+  loadCampaignYoutube: jest.fn(),
+}));
 jest.unstable_mockModule("../domain/profile.mjs", () => ({
   getProfileSettings: jest.fn(),
 }));
@@ -21,6 +24,7 @@ jest.unstable_mockModule("../domain/profile.mjs", () => ({
 const campaignDomain = await import("../domain/campaign.mjs");
 const analyticsService = await import("../services/campaign-analytics.mjs");
 const ga4Service = await import("../services/campaign-ga4.mjs");
+const youtubeService = await import("../services/campaign-youtube.mjs");
 const profileDomain = await import("../domain/profile.mjs");
 const { buildCampaignReportSnapshot } = await import("../domain/campaign-report.mjs");
 
@@ -61,6 +65,8 @@ describe("domain/campaign-report buildCampaignReportSnapshot", () => {
     });
     analyticsService.getCampaignAnalytics.mockResolvedValue(analytics());
     ga4Service.loadCampaignGa4.mockResolvedValue(null);
+    youtubeService.loadCampaignYoutube.mockReset();
+    youtubeService.loadCampaignYoutube.mockResolvedValue(null);
   });
 
   describe("not-found propagation", () => {
@@ -232,6 +238,69 @@ describe("domain/campaign-report buildCampaignReportSnapshot", () => {
       // GA4 engagement rate is shown elsewhere, not summed into engagements.
       expect(snap.reach.content).toEqual({ views: 1500, impressions: 0, engagements: 0 });
       expect(snap.reach.totals).toEqual({ views: 1500, impressions: 0, engagements: 0 });
+    });
+
+    test("YouTube campaign maps video stats into mainContent and reach", async () => {
+      campaignDomain.getCampaignWithLinks.mockResolvedValue({
+        metadata: {
+          campaignId: "C1",
+          name: "Video push",
+          status: "active",
+          deliverableType: "youtube",
+          youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+        },
+        socialPosts: [],
+        contentPosts: [],
+      });
+      youtubeService.loadCampaignYoutube.mockResolvedValue({
+        configured: true,
+        error: null,
+        youtube_url: "https://youtu.be/dQw4w9WgXcQ",
+        video_id: "dQw4w9WgXcQ",
+        title: "How to ship faster",
+        published_at: "2026-03-01T00:00:00Z",
+        totals: { views: 9000, likes: 450, comments: 60, favorites: 0 },
+      });
+
+      const snap = await buildCampaignReportSnapshot({ campaignId: "C1" });
+
+      // A YouTube campaign pulls from the YouTube loader, not GA4.
+      expect(ga4Service.loadCampaignGa4).not.toHaveBeenCalled();
+      expect(snap.mainContent).toEqual({
+        kind: "youtube",
+        videoUrl: "https://youtu.be/dQw4w9WgXcQ",
+        title: "How to ship faster",
+        publishedAt: "2026-03-01T00:00:00Z",
+        views: 9000,
+        likes: 450,
+        comments: 60,
+      });
+      // Video views feed the content bucket; likes/comments are shown in the
+      // main-content section but not summed into bucket engagements.
+      expect(snap.reach.content).toEqual({ views: 9000, impressions: 0, engagements: 0 });
+      expect(snap.reach.totals).toEqual({ views: 9000, impressions: 0, engagements: 0 });
+    });
+
+    test("YouTube mainContent is null when the loader returns unconfigured/error", async () => {
+      campaignDomain.getCampaignWithLinks.mockResolvedValue({
+        metadata: {
+          campaignId: "C1",
+          name: "Video push",
+          status: "active",
+          deliverableType: "youtube",
+          youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+        },
+        socialPosts: [],
+        contentPosts: [],
+      });
+      youtubeService.loadCampaignYoutube.mockResolvedValue({
+        configured: false,
+        error: null,
+        youtube_url: "https://youtu.be/dQw4w9WgXcQ",
+        video_id: "dQw4w9WgXcQ",
+      });
+      const snap = await buildCampaignReportSnapshot({ campaignId: "C1" });
+      expect(snap.mainContent).toBeNull();
     });
 
     test("posts split into views/impressions/engagements + top metric, sorted by engagement desc", async () => {

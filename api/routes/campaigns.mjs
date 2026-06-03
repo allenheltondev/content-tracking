@@ -49,7 +49,9 @@ const formatCampaign = (row) => ({
   status: row.status,
   targetMetrics: row.targetMetrics ?? null,
   payout: formatPayout(row.payout),
+  deliverable_type: row.deliverableType ?? "blog",
   blog_url: row.blogUrl ?? null,
+  youtube_url: row.youtubeUrl ?? null,
   link_tracking_id: row.linkTrackingId ?? null,
   created_at: row.createdAt,
 });

@@ -1,12 +1,18 @@
 import { BadRequestError } from "../services/errors.mjs";
+import { extractYoutubeVideoId } from "../services/youtube.mjs";
 import { validatePayoutPayload } from "./payout.mjs";
 import { VENDOR_ID_RE } from "./vendor.mjs";
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const VALID_STATUSES = new Set(["draft", "active", "monitoring", "completed"]);
+// A campaign's main deliverable is either a published blog post (tracked via
+// GA4 + Core Web Vitals off blog_url) or a YouTube video (tracked via the
+// YouTube Data API off youtube_url). The two are mutually exclusive.
+const VALID_DELIVERABLE_TYPES = new Set(["blog", "youtube"]);
 const NAME_MAX = 200;
 const SPONSOR_MAX = 200;
 const BLOG_URL_MAX = 2048;
+const YOUTUBE_URL_MAX = 2048;
 const LINK_TRACKING_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 
 // The campaign's published blog post. Used as the GA4 page-path filter and
@@ -27,6 +33,19 @@ function validateBlogUrl(value) {
   return value;
 }
 
+// The campaign's published YouTube video. Used as the YouTube Data API
+// lookup on GET /campaigns/{campaignId}/web-analytics. Must be a URL we can
+// pull a video id out of (watch, youtu.be, shorts, embed, ...).
+function validateYoutubeUrl(value) {
+  if (typeof value !== "string" || value.length > YOUTUBE_URL_MAX) {
+    throw new BadRequestError(`youtube_url must be a string up to ${YOUTUBE_URL_MAX} chars`);
+  }
+  if (!extractYoutubeVideoId(value)) {
+    throw new BadRequestError("youtube_url must be a valid YouTube video URL");
+  }
+  return value;
+}
+
 export function validateCampaignCreate(body) {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     throw new BadRequestError("request body must be a JSON object");
@@ -40,7 +59,9 @@ export function validateCampaignCreate(body) {
     endDate,
     status,
     targetMetrics,
+    deliverable_type,
     blog_url,
+    youtube_url,
     link_tracking_id,
   } = body;
 
@@ -99,8 +120,19 @@ export function validateCampaignCreate(body) {
     out.targetMetrics = targetMetrics;
   }
 
+  if (deliverable_type !== undefined && deliverable_type !== null && deliverable_type !== "") {
+    if (!VALID_DELIVERABLE_TYPES.has(deliverable_type)) {
+      throw new BadRequestError(`deliverable_type must be one of ${[...VALID_DELIVERABLE_TYPES].join(", ")}`);
+    }
+    out.deliverableType = deliverable_type;
+  }
+
   if (blog_url !== undefined && blog_url !== null && blog_url !== "") {
     out.blogUrl = validateBlogUrl(blog_url);
+  }
+
+  if (youtube_url !== undefined && youtube_url !== null && youtube_url !== "") {
+    out.youtubeUrl = validateYoutubeUrl(youtube_url);
   }
 
   if (link_tracking_id !== undefined && link_tracking_id !== null && link_tracking_id !== "") {
@@ -135,7 +167,9 @@ export function validateCampaignUpdate(body) {
     status,
     targetMetrics,
     payout,
+    deliverable_type,
     blog_url,
+    youtube_url,
     link_tracking_id,
   } = body;
   const out = {};
@@ -198,8 +232,19 @@ export function validateCampaignUpdate(body) {
     out.payout = validatePayoutPayload(payout, { partial: false });
   }
 
+  if (deliverable_type !== undefined && deliverable_type !== null && deliverable_type !== "") {
+    if (!VALID_DELIVERABLE_TYPES.has(deliverable_type)) {
+      throw new BadRequestError(`deliverable_type must be one of ${[...VALID_DELIVERABLE_TYPES].join(", ")}`);
+    }
+    out.deliverableType = deliverable_type;
+  }
+
   if (blog_url !== undefined && blog_url !== null && blog_url !== "") {
     out.blogUrl = validateBlogUrl(blog_url);
+  }
+
+  if (youtube_url !== undefined && youtube_url !== null && youtube_url !== "") {
+    out.youtubeUrl = validateYoutubeUrl(youtube_url);
   }
 
   if (link_tracking_id !== undefined && link_tracking_id !== null && link_tracking_id !== "") {
