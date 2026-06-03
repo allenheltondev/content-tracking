@@ -6,6 +6,8 @@ import { BadRequestError } from "../services/errors.mjs";
 //   ga4PropertyId    -> non-secret, stored in DynamoDB
 //   ga4ServiceAccount -> secret, written to SSM
 //   cruxApiKey       -> secret, written to SSM
+//   youtubeApiKey    -> secret, written to SSM; YouTube Data API key for
+//                       pulling public video stats on YouTube deliverables
 //   brandName        -> non-secret, stored in DynamoDB; shown on shared reports
 //   websiteUrl       -> non-secret, stored in DynamoDB; shown on shared reports
 //   personalSiteUrl  -> non-secret, stored in DynamoDB; the creator's own site
@@ -14,6 +16,7 @@ import { BadRequestError } from "../services/errors.mjs";
 
 const GA4_PROPERTY_ID_RE = /^\d{1,20}$/;
 const CRUX_KEY_MAX = 200;
+const YOUTUBE_KEY_MAX = 200;
 const BRAND_NAME_MAX = 80;
 const WEBSITE_URL_MAX = 200;
 
@@ -22,7 +25,7 @@ export function validateProfileUpdate(body) {
     throw new BadRequestError("request body must be a JSON object");
   }
 
-  const { ga4_property_id, ga4_service_account, crux_api_key, brand_name, website_url, personal_site_url } = body;
+  const { ga4_property_id, ga4_service_account, crux_api_key, youtube_api_key, brand_name, website_url, personal_site_url } = body;
   const out = {};
 
   if (ga4_property_id !== undefined && ga4_property_id !== null && ga4_property_id !== "") {
@@ -42,6 +45,13 @@ export function validateProfileUpdate(body) {
       throw new BadRequestError(`crux_api_key must be a string up to ${CRUX_KEY_MAX} chars`);
     }
     out.cruxApiKey = crux_api_key.trim();
+  }
+
+  if (youtube_api_key !== undefined && youtube_api_key !== null && youtube_api_key !== "") {
+    if (typeof youtube_api_key !== "string" || youtube_api_key.length > YOUTUBE_KEY_MAX) {
+      throw new BadRequestError(`youtube_api_key must be a string up to ${YOUTUBE_KEY_MAX} chars`);
+    }
+    out.youtubeApiKey = youtube_api_key.trim();
   }
 
   if (brand_name !== undefined && brand_name !== null && brand_name !== "") {

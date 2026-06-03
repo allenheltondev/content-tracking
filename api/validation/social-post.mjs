@@ -6,7 +6,7 @@ import { BadRequestError } from "../services/errors.mjs";
 // their URLs for active campaigns and writes captured engagement metrics
 // back via PUT .../analytics.
 
-export const VALID_PLATFORMS = new Set(["twitter", "linkedin", "instagram"]);
+export const VALID_PLATFORMS = new Set(["twitter", "linkedin", "instagram", "bluesky"]);
 
 const URL_MAX = 2048;
 const NOTES_MAX = 1000;
@@ -32,6 +32,10 @@ export function derivePlatform(url) {
   }
   if (host === "instagram.com" || host.endsWith(".instagram.com")) {
     return "instagram";
+  }
+  // Bluesky post permalinks live on bsky.app (bsky.app/profile/<id>/post/<rkey>).
+  if (host === "bsky.app" || host.endsWith(".bsky.app")) {
+    return "bluesky";
   }
   return null;
 }

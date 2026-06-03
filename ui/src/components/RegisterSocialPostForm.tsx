@@ -22,6 +22,7 @@ function inferPlatform(url: string): SocialPlatform | undefined {
   if (host === 'twitter.com' || host === 'x.com' || host.endsWith('.twitter.com')) return 'twitter';
   if (host === 'linkedin.com' || host.endsWith('.linkedin.com')) return 'linkedin';
   if (host === 'instagram.com' || host.endsWith('.instagram.com')) return 'instagram';
+  if (host === 'bsky.app' || host.endsWith('.bsky.app')) return 'bluesky';
   return undefined;
 }
 
@@ -80,6 +81,7 @@ export default function RegisterSocialPostForm({ busy, serverError, onSubmit, on
             <option value="twitter">twitter / x</option>
             <option value="linkedin">linkedin</option>
             <option value="instagram">instagram</option>
+            <option value="bluesky">bluesky</option>
           </select>
         </label>
         <label className="block">

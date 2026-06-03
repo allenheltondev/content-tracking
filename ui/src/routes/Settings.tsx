@@ -102,6 +102,7 @@ function IntegrationsTab(): ReactElement {
   const [propertyId, setPropertyId] = useState('');
   const [serviceAccount, setServiceAccount] = useState('');
   const [cruxKey, setCruxKey] = useState('');
+  const [youtubeKey, setYoutubeKey] = useState('');
 
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -138,6 +139,7 @@ function IntegrationsTab(): ReactElement {
     if (propertyId.trim()) payload.ga4_property_id = propertyId.trim();
     if (serviceAccount.trim()) payload.ga4_service_account = serviceAccount.trim();
     if (cruxKey.trim()) payload.crux_api_key = cruxKey.trim();
+    if (youtubeKey.trim()) payload.youtube_api_key = youtubeKey.trim();
 
     if (Object.keys(payload).length === 0) {
       setSaveError('Nothing to save. Fill in at least one field.');
@@ -154,6 +156,7 @@ function IntegrationsTab(): ReactElement {
       // Secrets are write-only — clear the inputs once stored.
       setServiceAccount('');
       setCruxKey('');
+      setYoutubeKey('');
       setSaved(true);
     } catch (err) {
       setSaveError(err instanceof ApiError ? err.message : (err as Error).message);
@@ -276,6 +279,33 @@ function IntegrationsTab(): ReactElement {
             placeholder="AIza..."
             value={cruxKey}
             onChange={(e) => setCruxKey(e.target.value)}
+            disabled={busy}
+          />
+        </label>
+      </div>
+
+      <div className="card card-body space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-foreground">YouTube</h2>
+          <StatusPill configured={profile?.youtube.configured ?? false} />
+        </div>
+        <p className="text-sm text-muted-foreground">
+          A standard Google API key with the{' '}
+          <span className="font-medium text-foreground">YouTube Data API v3</span> enabled. Used to
+          pull public views, likes, and comments on campaigns whose main deliverable is a YouTube
+          video. This can be the same key as Core Web Vitals if you enable both APIs on it.
+        </p>
+
+        <label className="block">
+          <span className="field-label">
+            API key {profile?.youtube.configured && '(enter again to replace)'}
+          </span>
+          <input
+            type="password"
+            className="input"
+            placeholder="AIza..."
+            value={youtubeKey}
+            onChange={(e) => setYoutubeKey(e.target.value)}
             disabled={busy}
           />
         </label>

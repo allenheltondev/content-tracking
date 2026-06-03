@@ -23,8 +23,10 @@ import {
 import {
   readCruxApiKey,
   readGa4ServiceAccount,
+  readYoutubeApiKey,
   writeCruxApiKey,
   writeGa4ServiceAccount,
+  writeYoutubeApiKey,
 } from "../services/ga-secrets.mjs";
 
 // The single SETTINGS/PROFILE row carries two concerns: integration
@@ -52,6 +54,9 @@ export function registerProfileRoutes(app) {
     }
     if (fields.cruxApiKey) {
       await writeCruxApiKey(fields.cruxApiKey);
+    }
+    if (fields.youtubeApiKey) {
+      await writeYoutubeApiKey(fields.youtubeApiKey);
     }
 
     // Read the current row up front so we can detect a public_slug change
@@ -94,6 +99,7 @@ export function registerProfileRoutes(app) {
       ga4PropertyId: fields.ga4PropertyId ? "set" : "unchanged",
       ga4ServiceAccount: fields.ga4ServiceAccount ? "set" : "unchanged",
       cruxApiKey: fields.cruxApiKey ? "set" : "unchanged",
+      youtubeApiKey: fields.youtubeApiKey ? "set" : "unchanged",
       creatorFields: Object.keys(creator),
     });
 
@@ -113,10 +119,11 @@ export function registerProfileRoutes(app) {
 }
 
 async function buildProfileView({ forceFetch = false } = {}) {
-  const [settings, serviceAccount, cruxKey] = await Promise.all([
+  const [settings, serviceAccount, cruxKey, youtubeKey] = await Promise.all([
     getProfileSettings(),
     readGa4ServiceAccount({ forceFetch }),
     readCruxApiKey({ forceFetch }),
+    readYoutubeApiKey({ forceFetch }),
   ]);
 
   const s = settings ?? {};
@@ -165,6 +172,9 @@ async function buildProfileView({ forceFetch = false } = {}) {
     },
     core_web_vitals: {
       configured: Boolean(cruxKey),
+    },
+    youtube: {
+      configured: Boolean(youtubeKey),
     },
     updated_at: s.updatedAt ?? null,
   };

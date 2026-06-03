@@ -114,6 +114,100 @@ describe("instagram adapter", () => {
   });
 });
 
+describe("bluesky adapter", () => {
+  test("parsePostId reads the rkey from web permalinks and at-uris", () => {
+    expect(
+      adapters.bluesky.parsePostId(
+        "https://bsky.app/profile/allen.bsky.social/post/3kj2lxyz7s2k",
+      ),
+    ).toBe("3kj2lxyz7s2k");
+    // did-based permalink form.
+    expect(
+      adapters.bluesky.parsePostId(
+        "https://bsky.app/profile/did:plc:abc123/post/3kj2lxyz7s2k",
+      ),
+    ).toBe("3kj2lxyz7s2k");
+    // Raw AT-URI (the form carried on every postView).
+    expect(
+      adapters.bluesky.parsePostId("at://did:plc:abc123/app.bsky.feed.post/3kj2lxyz7s2k"),
+    ).toBe("3kj2lxyz7s2k");
+    expect(adapters.bluesky.parsePostId("https://bsky.app/profile/allen.bsky.social")).toBeNull();
+  });
+
+  test("extract reads a getPostThread-shaped payload", () => {
+    const body = {
+      thread: {
+        $type: "app.bsky.feed.defs#threadViewPost",
+        post: {
+          uri: "at://did:plc:abc123/app.bsky.feed.post/3kj2lxyz7s2k",
+          cid: "bafyreigh2akiscaildc",
+          author: { did: "did:plc:abc123", handle: "allen.bsky.social" },
+          replyCount: 3,
+          repostCount: 7,
+          likeCount: 50,
+          quoteCount: 1,
+          indexedAt: "2026-06-01T00:00:00.000Z",
+          // The viewer's own like record rides along but is a like-record
+          // uri, not a post — it must not be emitted as a second row.
+          viewer: { like: "at://did:plc:me/app.bsky.feed.like/xyz" },
+        },
+        replies: [],
+      },
+    };
+    expect(adapters.bluesky.extract(body)).toEqual([
+      {
+        nativeId: "3kj2lxyz7s2k",
+        metrics: { likes: 50, reposts: 7, replies: 3, quotes: 1 },
+      },
+    ]);
+  });
+
+  test("extract reads each post in a getAuthorFeed-shaped payload", () => {
+    const body = {
+      feed: [
+        {
+          post: {
+            uri: "at://did:plc:abc123/app.bsky.feed.post/aaaaaaaaaaaa",
+            replyCount: 1,
+            repostCount: 2,
+            likeCount: 10,
+            quoteCount: 0,
+          },
+        },
+        {
+          post: {
+            uri: "at://did:plc:abc123/app.bsky.feed.post/bbbbbbbbbbbb",
+            replyCount: 0,
+            repostCount: 0,
+            likeCount: 4,
+            quoteCount: 0,
+          },
+          reason: { $type: "app.bsky.feed.defs#reasonRepost" },
+        },
+      ],
+    };
+    expect(adapters.bluesky.extract(body)).toEqual([
+      { nativeId: "aaaaaaaaaaaa", metrics: { likes: 10, reposts: 2, replies: 1, quotes: 0 } },
+      { nativeId: "bbbbbbbbbbbb", metrics: { likes: 4, reposts: 0, replies: 0, quotes: 0 } },
+    ]);
+  });
+
+  test("extract ignores feed-generator views that carry a likeCount", () => {
+    // Feed generators are liked too, but their uri is an app.bsky.feed.generator
+    // record — not a post — so they must not be mistaken for tracked posts.
+    const body = {
+      feeds: [
+        {
+          uri: "at://did:plc:abc123/app.bsky.feed.generator/whats-hot",
+          likeCount: 9001,
+          displayName: "What's Hot",
+        },
+      ],
+    };
+    expect(adapters.bluesky.extract(body)).toEqual([]);
+  });
+});
+
 describe("medium adapter", () => {
   test("parsePostId pulls the trailing hex post id", () => {
     expect(

@@ -22,8 +22,10 @@ jest.unstable_mockModule("../services/public-media-kit-store.mjs", () => ({
 jest.unstable_mockModule("../services/ga-secrets.mjs", () => ({
   readGa4ServiceAccount: jest.fn(async () => null),
   readCruxApiKey: jest.fn(async () => null),
+  readYoutubeApiKey: jest.fn(async () => null),
   writeGa4ServiceAccount: jest.fn(),
   writeCruxApiKey: jest.fn(),
+  writeYoutubeApiKey: jest.fn(),
 }));
 
 const {

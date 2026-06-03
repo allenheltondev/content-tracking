@@ -3,13 +3,15 @@ import { getProfileSettings } from "./profile.mjs";
 import { splitPostMetrics } from "./post-metrics.mjs";
 import { getCampaignAnalytics } from "../services/campaign-analytics.mjs";
 import { loadCampaignGa4 } from "../services/campaign-ga4.mjs";
+import { loadCampaignYoutube } from "../services/campaign-youtube.mjs";
 import { NotFoundError } from "../services/errors.mjs";
 
 // Builds a frozen, customer-facing snapshot for a single campaign. Pulls
-// click analytics (per-link + by source + by day), GA4 traffic on the
-// campaign's main content (when configured), and the social/content posts
-// the user is tracking. Everything is read-side glue — no I/O beyond the
-// underlying services.
+// click analytics (per-link + by source + by day), main-content metrics on
+// the campaign's primary deliverable — GA4 traffic for a blog, YouTube Data
+// API stats for a video — and the social/content posts the user is
+// tracking. Everything is read-side glue — no I/O beyond the underlying
+// services.
 
 export async function buildCampaignReportSnapshot({ campaignId }) {
   const { metadata, socialPosts: socialPostRows, contentPosts: contentPostRows } =
@@ -18,9 +20,11 @@ export async function buildCampaignReportSnapshot({ campaignId }) {
     throw new NotFoundError("Campaign", campaignId);
   }
 
-  const [analytics, ga4, profile] = await Promise.all([
+  const isYoutube = (metadata.deliverableType ?? "blog") === "youtube";
+  const [analytics, ga4, youtube, profile] = await Promise.all([
     getCampaignAnalytics(campaignId),
-    loadCampaignGa4(metadata),
+    isYoutube ? Promise.resolve(null) : loadCampaignGa4(metadata),
+    isYoutube ? loadCampaignYoutube(metadata) : Promise.resolve(null),
     getProfileSettings(),
   ]);
 
@@ -51,7 +55,7 @@ export async function buildCampaignReportSnapshot({ campaignId }) {
     }))
     .sort((a, b) => b.totalClicks - a.totalClicks);
 
-  const mainContent = buildMainContent(ga4);
+  const mainContent = isYoutube ? buildYoutubeMainContent(youtube) : buildMainContent(ga4);
   const socialPosts = (socialPostRows ?? []).map(toPostSnapshot).sort(byEngagementDesc);
   const contentPosts = (contentPostRows ?? []).map(toPostSnapshot).sort(byEngagementDesc);
   const reach = buildReach({ mainContent, contentPosts, socialPosts });
@@ -127,6 +131,23 @@ function buildMainContent(ga4) {
   };
 }
 
+// YouTube counterpart to buildMainContent. Tagged with kind:"youtube" so the
+// renderer can tell it apart from the (untagged, legacy) blog shape — frozen
+// reports predating YouTube support have no `kind` and stay blog-rendered.
+// Returns null when YouTube isn't connected, errored, or produced no stats.
+function buildYoutubeMainContent(youtube) {
+  if (!youtube || !youtube.configured || youtube.error || !youtube.totals) return null;
+  return {
+    kind: "youtube",
+    videoUrl: youtube.youtube_url ?? null,
+    title: youtube.title ?? null,
+    publishedAt: youtube.published_at ?? null,
+    views: youtube.totals.views,
+    likes: youtube.totals.likes,
+    comments: youtube.totals.comments,
+  };
+}
+
 function toPostSnapshot(row) {
   const { views, impressions, engagements } = splitPostMetrics(row.analytics);
   // Top single metric across the whole map — an at-a-glance "what drove this
@@ -160,15 +181,18 @@ function byEngagementDesc(a, b) {
 }
 
 // Rolls the per-post splits into two buckets the report leads with:
-//   content = the main blog post (GA4) + every cross-post
+//   content = the main deliverable (blog GA4 pageviews / YouTube views) +
+//             every cross-post
 //   social  = every social post
-// GA4 has no discrete like/comment count, so the main post contributes only
-// its pageviews to views; its engagement rate is shown in the main-content
+// The main deliverable contributes only its view count to the content bucket
+// (GA4 pageviews for a blog, video views for YouTube). Its engagement (rate
+// for a blog, likes/comments for YouTube) is shown in the main-content
 // section but not folded into the bucket engagement total.
 function buildReach({ mainContent, contentPosts, socialPosts }) {
   const content = { views: 0, impressions: 0, engagements: 0 };
   if (mainContent) {
-    content.views += mainContent.pageviews || 0;
+    const mainViews = mainContent.kind === "youtube" ? mainContent.views : mainContent.pageviews;
+    content.views += mainViews || 0;
   }
   for (const p of contentPosts) {
     content.views += p.views;

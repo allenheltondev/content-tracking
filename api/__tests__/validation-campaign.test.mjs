@@ -55,6 +55,40 @@ describe("validateCampaignCreate", () => {
     expect(validateCampaignCreate({ name: "ok", blog_url: "" }).blogUrl).toBeUndefined();
   });
 
+  test("accepts deliverable_type and maps it to deliverableType", () => {
+    expect(validateCampaignCreate({ name: "ok", deliverable_type: "youtube" }).deliverableType)
+      .toBe("youtube");
+    expect(validateCampaignCreate({ name: "ok", deliverable_type: "blog" }).deliverableType)
+      .toBe("blog");
+  });
+
+  test("rejects unknown deliverable_type", () => {
+    expect(() => validateCampaignCreate({ name: "ok", deliverable_type: "tiktok" }))
+      .toThrow(/deliverable_type must be one of/);
+  });
+
+  test("omits deliverable_type when not provided (defaulted at the read layer)", () => {
+    expect(validateCampaignCreate({ name: "ok" }).deliverableType).toBeUndefined();
+  });
+
+  test("accepts a valid youtube_url and maps it to youtubeUrl", () => {
+    expect(validateCampaignCreate({ name: "ok", youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }).youtubeUrl)
+      .toBe("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    expect(validateCampaignCreate({ name: "ok", youtube_url: "https://youtu.be/dQw4w9WgXcQ" }).youtubeUrl)
+      .toBe("https://youtu.be/dQw4w9WgXcQ");
+  });
+
+  test("rejects a non-YouTube or malformed youtube_url", () => {
+    expect(() => validateCampaignCreate({ name: "ok", youtube_url: "https://example.com/watch?v=x" }))
+      .toThrow(/valid YouTube video URL/);
+    expect(() => validateCampaignCreate({ name: "ok", youtube_url: "not a url" }))
+      .toThrow(/valid YouTube video URL/);
+  });
+
+  test("treats empty-string youtube_url as omitted", () => {
+    expect(validateCampaignCreate({ name: "ok", youtube_url: "" }).youtubeUrl).toBeUndefined();
+  });
+
   test("accepts a valid link_tracking_id and maps it to linkTrackingId", () => {
     expect(validateCampaignCreate({ name: "ok", link_tracking_id: "acme-q2_launch" }).linkTrackingId)
       .toBe("acme-q2_launch");
@@ -147,6 +181,19 @@ describe("validateCampaignUpdate", () => {
     expect(validateCampaignUpdate({ link_tracking_id: "acme-q2" }))
       .toEqual({ linkTrackingId: "acme-q2" });
     expect(() => validateCampaignUpdate({ link_tracking_id: "has spaces" })).toThrow();
+  });
+
+  test("accepts and validates deliverable_type", () => {
+    expect(validateCampaignUpdate({ deliverable_type: "youtube" }))
+      .toEqual({ deliverableType: "youtube" });
+    expect(() => validateCampaignUpdate({ deliverable_type: "tiktok" }))
+      .toThrow(/deliverable_type must be one of/);
+  });
+
+  test("accepts and validates youtube_url", () => {
+    expect(validateCampaignUpdate({ youtube_url: "https://www.youtube.com/shorts/dQw4w9WgXcQ" }))
+      .toEqual({ youtubeUrl: "https://www.youtube.com/shorts/dQw4w9WgXcQ" });
+    expect(() => validateCampaignUpdate({ youtube_url: "https://vimeo.com/12345" })).toThrow();
   });
 
   test("accepts vendor_id and maps it to vendorId", () => {

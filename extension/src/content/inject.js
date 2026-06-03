@@ -18,6 +18,8 @@
     "/api/v1/media",
     "/graphql/query",
     "/api/graphql",
+    // Bluesky AppView feed reads — hydrated postViews carry the counts.
+    "/xrpc/app.bsky.feed.",
     // Medium author + per-post stats endpoints.
     "/_/api/",
     "/_/graphql",

@@ -395,8 +395,8 @@ async function maybeAutoScrape(tabUrl) {
 // the right capture path fires. LinkedIn needs the analytics post-summary
 // page (DOM scrape); Medium needs the per-post stats detail page and dev.to
 // the article's /stats page (both fire the internal stats request the
-// MAIN-world interceptor catches); Twitter/Instagram just need the post
-// URL, where the interceptor catches the platform's own API responses.
+// MAIN-world interceptor catches); Twitter/Instagram/Bluesky just need the
+// post URL, where the interceptor catches the platform's own API responses.
 async function scrapeUrlForPost(post, urnMap) {
   if (post.platform === "linkedin") {
     let activityId = /urn:li:activity:(\d+)/.exec(post.url)?.[1] || null;
@@ -419,7 +419,11 @@ async function scrapeUrlForPost(post, urnMap) {
       return null;
     }
   }
-  if (post.platform === "twitter" || post.platform === "instagram") {
+  if (
+    post.platform === "twitter" ||
+    post.platform === "instagram" ||
+    post.platform === "bluesky"
+  ) {
     return post.url;
   }
   return null;

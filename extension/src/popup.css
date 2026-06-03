@@ -112,13 +112,36 @@ button.link:hover {
   gap: 8px;
 }
 
+.posts-scroll {
+  max-height: 260px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+
+.platform-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: capitalize;
+  letter-spacing: 0.03em;
+  position: sticky;
+  top: 0;
+  background: #fff;
+}
+
+.platform-head .count {
+  color: var(--muted);
+  font-weight: 600;
+}
+
 .posts {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 260px;
-  overflow-y: auto;
-  border-top: 1px solid var(--border);
 }
 
 .posts li {
@@ -130,11 +153,6 @@ button.link:hover {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-}
-
-.posts .platform {
-  font-weight: 600;
-  text-transform: capitalize;
 }
 
 .posts a {

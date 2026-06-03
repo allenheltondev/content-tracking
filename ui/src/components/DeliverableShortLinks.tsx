@@ -10,7 +10,7 @@ interface Props {
   createShortLink: (payload: CreateLinkRequest) => Promise<CampaignLink>;
 }
 
-const SOCIAL_PLATFORMS = ['twitter', 'linkedin', 'instagram'];
+const SOCIAL_PLATFORMS = ['twitter', 'linkedin', 'instagram', 'bluesky'];
 
 function normalizePlatform(raw: string): string {
   const p = raw.trim().toLowerCase();

@@ -24,10 +24,12 @@ import type {
   CoreWebVitalsSection,
   CreateContentPostRequest,
   CreateSocialPostRequest,
+  DeliverableType,
   Ga4Section,
   SocialPost,
   VendorPayload,
   WebAnalyticsResponse,
+  YoutubeSection,
 } from '../api/types';
 import { createVendor } from '../api/vendors';
 import ClicksChart from '../components/ClicksChart';
@@ -170,12 +172,17 @@ export default function CampaignDetail(): ReactElement {
     }
   }, [apiFetch, campaignId]);
 
-  // Web analytics (GA4 + Core Web Vitals) only make sense once we know the
-  // campaign's blog URL, and the call is slow (it hits Google), so it runs
-  // on its own after the campaign loads and only when a blogUrl is set.
-  const blogUrl = bundle?.campaign.blog_url ?? null;
+  // Web analytics only make sense once the campaign's main-deliverable URL is
+  // set — GA4 + Core Web Vitals off blog_url for a blog, YouTube Data API off
+  // youtube_url for a video. The call is slow (it hits Google), so it runs on
+  // its own after the campaign loads and only when the relevant URL is set.
+  const deliverableType: DeliverableType = bundle?.campaign.deliverable_type ?? 'blog';
+  const analyticsUrl =
+    deliverableType === 'youtube'
+      ? bundle?.campaign.youtube_url ?? null
+      : bundle?.campaign.blog_url ?? null;
   useEffect(() => {
-    if (!campaignId || !blogUrl) {
+    if (!campaignId || !analyticsUrl) {
       setWebAnalytics(null);
       return;
     }
@@ -195,7 +202,7 @@ export default function CampaignDetail(): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [apiFetch, campaignId, blogUrl]);
+  }, [apiFetch, campaignId, deliverableType, analyticsUrl]);
 
   // Optimistically append a freshly minted link and rerun analytics. The
   // new link has zero clicks so the chart won't change, but link count and
@@ -210,7 +217,11 @@ export default function CampaignDetail(): ReactElement {
       setBundle((prev) => {
         if (!prev) return prev;
         const next = { ...prev, links: [...prev.links, link] };
-        if (link.role === 'main' && !prev.campaign.blog_url) {
+        if (
+          link.role === 'main' &&
+          !prev.campaign.blog_url &&
+          (prev.campaign.deliverable_type ?? 'blog') !== 'youtube'
+        ) {
           next.campaign = { ...prev.campaign, blog_url: link.url };
         }
         return next;
@@ -397,7 +408,7 @@ export default function CampaignDetail(): ReactElement {
               />
             </FieldGroup>
             <FieldGroup label="Deliverable" className="md:col-span-2">
-              <BlogUrlField
+              <DeliverableField
                 apiFetch={apiFetch}
                 campaign={campaign}
                 onCampaignChange={onCampaignChange}
@@ -422,7 +433,7 @@ export default function CampaignDetail(): ReactElement {
         <>
           <section className="space-y-3">
             <h2 className="text-lg font-semibold text-foreground">Deliverable</h2>
-            <BlogUrlField
+            <DeliverableField
               apiFetch={apiFetch}
               campaign={campaign}
               onCampaignChange={onCampaignChange}
@@ -706,7 +717,7 @@ export default function CampaignDetail(): ReactElement {
           )}
 
           <WebAnalyticsSection
-            blogUrl={campaign.blog_url}
+            campaign={campaign}
             data={webAnalytics}
             loading={webAnalyticsLoading}
             error={webAnalyticsError}
@@ -1043,36 +1054,77 @@ function formatRelative(iso: string): string {
 }
 
 function WebAnalyticsSection({
-  blogUrl,
+  campaign,
   data,
   loading,
   error,
 }: {
-  blogUrl: string | null;
+  campaign: Campaign;
   data: WebAnalyticsResponse | null;
   loading: boolean;
   error: string | null;
 }): ReactElement {
+  const isYoutube = (campaign.deliverable_type ?? 'blog') === 'youtube';
+  const deliverableUrl = isYoutube ? campaign.youtube_url : campaign.blog_url;
+  const noun = isYoutube ? 'video' : 'web';
+  // While the type was just toggled the cached response may still describe the
+  // other deliverable; only render blocks once the response matches.
+  const dataMatches = data?.deliverable_type === (isYoutube ? 'youtube' : 'blog');
+
   return (
     <section className="space-y-3">
-      <h2 className="text-lg font-semibold text-foreground">Web analytics</h2>
-      {!blogUrl ? (
+      <h2 className="text-lg font-semibold text-foreground">
+        {isYoutube ? 'Video analytics' : 'Web analytics'}
+      </h2>
+      {!deliverableUrl ? (
         <p className="text-sm text-muted-foreground">
-          Set a blog post URL on this campaign to pull GA4 traffic and Core Web Vitals.
+          {isYoutube
+            ? 'Set a YouTube video URL on this campaign to pull views, likes, and comments.'
+            : 'Set a blog post URL on this campaign to pull GA4 traffic and Core Web Vitals.'}
         </p>
       ) : (
         <>
-          {error && <p className="form-error">Could not load web analytics: {error}</p>}
-          {loading && !data && <p className="text-muted-foreground">Loading web analytics...</p>}
-          {data && (
+          {error && <p className="form-error">Could not load {noun} analytics: {error}</p>}
+          {loading && !dataMatches && (
+            <p className="text-muted-foreground">Loading {noun} analytics...</p>
+          )}
+          {dataMatches && isYoutube && data?.youtube && <YoutubeBlock yt={data.youtube} />}
+          {dataMatches && !isYoutube && (
             <>
-              <Ga4Block ga4={data.ga4} />
-              <CoreWebVitalsBlock cwv={data.core_web_vitals} />
+              {data?.ga4 && <Ga4Block ga4={data.ga4} />}
+              {data?.core_web_vitals && <CoreWebVitalsBlock cwv={data.core_web_vitals} />}
             </>
           )}
         </>
       )}
     </section>
+  );
+}
+
+function YoutubeBlock({ yt }: { yt: YoutubeSection }): ReactElement {
+  if (!yt.configured) {
+    return <NotConnected label="YouTube" />;
+  }
+  if (yt.error || !yt.totals) {
+    return (
+      <div className="card card-body">
+        <h3 className="text-sm font-semibold text-foreground mb-1">YouTube</h3>
+        <p className="form-error">{yt.error ?? 'No data returned.'}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <h3 className="text-sm font-medium text-foreground">
+        {yt.title ? `YouTube: ${yt.title}` : 'YouTube'}
+      </h3>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Tile label="Views" value={yt.totals.views.toLocaleString()} />
+        <Tile label="Likes" value={yt.totals.likes.toLocaleString()} />
+        <Tile label="Comments" value={yt.totals.comments.toLocaleString()} />
+        {yt.published_at && <Tile label="Published" value={yt.published_at.slice(0, 10)} />}
+      </div>
+    </div>
   );
 }
 
@@ -1680,20 +1732,38 @@ function PayoutField({ apiFetch, campaign, onCampaignChange }: FieldEditorProps)
   );
 }
 
-function BlogUrlField({ apiFetch, campaign, onCampaignChange }: FieldEditorProps): ReactElement {
-  const [value, setValue] = useState(campaign.blog_url ?? '');
+// The campaign's primary deliverable. A blog/YouTube toggle picks the type
+// (PATCH deliverable_type); the URL input below it edits whichever URL the
+// chosen type uses (blog_url or youtube_url). The two URLs are stored
+// independently so flipping the type back and forth doesn't lose either one.
+function DeliverableField({ apiFetch, campaign, onCampaignChange }: FieldEditorProps): ReactElement {
+  const deliverableType: DeliverableType = campaign.deliverable_type ?? 'blog';
+  const isYoutube = deliverableType === 'youtube';
+  const currentUrl = isYoutube ? campaign.youtube_url ?? '' : campaign.blog_url ?? '';
+
+  const [value, setValue] = useState(currentUrl);
   const { state, run, setError } = useAutoSave();
 
   useEffect(() => {
-    setValue(campaign.blog_url ?? '');
-  }, [campaign.blog_url]);
+    setValue(currentUrl);
+  }, [currentUrl]);
+
+  const switchType = (next: DeliverableType): void => {
+    if (next === deliverableType) return;
+    void run(async () => {
+      const updated = await updateCampaign(apiFetch, campaign.campaign_id, {
+        deliverable_type: next,
+      });
+      onCampaignChange(updated);
+    });
+  };
 
   const commit = (): void => {
     const trimmed = value.trim();
-    if (trimmed === (campaign.blog_url ?? '')) return;
+    if (trimmed === currentUrl) return;
     if (trimmed.length === 0) {
       // Don't fire an update; clearing isn't supported by the API.
-      setValue(campaign.blog_url ?? '');
+      setValue(currentUrl);
       return;
     }
     if (!/^https?:\/\//i.test(trimmed)) {
@@ -1701,31 +1771,87 @@ function BlogUrlField({ apiFetch, campaign, onCampaignChange }: FieldEditorProps
       return;
     }
     void run(async () => {
-      const updated = await updateCampaign(apiFetch, campaign.campaign_id, { blog_url: trimmed });
+      const payload = isYoutube ? { youtube_url: trimmed } : { blog_url: trimmed };
+      const updated = await updateCampaign(apiFetch, campaign.campaign_id, payload);
       onCampaignChange(updated);
     });
   };
 
   return (
-    <div className="flex items-center gap-3">
-      <input
-        type="url"
-        className="input py-1.5 text-sm flex-1 min-w-0"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
-          if (e.key === 'Escape') {
-            setValue(campaign.blog_url ?? '');
-            (e.currentTarget as HTMLInputElement).blur();
+    <div className="space-y-2">
+      <div
+        className="inline-flex rounded-md border border-border overflow-hidden text-sm"
+        role="group"
+        aria-label="Deliverable type"
+      >
+        <DeliverableTypeButton
+          label="Blog"
+          active={!isYoutube}
+          disabled={state.saving}
+          onClick={() => switchType('blog')}
+        />
+        <DeliverableTypeButton
+          label="YouTube"
+          active={isYoutube}
+          disabled={state.saving}
+          onClick={() => switchType('youtube')}
+        />
+      </div>
+      <div className="flex items-center gap-3">
+        <input
+          type="url"
+          className="input py-1.5 text-sm flex-1 min-w-0"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
+            if (e.key === 'Escape') {
+              setValue(currentUrl);
+              (e.currentTarget as HTMLInputElement).blur();
+            }
+          }}
+          placeholder={
+            isYoutube ? 'https://www.youtube.com/watch?v=...' : 'https://blog.example.com/my-post'
           }
-        }}
-        placeholder="https://blog.example.com/my-post"
-        disabled={state.saving}
-      />
-      <SaveIndicator state={state} />
+          disabled={state.saving}
+        />
+        <SaveIndicator state={state} />
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {isYoutube
+          ? 'The campaign’s YouTube video. Pulls views, likes, and comments from the YouTube Data API.'
+          : 'The campaign’s published blog post. Pulls GA4 traffic and Core Web Vitals.'}
+      </p>
     </div>
+  );
+}
+
+function DeliverableTypeButton({
+  label,
+  active,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}): ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
+      className={`px-3 py-1.5 font-medium transition-colors disabled:opacity-60 ${
+        active
+          ? 'bg-primary-600 text-white'
+          : 'bg-transparent text-muted-foreground hover:text-foreground hover:bg-muted'
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -1859,13 +1985,26 @@ function ExecutiveSummary({
   const timeline = computeTimeline(campaign);
   const totalClicks = analytics?.total_clicks ?? null;
   const clicksByDay = analytics?.by_day ?? null;
-  const pageviews = webAnalytics?.ga4?.totals?.pageviews ?? null;
-  const ga4Configured = webAnalytics?.ga4?.configured ?? false;
 
-  let pageviewsSub: string;
-  if (!campaign.blog_url) pageviewsSub = 'No blog URL';
-  else if (!ga4Configured) pageviewsSub = 'GA4 not connected';
-  else pageviewsSub = 'GA4';
+  // The third tile reflects the campaign's main deliverable: blog pageviews
+  // (GA4) or video views (YouTube).
+  const isYoutube = (campaign.deliverable_type ?? 'blog') === 'youtube';
+  let viewsLabel: string;
+  let viewsValue: number | null;
+  let viewsSub: string;
+  if (isYoutube) {
+    viewsLabel = 'Views';
+    viewsValue = webAnalytics?.youtube?.totals?.views ?? null;
+    if (!campaign.youtube_url) viewsSub = 'No video URL';
+    else if (!(webAnalytics?.youtube?.configured ?? false)) viewsSub = 'YouTube not connected';
+    else viewsSub = 'YouTube';
+  } else {
+    viewsLabel = 'Pageviews';
+    viewsValue = webAnalytics?.ga4?.totals?.pageviews ?? null;
+    if (!campaign.blog_url) viewsSub = 'No blog URL';
+    else if (!(webAnalytics?.ga4?.configured ?? false)) viewsSub = 'GA4 not connected';
+    else viewsSub = 'GA4';
+  }
 
   return (
     <section
@@ -1884,9 +2023,9 @@ function ExecutiveSummary({
         sparkline={clicksByDay && totalClicks ? <Sparkline byDay={clicksByDay} /> : null}
       />
       <SummaryTile
-        label="Pageviews"
-        value={pageviews !== null ? pageviews.toLocaleString() : '—'}
-        sublabel={pageviewsSub}
+        label={viewsLabel}
+        value={viewsValue !== null ? viewsValue.toLocaleString() : '—'}
+        sublabel={viewsSub}
       />
       <SummaryTile
         label="Payout"

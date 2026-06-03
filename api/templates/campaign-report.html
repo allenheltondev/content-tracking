@@ -820,14 +820,45 @@
         document.getElementById("reach-wrap").appendChild(table);
       }
 
-      // ---- Main content (GA4) ----
+      // ---- Main content (GA4 for a blog, YouTube Data API for a video) ----
       renderMainContent();
       function renderMainContent() {
         if (!mainContent) return;
         var section = document.getElementById("main-content-section");
         section.hidden = false;
 
+        var cards = document.getElementById("main-content-cards");
+        function addContentCard(label, value, variant) {
+          var card = el("div", { "class": "card" + (variant ? " " + variant : "") });
+          card.appendChild(el("p", { "class": "card-label" }, label));
+          card.appendChild(el("p", { "class": "card-value" }, value));
+          cards.appendChild(card);
+        }
+
         var lead = document.getElementById("main-content-lead");
+
+        // YouTube video deliverable (tagged kind:"youtube"). The blog shape
+        // is untagged so legacy frozen reports keep rendering below.
+        if (mainContent.kind === "youtube") {
+          if (mainContent.videoUrl) {
+            lead.textContent = "Performance of ";
+            var yt = el("a", {
+              href: mainContent.videoUrl,
+              rel: "noreferrer noopener",
+              target: "_blank"
+            }, truncate(String(mainContent.title || mainContent.videoUrl), 80));
+            lead.appendChild(yt);
+            lead.appendChild(document.createTextNode("."));
+          }
+          addContentCard("Views", fmtInt(mainContent.views), "m-views");
+          addContentCard("Likes", fmtInt(mainContent.likes), "m-impr");
+          addContentCard("Comments", fmtInt(mainContent.comments), "m-eng");
+          if (mainContent.publishedAt) {
+            addContentCard("Published", fmtDate(mainContent.publishedAt), "m-clicks");
+          }
+          return;
+        }
+
         if (mainContent.blogUrl) {
           lead.textContent = "Traffic on ";
           var a = el("a", {
@@ -845,13 +876,6 @@
           }
         }
 
-        var cards = document.getElementById("main-content-cards");
-        function addContentCard(label, value, variant) {
-          var card = el("div", { "class": "card" + (variant ? " " + variant : "") });
-          card.appendChild(el("p", { "class": "card-label" }, label));
-          card.appendChild(el("p", { "class": "card-value" }, value));
-          cards.appendChild(card);
-        }
         addContentCard("Views", fmtInt(mainContent.pageviews), "m-views");
         addContentCard("Unique visitors", fmtInt(mainContent.users), "m-impr");
         addContentCard("Avg read time", fmtDuration(mainContent.avgSessionDurationSeconds), "m-eng");
