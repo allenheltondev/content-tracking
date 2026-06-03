@@ -192,6 +192,11 @@ export interface RevenueResponse {
 
 export type CampaignStatus = 'draft' | 'active' | 'monitoring' | 'completed';
 
+// The campaign's primary deliverable: a published blog post (tracked via GA4
+// + Core Web Vitals) or a YouTube video (tracked via the YouTube Data API).
+// Mutually exclusive — a campaign is one or the other.
+export type DeliverableType = 'blog' | 'youtube';
+
 export interface Campaign {
   campaign_id: string;
   name: string;
@@ -208,7 +213,9 @@ export interface Campaign {
     paid_at: string | null;
     invoice_ref: string | null;
   } | null;
+  deliverable_type: DeliverableType;
   blog_url: string | null;
+  youtube_url: string | null;
   link_tracking_id: string | null;
   created_at: string;
 }
@@ -231,7 +238,7 @@ export interface CampaignLink {
   created_at: string;
 }
 
-export type SocialPlatform = 'twitter' | 'linkedin' | 'instagram';
+export type SocialPlatform = 'twitter' | 'linkedin' | 'instagram' | 'bluesky';
 
 // A published post on a social platform. Engagement metrics are written
 // back by the Chrome extension; `last_fetched` is the server timestamp of
@@ -389,7 +396,9 @@ export interface CreateCampaignRequest {
   endDate?: string;
   status?: CampaignStatus;
   targetMetrics?: Record<string, unknown>;
+  deliverable_type?: DeliverableType;
   blog_url?: string;
+  youtube_url?: string;
   link_tracking_id?: string;
 }
 
@@ -431,7 +440,9 @@ export interface UpdateCampaignRequest {
   status?: CampaignStatus;
   payout?: PayoutFields;
   targetMetrics?: Record<string, unknown>;
+  deliverable_type?: DeliverableType;
   blog_url?: string;
+  youtube_url?: string;
   link_tracking_id?: string;
 }
 
@@ -513,6 +524,9 @@ export interface ProfileResponse {
   core_web_vitals: {
     configured: boolean;
   };
+  youtube: {
+    configured: boolean;
+  };
   updated_at: string | null;
 }
 
@@ -523,6 +537,8 @@ export interface ProfileUpdateRequest {
   // The full service-account JSON, pasted from the downloaded key file.
   ga4_service_account?: string;
   crux_api_key?: string;
+  // A Google API key with the YouTube Data API v3 enabled.
+  youtube_api_key?: string;
   brand_name?: string;
   website_url?: string;
   display_name?: string | null;
@@ -657,13 +673,41 @@ export interface CoreWebVitalsSection {
   metrics?: WebVitalsMetrics;
 }
 
+export interface YoutubeTotals {
+  views: number;
+  likes: number;
+  comments: number;
+  favorites: number;
+}
+
+// Public stats for a campaign's YouTube video deliverable. `configured` is
+// false when no YouTube Data API key is stored; `error` is non-null when
+// configured but the fetch failed (or the video is private). `totals` and
+// the snippet fields are present only on a successful fetch.
+export interface YoutubeSection {
+  configured: boolean;
+  error: string | null;
+  youtube_url?: string;
+  video_id?: string;
+  title?: string | null;
+  channel_title?: string | null;
+  published_at?: string | null;
+  thumbnail_url?: string | null;
+  totals?: YoutubeTotals;
+}
+
+// GET /campaigns/:id/web-analytics. The shape depends on the campaign's
+// `deliverable_type`: a blog campaign carries ga4 + core_web_vitals (keyed
+// off blog_url); a youtube campaign carries the youtube section.
 export interface WebAnalyticsResponse {
   campaign_id: string;
-  blog_url: string;
-  page_path: string;
-  range: { startDate: string; endDate: string };
-  ga4: Ga4Section;
-  core_web_vitals: CoreWebVitalsSection;
+  deliverable_type: DeliverableType;
+  blog_url?: string;
+  page_path?: string;
+  range?: { startDate: string; endDate: string };
+  ga4?: Ga4Section;
+  core_web_vitals?: CoreWebVitalsSection;
+  youtube?: YoutubeSection;
 }
 
 // Account-wide Trends & Insights (GET /insights). Cumulative engagement

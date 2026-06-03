@@ -15,6 +15,7 @@
       return "twitter";
     }
     if (host === "linkedin.com" || host.endsWith(".linkedin.com")) return "linkedin";
+    if (host === "bsky.app" || host.endsWith(".bsky.app")) return "bluesky";
     if (host === "medium.com" || host.endsWith(".medium.com")) return "medium";
     if (host === "dev.to" || host.endsWith(".dev.to")) return "devto";
     return null;
@@ -320,6 +321,15 @@
       },
       insert(ul, el) {
         ul.appendChild(el);
+      },
+    },
+    bluesky: {
+      // bsky.app is a React SPA with no stable nav to clone a real item into,
+      // so use the same self-styled floating button the content platforms do.
+      floating: true,
+      buildButton: buildFloatingButton,
+      insert(host, el) {
+        host.appendChild(el);
       },
     },
     medium: {

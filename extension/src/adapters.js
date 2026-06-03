@@ -182,6 +182,54 @@ const instagram = {
   },
 };
 
+// Bluesky (bsky.app) addresses each post by an AT-URI of the form
+// at://{did}/app.bsky.feed.post/{rkey}. The web permalink uses that same
+// rkey as its trailing segment (bsky.app/profile/{handle|did}/post/{rkey}),
+// so the rkey is the stable key that ties a tracked post's URL to the `uri`
+// carried on every postView the AppView hands back.
+const BSKY_POST_RE = /\/(?:app\.bsky\.feed\.)?post\/([^/?#]+)/;
+
+const bluesky = {
+  platform: "bluesky",
+  parsePostId(url) {
+    const m = BSKY_POST_RE.exec(url || "");
+    return m ? m[1] : null;
+  },
+  extract(body) {
+    const out = [];
+    const seen = new Set();
+    walk(body, (node) => {
+      // app.bsky.feed.defs#postView — and the #viewRecord embed a quote post
+      // carries — pair the counts with the post's own AT-URI. Match on the
+      // uri shape so we skip the like/repost/generator record uris that ride
+      // along in the same payload (those aren't app.bsky.feed.post records).
+      if (typeof node.uri !== "string") return;
+      const m = BSKY_POST_RE.exec(node.uri);
+      if (!m) return;
+      const hasCounts =
+        typeof node.likeCount === "number" ||
+        typeof node.repostCount === "number" ||
+        typeof node.replyCount === "number" ||
+        typeof node.quoteCount === "number";
+      if (!hasCounts) return;
+
+      const nativeId = m[1];
+      if (seen.has(nativeId)) return;
+
+      const metrics = {};
+      num(metrics, "likes", node.likeCount);
+      num(metrics, "reposts", node.repostCount);
+      num(metrics, "replies", node.replyCount);
+      num(metrics, "quotes", node.quoteCount);
+      if (Object.keys(metrics).length === 0) return;
+
+      seen.add(nativeId);
+      out.push({ nativeId, metrics });
+    });
+    return out;
+  },
+};
+
 const medium = {
   platform: "medium",
   bucket: "content",
@@ -358,7 +406,7 @@ const devto = {
   },
 };
 
-export const adapters = { twitter, linkedin, instagram, medium, devto };
+export const adapters = { twitter, linkedin, instagram, bluesky, medium, devto };
 
 // Which Booked-side bucket each platform writes into. Drives the endpoint
 // the background script PUTs to and the feed the extension fetches.
@@ -367,6 +415,7 @@ export const PLATFORM_BUCKET = {
   twitter: "social",
   linkedin: "social",
   instagram: "social",
+  bluesky: "social",
   medium: "content",
   devto: "content",
 };
@@ -379,6 +428,12 @@ export const CAPTURE_PATTERNS = {
   twitter: ["/graphql", "/i/api/graphql", "api.x.com"],
   linkedin: ["/voyager/api"],
   instagram: ["/api/v1/media", "/graphql/query", "/api/graphql"],
+  // Bluesky's web client reads post counts off the AppView's feed XRPC
+  // calls (getPostThread, getAuthorFeed, getTimeline, getPosts, getFeed),
+  // all of which return hydrated postViews. Host varies (public.api.bsky.app
+  // when logged out, the user's PDS proxy when logged in) but the path
+  // prefix is constant.
+  bluesky: ["/xrpc/app.bsky.feed."],
   // Medium's author-stats and per-post stats pages fetch from the
   // internal REST and GraphQL endpoints under medium.com/_/.
   medium: ["/_/api/", "/_/graphql"],

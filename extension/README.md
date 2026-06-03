@@ -2,15 +2,16 @@
 
 A companion Chrome extension for [Booked](../README.md). It reads the post
 URLs attached to your **active** campaigns — social posts on X/Twitter,
-LinkedIn, and Instagram, plus long-form content posts on Medium and dev.to —
+LinkedIn, Instagram, and Bluesky, plus long-form content posts on Medium and
+dev.to —
 and as you browse those posts it captures the engagement numbers straight
 off each platform's own API traffic and writes them back to Booked
 automatically. Every write stamps a `last_fetched` timestamp on the post.
 
 It also injects a **Booked** menu into the host site so you can jump
 straight to the posts you're monitoring: a nav item on X and LinkedIn, and
-a floating button on Medium and dev.to (shown only when you have a tracked
-post on that platform). LinkedIn, Medium, and dev.to hide their counts
+a floating button on Bluesky, Medium, and dev.to (shown only when you have a
+tracked post on that platform). LinkedIn, Medium, and dev.to hide their counts
 behind a separate analytics/stats page, so for those the worker opens that
 page in a background tab, syncs, and closes it — your current tab is left
 alone. This is also what the dashboard's **Refresh Stats** button drives.
@@ -40,9 +41,9 @@ alone. This is also what the dashboard's **Refresh Stats** button drives.
 - `content.js` relays those responses to the background worker.
 - `background.js` extracts metrics with a per-platform adapter
   (`src/adapters.js`), matches them to a tracked post by its native id
-  (tweet id / LinkedIn activity id / Instagram shortcode / Medium post id /
-  dev.to article id), and syncs to the social or content endpoint per the
-  post's bucket.
+  (tweet id / LinkedIn activity id / Instagram shortcode / Bluesky post rkey /
+  Medium post id / dev.to article id), and syncs to the social or content
+  endpoint per the post's bucket.
 
 The extension only ever **reads** post engagement that the page already
 loaded for you; it does not scrape logged-out data or take any action on

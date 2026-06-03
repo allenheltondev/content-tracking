@@ -162,30 +162,61 @@ function renderPaired(status) {
   content.appendChild(actions);
 
   if (status.posts?.length) {
-    const list = document.createElement("ul");
-    list.className = "posts";
+    const scroll = document.createElement("div");
+    scroll.className = "posts-scroll";
+
+    // Group the flat feed by platform so each platform's posts sit under a
+    // single heading, rather than every row repeating its own platform chip.
+    const groups = new Map();
     for (const post of status.posts) {
-      const li = document.createElement("li");
-      const row = document.createElement("div");
-      row.className = "row";
-      const platform = document.createElement("span");
-      platform.className = "platform";
-      platform.textContent = post.platform;
-      const link = document.createElement("a");
-      link.href = post.url;
-      link.target = "_blank";
-      link.rel = "noreferrer";
-      link.textContent = post.campaign_name || post.url;
-      row.append(platform, link);
-
-      const meta = document.createElement("div");
-      meta.className = "meta";
-      meta.textContent = `${formatMetrics(post.analytics)} — fetched ${timeAgo(post.last_fetched)}`;
-
-      li.append(row, meta);
-      list.appendChild(li);
+      const key = post.platform || "other";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(post);
     }
-    content.appendChild(list);
+
+    // Platforms alphabetized for a stable order; posts within each platform
+    // sorted by campaign name so a campaign stays easy to find.
+    for (const platform of [...groups.keys()].sort()) {
+      const posts = groups.get(platform);
+      posts.sort((a, b) => (a.campaign_name || a.url).localeCompare(b.campaign_name || b.url));
+
+      const group = document.createElement("section");
+      group.className = "platform-group";
+
+      const head = document.createElement("div");
+      head.className = "platform-head";
+      const name = document.createElement("span");
+      name.textContent = platform;
+      const count = document.createElement("span");
+      count.className = "count";
+      count.textContent = String(posts.length);
+      head.append(name, count);
+      group.appendChild(head);
+
+      const list = document.createElement("ul");
+      list.className = "posts";
+      for (const post of posts) {
+        const li = document.createElement("li");
+        const row = document.createElement("div");
+        row.className = "row";
+        const link = document.createElement("a");
+        link.href = post.url;
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        link.textContent = post.campaign_name || post.url;
+        row.appendChild(link);
+
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        meta.textContent = `${formatMetrics(post.analytics)} — fetched ${timeAgo(post.last_fetched)}`;
+
+        li.append(row, meta);
+        list.appendChild(li);
+      }
+      group.appendChild(list);
+      scroll.appendChild(group);
+    }
+    content.appendChild(scroll);
   }
 
   syncedEl.textContent = status.syncedThisSession

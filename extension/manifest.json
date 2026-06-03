@@ -9,6 +9,7 @@
     "https://twitter.com/*",
     "https://www.linkedin.com/*",
     "https://www.instagram.com/*",
+    "https://bsky.app/*",
     "https://medium.com/*",
     "https://*.medium.com/*",
     "https://dev.to/*"
@@ -29,6 +30,7 @@
         "https://twitter.com/*",
         "https://www.linkedin.com/*",
         "https://www.instagram.com/*",
+        "https://bsky.app/*",
         "https://medium.com/*",
         "https://*.medium.com/*",
         "https://dev.to/*"
@@ -44,6 +46,7 @@
         "https://twitter.com/*",
         "https://www.linkedin.com/*",
         "https://www.instagram.com/*",
+        "https://bsky.app/*",
         "https://medium.com/*",
         "https://*.medium.com/*",
         "https://dev.to/*"
@@ -58,6 +61,7 @@
         "https://x.com/*",
         "https://twitter.com/*",
         "https://www.linkedin.com/*",
+        "https://bsky.app/*",
         "https://medium.com/*",
         "https://*.medium.com/*",
         "https://dev.to/*"
