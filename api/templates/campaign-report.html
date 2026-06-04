@@ -463,8 +463,8 @@
     </section>
 
     <section class="section" id="reach-section" hidden>
-      <h2 class="section-title">Reach &amp; engagement</h2>
-      <p class="section-lead">Content is the main post plus cross-posts. Social is your social posts.</p>
+      <h2 class="section-title">Performance by channel</h2>
+      <p class="section-lead">Each placement on its own row. Impressions count how many times the content was shown. Views count how many times it was opened. A dash marks a metric the channel does not report.</p>
       <div class="table-wrap" id="reach-wrap"></div>
     </section>
 
@@ -529,6 +529,7 @@
       var brand = snapshot.brand || null;
       var summary = snapshot.summary || {};
       var reach = snapshot.reach || null;
+      var byChannel = Array.isArray(snapshot.byChannel) ? snapshot.byChannel : [];
       var mainContent = snapshot.mainContent || null;
       var bySrc = Array.isArray(snapshot.bySrc) ? snapshot.bySrc : [];
       var byDay = Array.isArray(snapshot.byDay) ? snapshot.byDay : [];
@@ -774,50 +775,48 @@
           ") and are excluded from the totals above.";
       }
 
-      // ---- Reach & engagement ----
-      renderReach();
-      function renderReach() {
-        if (!reach) return;
-        var rows = [
-          { label: "Content", color: "var(--c-views)", data: reach.content },
-          { label: "Social", color: "var(--c-impr)", data: reach.social }
-        ];
-        var hasAny = rows.some(function (r) {
-          var d = r.data || {};
-          return (d.views || 0) + (d.impressions || 0) + (d.engagements || 0) > 0;
-        });
-        if (!hasAny) return;
+      // ---- Performance by channel ----
+      // One row per placement, un-aggregated. Reach metrics arrive as null
+      // when the channel doesn't report them (Bluesky/blog have no
+      // impressions; X reports views, not impressions) — shown as "—" so a
+      // gap never reads as a measured zero. The sponsor-priority columns
+      // (Impressions, Clicks, Engagements) lead; Views trails as context.
+      renderByChannel();
+      function renderByChannel() {
+        if (!byChannel.length) return;
         document.getElementById("reach-section").hidden = false;
 
         var table = el("table", { "class": "data" });
         var thead = el("thead");
         var htr = el("tr");
         htr.appendChild(el("th", { scope: "col" }, "Channel"));
-        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Views"));
         htr.appendChild(el("th", { "class": "num", scope: "col" }, "Impressions"));
+        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Clicks"));
         htr.appendChild(el("th", { "class": "num", scope: "col" }, "Engagements"));
+        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Views"));
         thead.appendChild(htr);
         table.appendChild(thead);
 
         var tbody = el("tbody");
-        rows.forEach(function (r) {
-          var d = r.data || {};
+        byChannel.forEach(function (c) {
           var tr = el("tr");
-          var labelTd = el("td");
-          var badge = el("span", { "class": "badge" });
-          var dot = el("span", { "class": "dot" });
-          dot.style.background = r.color;
-          badge.appendChild(dot);
-          badge.appendChild(document.createTextNode(r.label));
-          labelTd.appendChild(badge);
-          tr.appendChild(labelTd);
-          tr.appendChild(el("td", { "class": "num" }, fmtInt(d.views)));
-          tr.appendChild(el("td", { "class": "num" }, fmtInt(d.impressions)));
-          tr.appendChild(el("td", { "class": "num" }, fmtInt(d.engagements)));
+          var chTd = el("td");
+          chTd.appendChild(platformBadge(c.platform));
+          tr.appendChild(chTd);
+          tr.appendChild(el("td", { "class": "num" }, fmtMetric(c.impressions)));
+          tr.appendChild(el("td", { "class": "num" }, fmtInt(c.clicks)));
+          tr.appendChild(el("td", { "class": "num" }, fmtMetric(c.engagements)));
+          tr.appendChild(el("td", { "class": "num" }, fmtMetric(c.views)));
           tbody.appendChild(tr);
         });
         table.appendChild(tbody);
         document.getElementById("reach-wrap").appendChild(table);
+      }
+
+      // A reach metric is null when the channel doesn't report it; render
+      // that as "—" rather than 0.
+      function fmtMetric(n) {
+        return n == null ? "—" : fmtInt(n);
       }
 
       // ---- Main content (GA4 for a blog, YouTube Data API for a video) ----

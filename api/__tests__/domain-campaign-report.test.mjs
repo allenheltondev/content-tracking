@@ -315,6 +315,11 @@ describe("domain/campaign-report buildCampaignReportSnapshot", () => {
       // main-content section but not summed into bucket engagements.
       expect(snap.reach.content).toEqual({ views: 9000, impressions: 0, engagements: 0 });
       expect(snap.reach.totals).toEqual({ views: 9000, impressions: 0, engagements: 0 });
+      // The video is its own channel row: views + likes/comments as
+      // engagement, impressions blank (YouTube has no impression metric here).
+      expect(snap.byChannel).toEqual([
+        { platform: "youtube", impressions: null, clicks: 0, engagements: 510, views: 9000 },
+      ]);
     });
 
     test("YouTube mainContent is null when the loader returns unconfigured/error", async () => {
@@ -390,6 +395,55 @@ describe("domain/campaign-report buildCampaignReportSnapshot", () => {
       });
     });
 
+    test("byChannel breaks placements out with per-metric availability + click attribution", async () => {
+      campaignDomain.getCampaignWithLinks.mockResolvedValue({
+        metadata: { campaignId: "C1", name: "x", status: "active" },
+        socialPosts: [
+          { platform: "linkedin", url: "https://li/a", analytics: { reactions: 30, comments: 4, impressions: 900 }, lastFetched: null },
+          { platform: "twitter", url: "https://t.co/a", analytics: { likes: 10, views: 500 }, lastFetched: null },
+          { platform: "bluesky", url: "https://bsky/a", analytics: { likes: 7, reposts: 3 }, lastFetched: null },
+        ],
+        contentPosts: [
+          { platform: "medium", url: "https://m/a", analytics: { views: 800, reads: 200, impressions: 1200, claps: 50 }, lastFetched: null },
+        ],
+      });
+      ga4Service.loadCampaignGa4.mockResolvedValue({
+        configured: true,
+        error: null,
+        blog_url: "https://blog/p",
+        range: { startDate: "2026-03-01", endDate: "2026-03-28" },
+        totals: { pageviews: 1500, users: 1000, sessions: 1200, avg_session_duration: 100, engagement_rate: 0.5 },
+      });
+      analyticsService.getCampaignAnalytics.mockResolvedValue(analytics({
+        total_clicks: 60,
+        by_platform: { linkedin: 20, twitter: 15, blog: 25 },
+        links: [
+          // main-role link clicks roll into the featured "blog" channel, not a
+          // separate "blog"-platform distribution row.
+          { url: "https://blog/p", role: "main", platform: "blog", total_clicks: 25 },
+          { url: "https://li/a", role: "social_promo", platform: "linkedin", total_clicks: 20 },
+          { url: "https://t.co/a", role: "social_promo", platform: "twitter", total_clicks: 15 },
+        ],
+      }));
+
+      const snap = await buildCampaignReportSnapshot({ campaignId: "C1" });
+      const byKey = Object.fromEntries(snap.byChannel.map((c) => [c.platform, c]));
+
+      // LinkedIn: reports impressions, never a views key -> views blank.
+      expect(byKey.linkedin).toEqual({ platform: "linkedin", impressions: 900, clicks: 20, engagements: 34, views: null });
+      // X/Twitter: reports views, never an impressions key -> impressions blank.
+      expect(byKey.twitter).toEqual({ platform: "twitter", impressions: null, clicks: 15, engagements: 10, views: 500 });
+      // Bluesky: engagements only; no impressions, no views, no tracked link.
+      expect(byKey.bluesky).toEqual({ platform: "bluesky", impressions: null, clicks: 0, engagements: 10, views: null });
+      // Medium: reports both views and impressions distinctly (reads + claps -> engagements).
+      expect(byKey.medium).toEqual({ platform: "medium", impressions: 1200, clicks: 0, engagements: 250, views: 800 });
+      // Blog (featured): GA4 pageviews as views, no impression concept, engagement is a rate (blank here), main-link clicks.
+      expect(byKey.blog).toEqual({ platform: "blog", impressions: null, clicks: 25, engagements: null, views: 1500 });
+
+      // Sorted by total reach (impressions + views) desc.
+      expect(snap.byChannel.map((c) => c.platform)).toEqual(["medium", "blog", "linkedin", "twitter", "bluesky"]);
+    });
+
     test("posts with no analytics map to zero views/impressions/engagements, null top metric", async () => {
       campaignDomain.getCampaignWithLinks.mockResolvedValue({
         metadata: { campaignId: "C1", name: "x", status: "active" },
@@ -404,6 +458,9 @@ describe("domain/campaign-report buildCampaignReportSnapshot", () => {
         views: 0, impressions: 0, engagements: 0,
         topMetric: null, topMetricValue: 0, lastFetched: null,
       });
+      // A post with no synced analytics and no tracked clicks contributes no
+      // channel row — nothing to show beats a row of all dashes.
+      expect(snap.byChannel).toEqual([]);
     });
 
     test("zero total clicks -> shares are 0, reach totals zero", async () => {
