@@ -12,17 +12,28 @@
 const VIEW_KEY = /^(views?|pageviews?|screenpageviews)$/i;
 const IMPRESSION_KEY = /^impressions?$/i;
 
-export function splitPostMetrics(analytics) {
-  let views = 0;
-  let impressions = 0;
-  let engagements = 0;
+// Classifies the metric map into the three buckets and also reports which
+// buckets the platform actually populated. The `present` flags track whether
+// a bucket carried any numeric key at all — distinct from a summed zero. A
+// platform that never emits an impressions key (Bluesky, dev.to, a blog) has
+// `present.impressions === false`, which the per-channel report renders as
+// "—" rather than a misleading 0.
+export function classifyPostMetrics(analytics) {
+  const sums = { views: 0, impressions: 0, engagements: 0 };
+  const present = { views: false, impressions: false, engagements: false };
   if (analytics && typeof analytics === "object") {
     for (const [k, v] of Object.entries(analytics)) {
-      const n = typeof v === "number" && Number.isFinite(v) ? v : 0;
-      if (VIEW_KEY.test(k)) views += n;
-      else if (IMPRESSION_KEY.test(k)) impressions += n;
-      else engagements += n;
+      const isNum = typeof v === "number" && Number.isFinite(v);
+      const n = isNum ? v : 0;
+      const bucket = VIEW_KEY.test(k) ? "views" : IMPRESSION_KEY.test(k) ? "impressions" : "engagements";
+      sums[bucket] += n;
+      if (isNum) present[bucket] = true;
     }
   }
+  return { ...sums, present };
+}
+
+export function splitPostMetrics(analytics) {
+  const { views, impressions, engagements } = classifyPostMetrics(analytics);
   return { views, impressions, engagements };
 }

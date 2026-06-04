@@ -1,6 +1,6 @@
 import { getCampaignWithLinks } from "./campaign.mjs";
 import { getProfileSettings } from "./profile.mjs";
-import { splitPostMetrics } from "./post-metrics.mjs";
+import { splitPostMetrics, classifyPostMetrics } from "./post-metrics.mjs";
 import { getCampaignAnalytics } from "../services/campaign-analytics.mjs";
 import { loadCampaignGa4 } from "../services/campaign-ga4.mjs";
 import { loadCampaignYoutube } from "../services/campaign-youtube.mjs";
@@ -59,6 +59,13 @@ export async function buildCampaignReportSnapshot({ campaignId }) {
   const socialPosts = (socialPostRows ?? []).map(toPostSnapshot).sort(byEngagementDesc);
   const contentPosts = (contentPostRows ?? []).map(toPostSnapshot).sort(byEngagementDesc);
   const reach = buildReach({ mainContent, contentPosts, socialPosts });
+  const byChannel = buildByChannel({
+    contentPostRows,
+    socialPostRows,
+    links: analytics.links,
+    mainContent,
+    isYoutube,
+  });
 
   const now = new Date();
 
@@ -85,6 +92,7 @@ export async function buildCampaignReportSnapshot({ campaignId }) {
       upstreamFailures: analytics.upstream_failures,
     },
     reach,
+    byChannel,
     mainContent,
     bySrc,
     byDay,
@@ -216,4 +224,113 @@ function buildReach({ mainContent, contentPosts, socialPosts }) {
       engagements: content.engagements + social.engagements,
     },
   };
+}
+
+// Synthetic channel keys for the featured deliverable, kept distinct from any
+// social/cross-post platform slug so the blog post or video always reads as
+// its own row in the per-channel table.
+const FEATURED_BLOG_KEY = "blog";
+const FEATURED_YOUTUBE_KEY = "youtube";
+
+// Per-channel breakdown the sponsor report leads with: one row per placement
+// (LinkedIn, X, Bluesky, Medium, the blog/video deliverable, ...) carrying
+// impressions, clicks, engagements, and views. This is the un-aggregated view
+// — clicks come from the tracked-link rollup grouped by the platform each link
+// was placed on; reach/engagement come from the per-post metrics grouped by
+// platform; the featured deliverable contributes its own row from GA4/YouTube.
+//
+// A reach metric is `null` (rendered "—") when the placement doesn't report it
+// at all, which reads differently from a measured 0: Bluesky exposes no
+// impressions/views, a blog has no impression concept (GA4 reports pageviews,
+// surfaced here as views), and X reports views rather than impressions. Clicks
+// are always a number — every placement can carry tracked links.
+function buildByChannel({ contentPostRows, socialPostRows, links, mainContent, isYoutube }) {
+  const channels = new Map();
+  const ensure = (platform) => {
+    const key = platform || "unknown";
+    let row = channels.get(key);
+    if (!row) {
+      row = {
+        platform: key,
+        clicks: 0,
+        views: 0,
+        impressions: 0,
+        engagements: 0,
+        reportsViews: false,
+        reportsImpressions: false,
+        reportsEngagements: false,
+      };
+      channels.set(key, row);
+    }
+    return row;
+  };
+
+  // Reach + engagement from tracked posts, grouped by platform. Presence flags
+  // (not the summed value) decide whether a metric is "reported".
+  for (const post of [...(contentPostRows ?? []), ...(socialPostRows ?? [])]) {
+    const row = ensure(post.platform);
+    const { views, impressions, engagements, present } = classifyPostMetrics(post.analytics);
+    row.views += views;
+    row.impressions += impressions;
+    row.engagements += engagements;
+    if (present.views) row.reportsViews = true;
+    if (present.impressions) row.reportsImpressions = true;
+    if (present.engagements) row.reportsEngagements = true;
+  }
+
+  // The featured deliverable as its own channel. A blog contributes GA4
+  // pageviews as views (no impression concept, and its engagement is a rate
+  // shown in the Featured content section, not a count). A video contributes
+  // views plus likes/comments as engagement.
+  const featuredKey = isYoutube ? FEATURED_YOUTUBE_KEY : FEATURED_BLOG_KEY;
+  if (mainContent) {
+    const row = ensure(featuredKey);
+    if (isYoutube) {
+      row.views += mainContent.views || 0;
+      row.reportsViews = true;
+      row.engagements += (mainContent.likes || 0) + (mainContent.comments || 0);
+      row.reportsEngagements = true;
+    } else {
+      row.views += mainContent.pageviews || 0;
+      row.reportsViews = true;
+    }
+  }
+
+  // Clicks from tracked links. A "main"-role link is the deliverable's own
+  // inbound link, so its clicks roll into the featured channel; every other
+  // link is attributed to the platform it was placed on. Splitting this way
+  // keeps the deliverable's clicks out of the distribution-channel rows.
+  for (const link of links ?? []) {
+    const clicks = link.total_clicks || 0;
+    if (!clicks) continue;
+    const key = link.role === "main" ? featuredKey : link.platform;
+    ensure(key).clicks += clicks;
+  }
+
+  return [...channels.values()]
+    .map((c) => ({
+      platform: c.platform,
+      impressions: c.reportsImpressions ? c.impressions : null,
+      clicks: c.clicks,
+      engagements: c.reportsEngagements ? c.engagements : null,
+      views: c.reportsViews ? c.views : null,
+    }))
+    // Drop placements with nothing to show — e.g. a post registered but never
+    // synced (null analytics) would otherwise surface as a row of all dashes.
+    .filter((c) => c.clicks > 0 || c.impressions != null || c.engagements != null || c.views != null)
+    .sort(byChannelReachDesc);
+}
+
+// Order channels by total audience reach (impressions + views, either of
+// which may be null) so the biggest placement leads, then clicks, then
+// engagements, with the platform slug as a stable final tiebreak.
+function byChannelReachDesc(a, b) {
+  const reachA = (a.impressions ?? 0) + (a.views ?? 0);
+  const reachB = (b.impressions ?? 0) + (b.views ?? 0);
+  if (reachB !== reachA) return reachB - reachA;
+  if (b.clicks !== a.clicks) return b.clicks - a.clicks;
+  const engA = a.engagements ?? 0;
+  const engB = b.engagements ?? 0;
+  if (engB !== engA) return engB - engA;
+  return a.platform.localeCompare(b.platform);
 }
