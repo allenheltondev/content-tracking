@@ -46,6 +46,71 @@ function pick(...values) {
   return undefined;
 }
 
+// X (Twitter) ties a self-thread together by conversation_id_str: every
+// tweet the author chains under their root carries the root's id there, and
+// in_reply_to_status_id_str points at the tweet it continues. Collect every
+// tweet a TweetDetail payload hydrates — keyed by id, deduped against the
+// quoted/retweeted copies the walker also visits — so the extractor can roll
+// a self-thread up onto its root (the URL the user tracks) while still
+// emitting standalone tweets, and the user's lone reply inside someone
+// else's thread, on their own.
+function collectTwitterTweets(body) {
+  const byId = new Map();
+  walk(body, (node) => {
+    const legacy = node.legacy;
+    if (!legacy || typeof legacy.favorite_count !== "number") return;
+    const id = node.rest_id || legacy.id_str || legacy.conversation_id_str;
+    if (!id || byId.has(String(id))) return;
+
+    const metrics = {};
+    num(metrics, "likes", legacy.favorite_count);
+    num(metrics, "reposts", legacy.retweet_count);
+    num(metrics, "replies", legacy.reply_count);
+    num(metrics, "quotes", legacy.quote_count);
+    num(metrics, "bookmarks", legacy.bookmark_count);
+    const views = pick(node.views?.count, node.ext_views?.count);
+    if (views !== undefined) metrics.views = views;
+
+    // user_id_str is the stable author id on the tweet's own legacy; the
+    // core.user_results path is the GraphQL-native fallback if it's absent.
+    const authorId =
+      legacy.user_id_str ||
+      node.core?.user_results?.result?.rest_id ||
+      node.core?.user_results?.result?.legacy?.id_str ||
+      null;
+
+    byId.set(String(id), {
+      id: String(id),
+      conversationId: String(legacy.conversation_id_str || id),
+      authorId: authorId != null ? String(authorId) : null,
+      replyTo: legacy.in_reply_to_status_id_str
+        ? String(legacy.in_reply_to_status_id_str)
+        : null,
+      metrics,
+    });
+  });
+  return byId;
+}
+
+// Sum a self-thread's engagement onto one metrics object. Replies are the
+// running sum minus the author's own continuation posts — each continuation
+// shows up as a reply on its parent — leaving only replies from other people.
+function sumTwitterThread(selfPosts) {
+  const ids = new Set(selfPosts.map((t) => t.id));
+  const totals = {};
+  let continuations = 0;
+  for (const t of selfPosts) {
+    for (const key of ["likes", "reposts", "replies", "quotes", "bookmarks", "views"]) {
+      if (typeof t.metrics[key] === "number") totals[key] = (totals[key] || 0) + t.metrics[key];
+    }
+    if (t.replyTo && ids.has(t.replyTo)) continuations += 1;
+  }
+  if (typeof totals.replies === "number") {
+    totals.replies = Math.max(0, totals.replies - continuations);
+  }
+  return totals;
+}
+
 const twitter = {
   platform: "twitter",
   parsePostId(url) {
@@ -53,28 +118,43 @@ const twitter = {
     return m ? m[1] : null;
   },
   extract(body) {
+    const byId = collectTwitterTweets(body);
+    if (!byId.size) return [];
+    const tweets = [...byId.values()];
+
+    // Group by conversation. A conversation whose root tweet (id ===
+    // conversation_id_str) is present and authored the same account as two or
+    // more tweets in the group is a self-thread: roll it up onto the root.
+    // Everything else — standalone posts, other users' replies, a lone reply
+    // the user made in someone else's thread — keeps its own per-tweet row,
+    // so the per-tweet sync path is preserved exactly when there's no thread.
+    const byConversation = new Map();
+    for (const t of tweets) {
+      const group = byConversation.get(t.conversationId);
+      if (group) group.push(t);
+      else byConversation.set(t.conversationId, [t]);
+    }
+
     const out = [];
-    const seen = new Set();
-    walk(body, (node) => {
-      const legacy = node.legacy;
-      if (!legacy || typeof legacy.favorite_count !== "number") return;
-      const nativeId = node.rest_id || legacy.id_str || legacy.conversation_id_str;
-      if (!nativeId || seen.has(String(nativeId))) return;
+    const rolledUp = new Set();
+    const consumed = new Set();
+    for (const [conversationId, group] of byConversation) {
+      const root = byId.get(conversationId);
+      if (!root || !root.authorId) continue;
+      const selfPosts = group.filter((t) => t.authorId === root.authorId);
+      if (selfPosts.length < 2) continue;
 
-      const metrics = {};
-      num(metrics, "likes", legacy.favorite_count);
-      num(metrics, "reposts", legacy.retweet_count);
-      num(metrics, "replies", legacy.reply_count);
-      num(metrics, "quotes", legacy.quote_count);
-      num(metrics, "bookmarks", legacy.bookmark_count);
-      const views = pick(node.views?.count, node.ext_views?.count);
-      if (views !== undefined) metrics.views = views;
+      const metrics = sumTwitterThread(selfPosts);
+      if (!Object.keys(metrics).length) continue;
+      out.push({ nativeId: conversationId, metrics });
+      rolledUp.add(conversationId);
+      for (const t of selfPosts) if (t.id !== conversationId) consumed.add(t.id);
+    }
 
-      if (Object.keys(metrics).length) {
-        seen.add(String(nativeId));
-        out.push({ nativeId: String(nativeId), metrics });
-      }
-    });
+    for (const t of tweets) {
+      if (rolledUp.has(t.id) || consumed.has(t.id)) continue;
+      if (Object.keys(t.metrics).length) out.push({ nativeId: t.id, metrics: t.metrics });
+    }
     return out;
   },
 };
@@ -189,6 +269,68 @@ const instagram = {
 // carried on every postView the AppView hands back.
 const BSKY_POST_RE = /\/(?:app\.bsky\.feed\.)?post\/([^/?#]+)/;
 
+// Sum a numeric postView count across posts, returning null when none of
+// them carried it — so a shape that never reports e.g. bookmarkCount yields
+// no "bookmarks" key rather than a misleading 0.
+function sumBskyCount(posts, field) {
+  let sum = 0;
+  let present = false;
+  for (const p of posts) {
+    const v = p?.[field];
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0) {
+      sum += v;
+      present = true;
+    }
+  }
+  return present ? sum : null;
+}
+
+// getPostThreadV2 (app.bsky.unspecced) hands back the anchor post plus the
+// author's own thread continuation as a flat `thread` array of
+// threadItemPost nodes. When a tracked post heads a self-thread (the author
+// chained several posts under a 🧵), roll the whole thread up into one unit:
+// sum each engagement across the author's posts and attribute the total to
+// the anchor — the post URL the user registered. Replies need care: Bluesky
+// counts each continuation post as a reply on its parent, so summing
+// replyCount would count the author threading as engagement. Subtract every
+// author post that is itself a reply to another post in the thread, leaving
+// only genuine replies from other people.
+function extractBlueskyThreadV2(items) {
+  const anchorPost = (items.find((it) => (it?.depth ?? 0) === 0) || items[0])?.value
+    ?.post;
+  const anchorMatch =
+    typeof anchorPost?.uri === "string" ? BSKY_POST_RE.exec(anchorPost.uri) : null;
+  if (!anchorMatch) return [];
+  const nativeId = anchorMatch[1];
+  const anchorDid = anchorPost?.author?.did;
+
+  // The author's posts in the thread: the anchor plus its self-reply
+  // descendants. Guard on author so a stray non-OP item can't inflate the
+  // totals, and on depth so any ancestors above the anchor are excluded.
+  const opPosts = items
+    .filter((it) => (it?.depth ?? 0) >= 0)
+    .map((it) => it?.value?.post)
+    .filter((p) => p && typeof p.uri === "string" && (!anchorDid || p.author?.did === anchorDid));
+  if (!opPosts.length) return [];
+
+  const opUris = new Set(opPosts.map((p) => p.uri));
+  let continuations = 0;
+  for (const p of opPosts) {
+    const parentUri = p.record?.reply?.parent?.uri;
+    if (parentUri && opUris.has(parentUri)) continuations += 1;
+  }
+  const replyTotal = sumBskyCount(opPosts, "replyCount");
+
+  const metrics = {};
+  num(metrics, "likes", sumBskyCount(opPosts, "likeCount"));
+  num(metrics, "reposts", sumBskyCount(opPosts, "repostCount"));
+  num(metrics, "quotes", sumBskyCount(opPosts, "quoteCount"));
+  num(metrics, "bookmarks", sumBskyCount(opPosts, "bookmarkCount"));
+  if (replyTotal !== null) num(metrics, "replies", Math.max(0, replyTotal - continuations));
+  if (Object.keys(metrics).length === 0) return [];
+  return [{ nativeId, metrics }];
+}
+
 const bluesky = {
   platform: "bluesky",
   parsePostId(url) {
@@ -196,6 +338,13 @@ const bluesky = {
     return m ? m[1] : null;
   },
   extract(body) {
+    // Single-post permalink view: getPostThreadV2 returns a flat thread
+    // array. Roll the author's self-thread up onto the anchor post.
+    if (Array.isArray(body?.thread) && body.thread.some((it) => it?.value?.post)) {
+      return extractBlueskyThreadV2(body.thread);
+    }
+
+    // Feed/old-thread shapes: one row per post the payload hydrates.
     const out = [];
     const seen = new Set();
     walk(body, (node) => {
@@ -210,7 +359,8 @@ const bluesky = {
         typeof node.likeCount === "number" ||
         typeof node.repostCount === "number" ||
         typeof node.replyCount === "number" ||
-        typeof node.quoteCount === "number";
+        typeof node.quoteCount === "number" ||
+        typeof node.bookmarkCount === "number";
       if (!hasCounts) return;
 
       const nativeId = m[1];
@@ -221,6 +371,7 @@ const bluesky = {
       num(metrics, "reposts", node.repostCount);
       num(metrics, "replies", node.replyCount);
       num(metrics, "quotes", node.quoteCount);
+      num(metrics, "bookmarks", node.bookmarkCount);
       if (Object.keys(metrics).length === 0) return;
 
       seen.add(nativeId);
@@ -429,11 +580,12 @@ export const CAPTURE_PATTERNS = {
   linkedin: ["/voyager/api"],
   instagram: ["/api/v1/media", "/graphql/query", "/api/graphql"],
   // Bluesky's web client reads post counts off the AppView's feed XRPC
-  // calls (getPostThread, getAuthorFeed, getTimeline, getPosts, getFeed),
-  // all of which return hydrated postViews. Host varies (public.api.bsky.app
-  // when logged out, the user's PDS proxy when logged in) but the path
-  // prefix is constant.
-  bluesky: ["/xrpc/app.bsky.feed."],
+  // calls (getAuthorFeed, getTimeline, getPosts, getFeed) plus the unspecced
+  // thread endpoint a single-post permalink loads through (getPostThreadV2 /
+  // getPostThreadOtherV2). All return hydrated postViews. Host varies
+  // (public.api.bsky.app when logged out, the user's PDS proxy when logged
+  // in) but these path prefixes are constant.
+  bluesky: ["/xrpc/app.bsky.feed.", "/xrpc/app.bsky.unspecced.getPostThread"],
   // Medium's author-stats and per-post stats pages fetch from the
   // internal REST and GraphQL endpoints under medium.com/_/.
   medium: ["/_/api/", "/_/graphql"],

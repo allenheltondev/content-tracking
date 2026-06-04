@@ -35,6 +35,83 @@ describe("twitter adapter", () => {
       },
     ]);
   });
+
+  // Build a TweetDetail-ish tweet_results.result node. Counts are only set
+  // when passed (X's num() emits 0s, so omitting keeps test expectations to
+  // just the metrics each case exercises). conversation_id_str + replyTo are
+  // the rollup keys; favorite_count is required for the node to count.
+  const tweetNode = ({ id, conv, author, replyTo, likes, rts, replies, quotes, bookmarks, views }) => {
+    const legacy = { id_str: id, conversation_id_str: conv, user_id_str: author };
+    if (likes != null) legacy.favorite_count = likes;
+    if (rts != null) legacy.retweet_count = rts;
+    if (replies != null) legacy.reply_count = replies;
+    if (quotes != null) legacy.quote_count = quotes;
+    if (bookmarks != null) legacy.bookmark_count = bookmarks;
+    if (replyTo) legacy.in_reply_to_status_id_str = replyTo;
+    return {
+      rest_id: id,
+      ...(views != null ? { views: { count: String(views) } } : {}),
+      core: { user_results: { result: { rest_id: author } } },
+      legacy,
+    };
+  };
+
+  // Wrap result nodes in a timeline-ish envelope so the walker reaches them
+  // the way it would in a real threaded_conversation payload.
+  const timeline = (...results) => ({
+    data: {
+      threaded_conversation: {
+        instructions: [
+          { entries: results.map((r) => ({ content: { itemContent: { tweet_results: { result: r } } } })) },
+        ],
+      },
+    },
+  });
+
+  test("extract rolls a self-thread up onto the root tweet", () => {
+    const body = timeline(
+      tweetNode({ id: "100", conv: "100", author: "u1", likes: 50, rts: 7, replies: 1, quotes: 1, bookmarks: 9, views: 1000 }),
+      tweetNode({ id: "101", conv: "100", author: "u1", replyTo: "100", likes: 5, replies: 1, views: 200 }),
+      tweetNode({ id: "102", conv: "100", author: "u1", replyTo: "101", likes: 3, replies: 0, views: 100 }),
+    );
+    // likes 50+5+3=58, reposts 7, quotes 1, bookmarks 9, views 1300.
+    // replyTotal 1+1+0=2, both continuations (101→100, 102→101) → replies 0.
+    expect(adapters.twitter.extract(body)).toEqual([
+      {
+        nativeId: "100",
+        metrics: { likes: 58, reposts: 7, replies: 0, quotes: 1, bookmarks: 9, views: 1300 },
+      },
+    ]);
+  });
+
+  test("extract keeps genuine replies and other authors out of the thread sum", () => {
+    const body = timeline(
+      tweetNode({ id: "100", conv: "100", author: "u1", likes: 50, replies: 2, views: 1000 }),
+      tweetNode({ id: "101", conv: "100", author: "u1", replyTo: "100", likes: 5, replies: 0, views: 200 }),
+      // Someone else's reply in the same conversation — own row, not summed.
+      tweetNode({ id: "900", conv: "100", author: "u2", replyTo: "100", likes: 4 }),
+    );
+    // u1 thread: likes 55, views 1200; replyTotal 2+0=2, one continuation
+    // (101→100) → replies 1.
+    expect(adapters.twitter.extract(body)).toEqual([
+      { nativeId: "100", metrics: { likes: 55, replies: 1, views: 1200 } },
+      { nativeId: "900", metrics: { likes: 4 } },
+    ]);
+  });
+
+  test("extract leaves a lone reply in someone else's thread on its own row", () => {
+    const body = timeline(
+      // Another account's root, threaded by them — rolls up to their id.
+      tweetNode({ id: "500", conv: "500", author: "u2", likes: 100, replies: 1 }),
+      tweetNode({ id: "501", conv: "500", author: "u2", replyTo: "500", likes: 20, replies: 1 }),
+      // The user's single reply into that thread — tracked by id 600.
+      tweetNode({ id: "600", conv: "500", author: "u1", replyTo: "501", likes: 8 }),
+    );
+    const out = adapters.twitter.extract(body);
+    expect(out).toContainEqual({ nativeId: "600", metrics: { likes: 8 } });
+    // u2's thread rolled up onto its root, not onto the user's reply.
+    expect(out).toContainEqual({ nativeId: "500", metrics: { likes: 120, replies: 1 } });
+  });
 });
 
 describe("linkedin adapter", () => {
@@ -158,6 +235,138 @@ describe("bluesky adapter", () => {
       {
         nativeId: "3kj2lxyz7s2k",
         metrics: { likes: 50, reposts: 7, replies: 3, quotes: 1 },
+      },
+    ]);
+  });
+
+  test("extract reads the anchor post in a getPostThreadV2-shaped payload", () => {
+    // The single-post permalink view loads through app.bsky.unspecced.
+    // getPostThreadV2, whose `thread` is a flat array of items. Each item
+    // wraps its postView under `value.post`; the outer item carries the
+    // same at-uri but no counts, so it must not double-emit.
+    const body = {
+      thread: [
+        {
+          uri: "at://did:plc:abc123/app.bsky.feed.post/3kj2lxyz7s2k",
+          depth: 0,
+          value: {
+            $type: "app.bsky.unspecced.defs#threadItemPost",
+            post: {
+              uri: "at://did:plc:abc123/app.bsky.feed.post/3kj2lxyz7s2k",
+              cid: "bafyreigh2akiscaildc",
+              author: { did: "did:plc:abc123", handle: "allen.bsky.social" },
+              replyCount: 3,
+              repostCount: 7,
+              likeCount: 50,
+              quoteCount: 1,
+              indexedAt: "2026-06-01T00:00:00.000Z",
+            },
+          },
+        },
+      ],
+      hasOtherReplies: false,
+    };
+    expect(adapters.bluesky.extract(body)).toEqual([
+      {
+        nativeId: "3kj2lxyz7s2k",
+        metrics: { likes: 50, reposts: 7, replies: 3, quotes: 1 },
+      },
+    ]);
+  });
+
+  test("extract sums a self-thread onto the anchor and drops self-replies", () => {
+    // Faithful trim of a real 7-post 🧵: every post is the author's own,
+    // each replying to the previous. Engagement totals onto the anchor;
+    // every replyCount is the author continuing the thread, so the genuine
+    // reply count is zero.
+    const DID = "did:plc:aqtn3pn3dk4kd76fleosrrxb";
+    const uri = (rkey) => `at://${DID}/app.bsky.feed.post/${rkey}`;
+    const item = (rkey, parentRkey, counts, depth) => ({
+      uri: uri(rkey),
+      depth,
+      value: {
+        $type: "app.bsky.unspecced.defs#threadItemPost",
+        opThread: true,
+        post: {
+          uri: uri(rkey),
+          author: { did: DID, handle: "readysetcloud.io" },
+          record: parentRkey
+            ? { reply: { parent: { uri: uri(parentRkey) }, root: { uri: uri("3mlszz4pbz22x") } } }
+            : {},
+          bookmarkCount: 0,
+          repostCount: 0,
+          quoteCount: 0,
+          ...counts,
+        },
+      },
+    });
+    const body = {
+      hasOtherReplies: false,
+      thread: [
+        item("3mlszz4pbz22x", null, { replyCount: 1, likeCount: 1 }, 0),
+        item("3mlszz4pits2x", "3mlszz4pbz22x", { replyCount: 1, likeCount: 0 }, 1),
+        item("3mlszz4pksc2x", "3mlszz4pits2x", { replyCount: 1, likeCount: 0 }, 2),
+        item("3mlszz4plrk2x", "3mlszz4pksc2x", { replyCount: 1, likeCount: 0 }, 3),
+        item("3mlszz4plrl2x", "3mlszz4plrk2x", { replyCount: 1, likeCount: 0 }, 4),
+        item("3mlszz4pmqt2x", "3mlszz4plrl2x", { replyCount: 1, likeCount: 1 }, 5),
+        item("3mlszz4pmqu2x", "3mlszz4pmqt2x", { replyCount: 0, likeCount: 1 }, 6),
+      ],
+    };
+    expect(adapters.bluesky.extract(body)).toEqual([
+      {
+        nativeId: "3mlszz4pbz22x",
+        metrics: { likes: 3, reposts: 0, quotes: 0, bookmarks: 0, replies: 0 },
+      },
+    ]);
+  });
+
+  test("extract keeps genuine replies when summing a self-thread", () => {
+    // Anchor's replyCount is 2: one is the author's continuation (bbb), the
+    // other a real reply from someone else — only the real one survives.
+    const DID = "did:plc:op";
+    const uri = (rkey) => `at://${DID}/app.bsky.feed.post/${rkey}`;
+    const body = {
+      thread: [
+        {
+          uri: uri("aaa"),
+          depth: 0,
+          value: {
+            opThread: true,
+            post: {
+              uri: uri("aaa"),
+              author: { did: DID },
+              record: {},
+              likeCount: 1,
+              repostCount: 0,
+              quoteCount: 0,
+              bookmarkCount: 1,
+              replyCount: 2,
+            },
+          },
+        },
+        {
+          uri: uri("bbb"),
+          depth: 1,
+          value: {
+            opThread: true,
+            post: {
+              uri: uri("bbb"),
+              author: { did: DID },
+              record: { reply: { parent: { uri: uri("aaa") }, root: { uri: uri("aaa") } } },
+              likeCount: 0,
+              repostCount: 0,
+              quoteCount: 0,
+              bookmarkCount: 0,
+              replyCount: 0,
+            },
+          },
+        },
+      ],
+    };
+    expect(adapters.bluesky.extract(body)).toEqual([
+      {
+        nativeId: "aaa",
+        metrics: { likes: 1, reposts: 0, quotes: 0, bookmarks: 1, replies: 1 },
       },
     ]);
   });
