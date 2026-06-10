@@ -20,6 +20,10 @@
     "/api/graphql",
     // Bluesky AppView feed reads — hydrated postViews carry the counts.
     "/xrpc/app.bsky.feed.",
+    // Single-post permalink views load through the unspecced thread
+    // endpoint (getPostThreadV2 / getPostThreadOtherV2), which carries the
+    // anchor post's counts but sits outside the app.bsky.feed.* namespace.
+    "/xrpc/app.bsky.unspecced.getPostThread",
     // Medium author + per-post stats endpoints.
     "/_/api/",
     "/_/graphql",
