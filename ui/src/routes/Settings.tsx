@@ -444,6 +444,7 @@ function ExtensionTab(): ReactElement {
         ) : pairings.length === 0 ? (
           <p className="text-muted-foreground">No paired devices yet.</p>
         ) : (
+          <div className="overflow-x-auto">
           <table className="data-table">
             <thead>
               <tr>
@@ -475,6 +476,7 @@ function ExtensionTab(): ReactElement {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

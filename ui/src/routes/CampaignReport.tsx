@@ -72,7 +72,7 @@ export default function CampaignReport(): ReactElement {
   const { campaign, links } = bundle;
 
   return (
-    <main className="report-page max-w-4xl mx-auto p-8 print:p-0 bg-surface text-foreground">
+    <main className="report-page max-w-4xl mx-auto p-4 sm:p-8 print:p-0 bg-surface text-foreground">
       <div className="flex items-center justify-between mb-6 print:hidden">
         <Link to={`/campaigns/${campaign.campaign_id}`} className="btn-link">
           ← Back to campaign
@@ -165,6 +165,7 @@ export default function CampaignReport(): ReactElement {
         {links.length === 0 ? (
           <p className="text-muted-foreground">No links registered for this campaign.</p>
         ) : (
+          <div className="overflow-x-auto">
           <table className="data-table">
             <thead>
               <tr>
@@ -200,6 +201,7 @@ export default function CampaignReport(): ReactElement {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </section>
 
@@ -230,6 +232,7 @@ function BreakdownTable({
 }): ReactElement {
   const rows = Object.entries(data).sort((a, b) => b[1] - a[1]);
   return (
+    <div className="overflow-x-auto">
     <table className="data-table">
       <thead>
         <tr>
@@ -250,6 +253,7 @@ function BreakdownTable({
         ))}
       </tbody>
     </table>
+    </div>
   );
 }
 

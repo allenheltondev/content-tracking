@@ -352,7 +352,7 @@ export default function CampaignDetail(): ReactElement {
         </div>
       </header>
 
-      <nav className="border-b border-border flex gap-1" aria-label="Campaign sections">
+      <nav className="border-b border-border flex gap-1 overflow-x-auto" aria-label="Campaign sections">
         <TabButton
           label="Overview"
           active={activeTab === 'overview'}
@@ -480,6 +480,7 @@ export default function CampaignDetail(): ReactElement {
                 No social posts tracked yet. Click + Add post to start tracking one.
               </p>
             ) : (
+              <div className="overflow-x-auto">
               <table className="data-table">
                 <thead>
                   <tr>
@@ -524,6 +525,7 @@ export default function CampaignDetail(): ReactElement {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
             {showPostForm && (
               <RegisterSocialPostForm
@@ -569,6 +571,7 @@ export default function CampaignDetail(): ReactElement {
                 No content posts tracked yet. Click + Add post to start tracking one.
               </p>
             ) : (
+              <div className="overflow-x-auto">
               <table className="data-table">
                 <thead>
                   <tr>
@@ -613,6 +616,7 @@ export default function CampaignDetail(): ReactElement {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
             {showContentForm && (
               <RegisterContentPostForm
@@ -761,7 +765,7 @@ function TabButton({
       type="button"
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
-      className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+      className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap shrink-0 ${
         active
           ? 'border-primary-600 text-primary-700'
           : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
