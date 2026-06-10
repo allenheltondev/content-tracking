@@ -73,7 +73,7 @@ export default function CampaignReport(): ReactElement {
 
   return (
     <main className="report-page max-w-4xl mx-auto p-4 sm:p-8 print:p-0 bg-surface text-foreground">
-      <div className="flex items-center justify-between mb-6 print:hidden">
+      <div className="flex items-center justify-between gap-4 mb-8 print:hidden">
         <Link to={`/campaigns/${campaign.campaign_id}`} className="btn-link">
           ← Back to campaign
         </Link>
@@ -82,9 +82,9 @@ export default function CampaignReport(): ReactElement {
         </button>
       </div>
 
-      <header className="border-b border-border pb-4 mb-6 print:break-inside-avoid">
-        <h1 className="text-3xl font-semibold text-foreground">{campaign.name}</h1>
-        <dl className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2 text-sm">
+      <header className="border-b border-border pb-5 mb-8 print:break-inside-avoid">
+        <h1 className="text-2xl sm:text-3xl font-semibold text-foreground">{campaign.name}</h1>
+        <dl className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 text-sm">
           {campaign.sponsor && (
             <div>
               <dt className="text-xs uppercase tracking-wide text-muted-foreground">Sponsor</dt>
@@ -98,10 +98,6 @@ export default function CampaignReport(): ReactElement {
           <div>
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">Status</dt>
             <dd className="text-foreground capitalize">{campaign.status}</dd>
-          </div>
-          <div>
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">Generated</dt>
-            <dd className="text-foreground">{new Date().toISOString().slice(0, 10)}</dd>
           </div>
         </dl>
       </header>
