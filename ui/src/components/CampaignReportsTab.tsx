@@ -92,6 +92,7 @@ export default function CampaignReportsTab({
       )}
 
       {reports !== null && reports.length > 0 && (
+        <div className="overflow-x-auto">
         <table className="data-table">
           <thead>
             <tr>
@@ -119,6 +120,7 @@ export default function CampaignReportsTab({
             ))}
           </tbody>
         </table>
+        </div>
       )}
 
       <ReportLinkDialog

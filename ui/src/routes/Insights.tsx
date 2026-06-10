@@ -270,6 +270,7 @@ function TopPosts({ posts }: { posts: InsightsTopPost[] }): ReactElement {
   return (
     <div className="space-y-3">
       <h2 className="text-lg font-semibold text-foreground">Top performing content</h2>
+      <div className="overflow-x-auto">
       <table className="data-table">
         <thead>
           <tr>
@@ -302,6 +303,7 @@ function TopPosts({ posts }: { posts: InsightsTopPost[] }): ReactElement {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

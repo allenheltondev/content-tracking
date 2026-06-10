@@ -214,6 +214,7 @@ export default function Revenue(): ReactElement {
           <p className="text-muted-foreground">No revenue recorded for {year}.</p>
         )}
         {vendorRows && vendorRows.length > 0 && byVendor && (
+          <div className="overflow-x-auto">
           <table className="data-table">
             <thead>
               <tr>
@@ -247,6 +248,7 @@ export default function Revenue(): ReactElement {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </section>
     </section>

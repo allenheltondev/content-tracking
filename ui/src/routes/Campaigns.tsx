@@ -85,6 +85,7 @@ export default function Campaigns(): ReactElement {
         </div>
       )}
       {campaigns && campaigns.length > 0 && (
+        <div className="overflow-x-auto">
         <table className="data-table">
           <thead>
             <tr>
@@ -113,6 +114,7 @@ export default function Campaigns(): ReactElement {
             ))}
           </tbody>
         </table>
+        </div>
       )}
 
       <Modal

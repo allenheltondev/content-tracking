@@ -297,6 +297,7 @@ function TopPostsTable({ posts }: { posts: RankedPost[] }): ReactElement {
     );
   }
   return (
+    <div className="overflow-x-auto">
     <table className="data-table">
       <thead>
         <tr>
@@ -337,6 +338,7 @@ function TopPostsTable({ posts }: { posts: RankedPost[] }): ReactElement {
         ))}
       </tbody>
     </table>
+    </div>
   );
 }
 

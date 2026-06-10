@@ -70,6 +70,7 @@ export default function Vendors(): ReactElement {
         <p className="text-muted-foreground text-sm">No vendors match "{search}".</p>
       )}
       {filtered && filtered.length > 0 && (
+        <div className="overflow-x-auto">
         <table className="data-table">
           <thead>
             <tr>
@@ -106,6 +107,7 @@ export default function Vendors(): ReactElement {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </section>
   );

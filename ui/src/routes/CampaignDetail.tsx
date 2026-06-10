@@ -57,6 +57,15 @@ const CAMPAIGN_TABS: readonly CampaignTab[] = [
   'reports',
 ];
 
+const TAB_LABELS: Record<CampaignTab, string> = {
+  overview: 'Overview',
+  brief: 'Brief',
+  draft: 'Draft',
+  promotion: 'Promotion',
+  analytics: 'Analytics',
+  reports: 'Reports',
+};
+
 interface CampaignBundle {
   campaign: Campaign;
   links: CampaignLink[];
@@ -352,37 +361,36 @@ export default function CampaignDetail(): ReactElement {
         </div>
       </header>
 
-      <nav className="border-b border-border flex gap-1" aria-label="Campaign sections">
-        <TabButton
-          label="Overview"
-          active={activeTab === 'overview'}
-          onClick={() => selectTab('overview')}
-        />
-        <TabButton
-          label="Brief"
-          active={activeTab === 'brief'}
-          onClick={() => selectTab('brief')}
-        />
-        <TabButton
-          label="Draft"
-          active={activeTab === 'draft'}
-          onClick={() => selectTab('draft')}
-        />
-        <TabButton
-          label="Promotion"
-          active={activeTab === 'promotion'}
-          onClick={() => selectTab('promotion')}
-        />
-        <TabButton
-          label="Analytics"
-          active={activeTab === 'analytics'}
-          onClick={() => selectTab('analytics')}
-        />
-        <TabButton
-          label="Reports"
-          active={activeTab === 'reports'}
-          onClick={() => selectTab('reports')}
-        />
+      {/* On phones the six tabs don't fit, so collapse them into a single
+          native dropdown that shows every section at once. The tab row
+          returns at md and up. */}
+      <div className="md:hidden">
+        <label className="sr-only" htmlFor="campaign-section">
+          Campaign section
+        </label>
+        <select
+          id="campaign-section"
+          className="input"
+          value={activeTab}
+          onChange={(e) => selectTab(e.target.value as CampaignTab)}
+        >
+          {CAMPAIGN_TABS.map((tab) => (
+            <option key={tab} value={tab}>
+              {TAB_LABELS[tab]}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <nav className="border-b border-border hidden md:flex gap-1" aria-label="Campaign sections">
+        {CAMPAIGN_TABS.map((tab) => (
+          <TabButton
+            key={tab}
+            label={TAB_LABELS[tab]}
+            active={activeTab === tab}
+            onClick={() => selectTab(tab)}
+          />
+        ))}
       </nav>
 
       {activeTab === 'overview' && (
@@ -480,6 +488,7 @@ export default function CampaignDetail(): ReactElement {
                 No social posts tracked yet. Click + Add post to start tracking one.
               </p>
             ) : (
+              <div className="overflow-x-auto">
               <table className="data-table">
                 <thead>
                   <tr>
@@ -524,6 +533,7 @@ export default function CampaignDetail(): ReactElement {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
             {showPostForm && (
               <RegisterSocialPostForm
@@ -569,6 +579,7 @@ export default function CampaignDetail(): ReactElement {
                 No content posts tracked yet. Click + Add post to start tracking one.
               </p>
             ) : (
+              <div className="overflow-x-auto">
               <table className="data-table">
                 <thead>
                   <tr>
@@ -613,6 +624,7 @@ export default function CampaignDetail(): ReactElement {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
             {showContentForm && (
               <RegisterContentPostForm
@@ -761,7 +773,7 @@ function TabButton({
       type="button"
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
-      className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+      className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap shrink-0 ${
         active
           ? 'border-primary-600 text-primary-700'
           : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'

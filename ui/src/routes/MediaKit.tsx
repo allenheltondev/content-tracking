@@ -145,6 +145,7 @@ export default function MediaKit(): ReactElement {
             No media kits yet. Generate one to get a shareable link.
           </p>
         ) : (
+          <div className="overflow-x-auto">
           <table className="data-table">
             <thead>
               <tr>
@@ -180,6 +181,7 @@ export default function MediaKit(): ReactElement {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </section>

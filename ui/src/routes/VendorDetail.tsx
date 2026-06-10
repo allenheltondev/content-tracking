@@ -156,14 +156,14 @@ export default function VendorDetail(): ReactElement {
 
   return (
     <section className="space-y-6">
-      <header className="flex items-start justify-between gap-4">
+      <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold text-foreground">{vendor.name}</h1>
           {vendor.contact_email && (
             <p className="text-muted-foreground">{vendor.contact_email}</p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             className="btn-secondary"
@@ -291,6 +291,7 @@ export default function VendorDetail(): ReactElement {
           <p className="text-muted-foreground">No campaigns yet for this vendor.</p>
         )}
         {campaigns && campaigns.length > 0 && (
+          <div className="overflow-x-auto">
           <table className="data-table">
             <thead>
               <tr>
@@ -322,6 +323,7 @@ export default function VendorDetail(): ReactElement {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </section>
 
