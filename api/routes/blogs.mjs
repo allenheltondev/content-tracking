@@ -1,7 +1,10 @@
+import { ulid } from "ulid";
 import {
   createBlog,
   deleteBlog,
+  findBlog,
   getBlog,
+  getCrosspostStatus,
   listBlogsByTenant,
   listBlogsForCampaign,
   updateBlog,
@@ -9,14 +12,19 @@ import {
 import { requireTenantId } from "../services/identity.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import { decodeCursor, encodeCursor, parseLimit } from "../services/pagination.mjs";
+import { startCrosspostExecution } from "../services/crosspost-invoker.mjs";
 import { emptyResponse, jsonResponse } from "../services/http-handler.mjs";
-import { BadRequestError } from "../services/errors.mjs";
+import { BadRequestError, NotFoundError } from "../services/errors.mjs";
 import {
   formatBlog,
   formatBlogSummary,
+  formatCrosspostStatus,
   validateBlogCreate,
   validateBlogUpdate,
+  validateCrosspostRequest,
 } from "../validation/blog.mjs";
+
+const SECONDS_PER_DAY = 24 * 60 * 60;
 
 // Blog catalog CRUD. Every route resolves the tenant from the authorizer
 // sub (requireTenantId) and passes it as the first argument to the domain,
@@ -73,6 +81,38 @@ export function registerBlogRoutes(app) {
     const tenantId = requireTenantId(event);
     await deleteBlog(tenantId, params.blogId);
     return emptyResponse(204);
+  });
+
+  // On-demand cross-post: validate, generate a runId, and start the durable
+  // execution (async). Returns immediately; the client polls the status
+  // route below.
+  app.post("/blogs/:blogId/crosspost", async ({ event, params }) => {
+    const tenantId = requireTenantId(event);
+    const blog = await findBlog(tenantId, params.blogId);
+    if (!blog) {
+      throw new NotFoundError("Blog", params.blogId);
+    }
+
+    const { platforms, staggerDays } = validateCrosspostRequest(parseBody(event));
+    const runId = ulid();
+    const withDelays = platforms.map((platform, i) => ({
+      platform,
+      delaySeconds: staggerDays ? i * staggerDays * SECONDS_PER_DAY : 0,
+    }));
+
+    await startCrosspostExecution({ tenantId, blogId: params.blogId, runId, platforms: withDelays });
+
+    return jsonResponse(202, {
+      run_id: runId,
+      status: "in progress",
+      platforms: withDelays.map((p) => ({ platform: p.platform, delay_seconds: p.delaySeconds })),
+    });
+  });
+
+  app.get("/blogs/:blogId/crosspost-status", async ({ event, params }) => {
+    const tenantId = requireTenantId(event);
+    const status = await getCrosspostStatus(tenantId, params.blogId);
+    return jsonResponse(200, formatCrosspostStatus(status));
   });
 }
 

@@ -504,3 +504,30 @@ export async function completeCrosspostRun(tenantId, blogId, runId, status) {
     ExpressionAttributeValues: { ":status": status, ":now": new Date().toISOString() },
   }));
 }
+
+// Reads the current cross-post state for the status endpoint: every
+// per-platform copy plus the most recent run row. Two targeted queries on
+// the blog's child prefixes (rather than one broad partition scan).
+export async function getCrosspostStatus(tenantId, blogId) {
+  const pk = tenantPartition(tenantId);
+
+  const [copiesResult, runResult] = await Promise.all([
+    ddb.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+      ExpressionAttributeValues: { ":pk": pk, ":prefix": `BLOG#${blogId}#CROSSPOST#` },
+    })),
+    ddb.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+      ExpressionAttributeValues: { ":pk": pk, ":prefix": `BLOG#${blogId}#RUN#` },
+      ScanIndexForward: false,
+      Limit: 1,
+    })),
+  ]);
+
+  return {
+    copies: copiesResult.Items ?? [],
+    run: runResult.Items?.[0] ?? null,
+  };
+}

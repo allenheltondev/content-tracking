@@ -1,8 +1,10 @@
 import {
   validateBlogCreate,
   validateBlogUpdate,
+  validateCrosspostRequest,
   formatBlog,
   formatBlogSummary,
+  formatCrosspostStatus,
 } from "../validation/blog.mjs";
 
 describe("validation/blog", () => {
@@ -108,6 +110,46 @@ describe("validation/blog", () => {
       expect(out).not.toHaveProperty("content_markdown");
       expect(out.blog_id).toBe("B1");
       expect(out.links.dev).toBe("https://dev.to/x");
+    });
+  });
+
+  describe("validateCrosspostRequest", () => {
+    test("accepts platforms and optional stagger_days", () => {
+      expect(validateCrosspostRequest({ platforms: ["dev", "medium"] })).toEqual({ platforms: ["dev", "medium"] });
+      expect(validateCrosspostRequest({ platforms: ["dev"], stagger_days: 3 })).toEqual({ platforms: ["dev"], staggerDays: 3 });
+    });
+
+    test("rejects an empty or non-array platforms", () => {
+      expect(() => validateCrosspostRequest({ platforms: [] })).toThrow(/non-empty array/);
+      expect(() => validateCrosspostRequest({})).toThrow(/non-empty array/);
+    });
+
+    test("rejects unknown and duplicate platforms", () => {
+      expect(() => validateCrosspostRequest({ platforms: ["substack"] })).toThrow(/subset of/);
+      expect(() => validateCrosspostRequest({ platforms: ["dev", "dev"] })).toThrow(/duplicate platform/);
+    });
+
+    test("rejects an out-of-range or non-integer stagger_days", () => {
+      expect(() => validateCrosspostRequest({ platforms: ["dev"], stagger_days: 0 })).toThrow(/between 1 and 30/);
+      expect(() => validateCrosspostRequest({ platforms: ["dev"], stagger_days: 31 })).toThrow(/between 1 and 30/);
+      expect(() => validateCrosspostRequest({ platforms: ["dev"], stagger_days: 1.5 })).toThrow(/between 1 and 30/);
+    });
+  });
+
+  describe("formatCrosspostStatus", () => {
+    test("maps the run and per-platform copies to snake_case", () => {
+      const out = formatCrosspostStatus({
+        run: { runId: "R1", status: "succeeded", platforms: ["dev"], startedAt: "t0", completedAt: "t1" },
+        copies: [{ platform: "dev", status: "succeeded", url: "https://dev/x", id: 5, publishedAt: "t1" }],
+      });
+      expect(out.run).toEqual({ run_id: "R1", status: "succeeded", platforms: ["dev"], started_at: "t0", completed_at: "t1" });
+      expect(out.platforms[0]).toEqual({ platform: "dev", status: "succeeded", url: "https://dev/x", id: 5, scheduled_for: null, published_at: "t1", error: null });
+    });
+
+    test("returns run: null when there is no run yet", () => {
+      const out = formatCrosspostStatus({ run: null, copies: [] });
+      expect(out.run).toBeNull();
+      expect(out.platforms).toEqual([]);
     });
   });
 });

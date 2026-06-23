@@ -20,6 +20,7 @@ const {
   startCrosspostRun,
   recordCrosspostResult,
   completeCrosspostRun,
+  getCrosspostStatus,
 } = await import("../domain/blog.mjs");
 
 // Pulls the typed command (TransactWrite / BatchWrite / etc.) out of a
@@ -364,6 +365,21 @@ describe("domain/blog", () => {
       expect(input.Key.sk).toBe("BLOG#B1#RUN#R1");
       expect(input.ExpressionAttributeValues[":status"]).toBe("succeeded");
       expect(input.ExpressionAttributeValues[":now"]).toBeDefined();
+    });
+
+    test("getCrosspostStatus returns the copies + latest run", async () => {
+      mockSend
+        .mockResolvedValueOnce({ Items: [{ platform: "dev", status: "succeeded" }] }) // copies query
+        .mockResolvedValueOnce({ Items: [{ runId: "R1", status: "succeeded" }] }); // latest run query
+
+      const status = await getCrosspostStatus(TENANT, "B1");
+
+      expect(callInput(mockSend, 0).ExpressionAttributeValues[":prefix"]).toBe("BLOG#B1#CROSSPOST#");
+      const runInput = callInput(mockSend, 1);
+      expect(runInput.ExpressionAttributeValues[":prefix"]).toBe("BLOG#B1#RUN#");
+      expect(runInput.ScanIndexForward).toBe(false);
+      expect(runInput.Limit).toBe(1);
+      expect(status).toEqual({ copies: [{ platform: "dev", status: "succeeded" }], run: { runId: "R1", status: "succeeded" } });
     });
   });
 });
