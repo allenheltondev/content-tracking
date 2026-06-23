@@ -13,6 +13,11 @@ import { visit } from "unist-util-visit";
 //    String.replace only swapped the first).
 //  - The Medium header omits the description/hero lines when those fields
 //    are absent (the legacy emitted empty `#### ` / `![](undefined)`).
+//  - Path-only catalog matches are restricted to relative links or
+//    same-host absolute links, so an external URL that merely shares a
+//    path is never rewritten to this tenant's copy.
+//  - Query strings and #fragments on a cross-link are carried through to
+//    the rewritten URL, so deep links survive cross-posting.
 //
 // Tweets stay a text transform: they are Hugo shortcodes, not Markdown
 // links, so the AST doesn't model them.
@@ -84,47 +89,67 @@ function rewriteCrossLinks(md, catalog, platform, baseUrl) {
 
 // If the link points at another catalogued blog, swap it for that blog's
 // native copy on the current platform, else its absolute canonical URL.
-// Returns the original target when there is no catalog match.
+// Any query string / fragment on the original link is carried through so
+// deep links (e.g. #section anchors) survive cross-posting. Returns the
+// original target when there is no catalog match.
 function resolveCrossLink(target, catalog, platform, baseUrl) {
-  const entry = catalog.find((c) => matchesCanonical(target, c));
+  const entry = catalog.find((c) => matchesCanonical(target, c, baseUrl));
   if (!entry) return target;
-  const native = entry.links?.[platform];
-  if (native) return native;
-  return absoluteCanonical(entry, baseUrl) ?? target;
+  const base = entry.links?.[platform] ?? absoluteCanonical(entry, baseUrl);
+  if (!base) return target;
+  const { search, hash } = parseTarget(target);
+  return `${base}${search}${hash}`;
 }
 
-function matchesCanonical(target, entry) {
+// A link matches a catalog entry when it points at the same post. An exact
+// string match always counts. A path-only match is allowed ONLY for
+// relative links, or absolute links on the same host as the entry's
+// canonical (or the tenant base URL) — otherwise an external link that
+// merely shares a path (e.g. https://partner.example/blog/sqs) would be
+// wrongly rewritten to this tenant's copy.
+function matchesCanonical(target, entry, baseUrl) {
   const entryUrl = entry?.links?.url ?? entry?.canonicalUrl;
   if (!entryUrl || !target) return false;
   if (target === entryUrl) return true;
-  const tp = pathOf(target);
-  const ep = pathOf(entryUrl);
-  return tp !== null && ep !== null && tp === ep;
+
+  const t = parseTarget(target);
+  const e = parseTarget(entryUrl);
+  if (t.path === null || e.path === null || t.path !== e.path) return false;
+
+  if (!t.absolute) return true; // relative link → same site by definition
+
+  const allowedHosts = new Set();
+  if (e.absolute) allowedHosts.add(e.host);
+  const baseHost = baseUrl ? parseTarget(baseUrl).host : null;
+  if (baseHost) allowedHosts.add(baseHost);
+  return allowedHosts.has(t.host);
 }
 
 function absoluteCanonical(entry, baseUrl) {
   const canonical = entry?.canonicalUrl ?? entry?.links?.url;
   if (!canonical) return null;
-  if (isAbsolute(canonical)) return canonical;
+  if (parseTarget(canonical).absolute) return canonical;
   if (!baseUrl) return canonical;
   return `${baseUrl.replace(/\/+$/, "")}/${canonical.replace(/^\/+/, "")}`;
 }
 
-function isAbsolute(u) {
-  try {
-    new URL(u);
-    return true;
-  } catch {
-    return false;
+// Splits a URL or bare path into { absolute, host, path, search, hash }
+// without throwing on relative inputs. `path` is null for empty input.
+function parseTarget(u) {
+  if (typeof u !== "string" || u.length === 0) {
+    return { absolute: false, host: null, path: null, search: "", hash: "" };
   }
-}
-
-function pathOf(u) {
-  if (typeof u !== "string" || u.length === 0) return null;
   try {
-    return new URL(u).pathname;
+    const url = new URL(u);
+    return { absolute: true, host: url.host, path: url.pathname, search: url.search, hash: url.hash };
   } catch {
-    return u.split(/[?#]/)[0];
+    const hashIdx = u.indexOf("#");
+    const hash = hashIdx >= 0 ? u.slice(hashIdx) : "";
+    const rest = hashIdx >= 0 ? u.slice(0, hashIdx) : u;
+    const qIdx = rest.indexOf("?");
+    const search = qIdx >= 0 ? rest.slice(qIdx) : "";
+    const path = qIdx >= 0 ? rest.slice(0, qIdx) : rest;
+    return { absolute: false, host: null, path, search, hash };
   }
 }
 

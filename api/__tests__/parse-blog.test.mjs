@@ -99,6 +99,42 @@ describe("transformBlogForPlatform", () => {
       const { body } = transformBlogForPlatform({ blog: blogWith(md), catalog, platform: "dev", baseUrl: BASE });
       expect(body).toContain("[idempotency](/blog/idempotency)");
     });
+
+    test("does NOT rewrite an external absolute link that only shares a path", () => {
+      const md = "See [partner](https://partner.example/blog/sqs).";
+      const { body } = transformBlogForPlatform({ blog: blogWith(md), catalog, platform: "dev", baseUrl: BASE });
+      expect(body).toBe(md);
+    });
+
+    test("preserves a #fragment on a relative cross-link", () => {
+      const { body } = transformBlogForPlatform({
+        blog: blogWith("See [idem](/blog/idempotency#retry-window)."),
+        catalog,
+        platform: "dev",
+        baseUrl: BASE,
+      });
+      expect(body).toBe("See [idem](https://dev.to/me/idempotency-abc#retry-window).");
+    });
+
+    test("preserves a #fragment on an absolute same-host cross-link", () => {
+      const { body } = transformBlogForPlatform({
+        blog: blogWith(`See [idem](${BASE}/blog/idempotency#retry-window).`),
+        catalog,
+        platform: "medium",
+        baseUrl: BASE,
+      });
+      expect(body).toContain("See [idem](https://medium.com/@me/idempotency-xyz#retry-window).");
+    });
+
+    test("preserves query + fragment, including on the canonical fallback", () => {
+      const { body } = transformBlogForPlatform({
+        blog: blogWith("See [sqs](/blog/sqs?utm=feed#section)."),
+        catalog,
+        platform: "dev",
+        baseUrl: BASE,
+      });
+      expect(body).toBe(`See [sqs](${BASE}/blog/sqs?utm=feed#section).`);
+    });
   });
 
   describe("tweets", () => {
