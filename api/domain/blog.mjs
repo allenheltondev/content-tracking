@@ -504,3 +504,44 @@ export async function completeCrosspostRun(tenantId, blogId, runId, status) {
     ExpressionAttributeValues: { ":status": status, ":now": new Date().toISOString() },
   }));
 }
+
+// Reads the cross-post state for the status endpoint: the per-platform
+// copies plus a run row.
+//
+// When `runId` is given (the client polling the run it just started), the
+// run is read by that exact id and the copies are filtered to it. This
+// correlates the poll to the new run: until the durable function writes
+// its start-run row, the run reads as null and no stale previous-run copies
+// leak through. Without `runId`, it returns the most recent run + all
+// copies (the blog's general "current state" view).
+export async function getCrosspostStatus(tenantId, blogId, { runId } = {}) {
+  const pk = tenantPartition(tenantId);
+
+  const copiesPromise = ddb.send(new QueryCommand({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+    ExpressionAttributeValues: { ":pk": pk, ":prefix": `BLOG#${blogId}#CROSSPOST#` },
+  }));
+
+  const runPromise = runId
+    ? ddb.send(new GetCommand({
+      TableName: TABLE_NAME,
+      Key: crosspostRunKey(tenantId, blogId, runId),
+    })).then((r) => r.Item ?? null)
+    : ddb.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+      ExpressionAttributeValues: { ":pk": pk, ":prefix": `BLOG#${blogId}#RUN#` },
+      ScanIndexForward: false,
+      Limit: 1,
+    })).then((r) => r.Items?.[0] ?? null);
+
+  const [copiesResult, run] = await Promise.all([copiesPromise, runPromise]);
+
+  let copies = copiesResult.Items ?? [];
+  if (runId) {
+    copies = copies.filter((c) => c.runId === runId);
+  }
+
+  return { copies, run };
+}

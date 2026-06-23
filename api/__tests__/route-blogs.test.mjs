@@ -6,6 +6,8 @@ process.env.ENVIRONMENT = "staging";
 jest.unstable_mockModule("../domain/blog.mjs", () => ({
   createBlog: jest.fn(),
   getBlog: jest.fn(),
+  findBlog: jest.fn(),
+  getCrosspostStatus: jest.fn(),
   listBlogsByTenant: jest.fn(),
   listBlogsForCampaign: jest.fn(),
   updateBlog: jest.fn(),
@@ -16,8 +18,12 @@ jest.unstable_mockModule("../domain/blog.mjs", () => ({
 jest.unstable_mockModule("../services/idempotency.mjs", () => ({
   withIdempotency: (fn) => fn,
 }));
+jest.unstable_mockModule("../services/crosspost-invoker.mjs", () => ({
+  startCrosspostExecution: jest.fn(),
+}));
 
-const { createBlog, getBlog, listBlogsByTenant, listBlogsForCampaign, updateBlog, deleteBlog } = await import("../domain/blog.mjs");
+const { createBlog, getBlog, findBlog, getCrosspostStatus, listBlogsByTenant, listBlogsForCampaign, updateBlog, deleteBlog } = await import("../domain/blog.mjs");
+const { startCrosspostExecution } = await import("../services/crosspost-invoker.mjs");
 const { registerBlogRoutes } = await import("../routes/blogs.mjs");
 
 function buildRouteTable() {
@@ -137,6 +143,66 @@ describe("DELETE /blogs/:blogId", () => {
 
     expect(deleteBlog).toHaveBeenCalledWith(SUB, "B1");
     expect(res.statusCode).toBe(204);
+  });
+});
+
+describe("POST /blogs/:blogId/crosspost", () => {
+  test("starts a durable execution with immediate (0s) delays", async () => {
+    findBlog.mockResolvedValue(sampleRow);
+    startCrosspostExecution.mockResolvedValue({ started: true });
+
+    const res = await routes["POST /blogs/:blogId/crosspost"](ctx({ params: { blogId: "B1" }, body: { platforms: ["dev", "medium"] } }));
+
+    expect(res.statusCode).toBe(202);
+    const arg = startCrosspostExecution.mock.calls[0][0];
+    expect(arg).toMatchObject({ tenantId: SUB, blogId: "B1" });
+    expect(arg.runId).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect(arg.platforms).toEqual([{ platform: "dev", delaySeconds: 0 }, { platform: "medium", delaySeconds: 0 }]);
+    expect(JSON.parse(res.body).run_id).toBe(arg.runId);
+  });
+
+  test("staggers delays by stagger_days", async () => {
+    findBlog.mockResolvedValue(sampleRow);
+    startCrosspostExecution.mockResolvedValue({ started: true });
+
+    await routes["POST /blogs/:blogId/crosspost"](ctx({ params: { blogId: "B1" }, body: { platforms: ["dev", "medium", "hashnode"], stagger_days: 2 } }));
+
+    const arg = startCrosspostExecution.mock.calls[0][0];
+    expect(arg.platforms.map((p) => p.delaySeconds)).toEqual([0, 172800, 345600]); // 0, 2d, 4d
+  });
+
+  test("404s when the blog does not exist (no execution started)", async () => {
+    findBlog.mockResolvedValue(null);
+    await expect(routes["POST /blogs/:blogId/crosspost"](ctx({ params: { blogId: "X" }, body: { platforms: ["dev"] } }))).rejects.toThrow(/Blog X not found/);
+    expect(startCrosspostExecution).not.toHaveBeenCalled();
+  });
+
+  test("rejects an invalid request before starting", async () => {
+    findBlog.mockResolvedValue(sampleRow);
+    await expect(routes["POST /blogs/:blogId/crosspost"](ctx({ params: { blogId: "B1" }, body: { platforms: [] } }))).rejects.toThrow(/non-empty array/);
+    expect(startCrosspostExecution).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /blogs/:blogId/crosspost-status", () => {
+  test("returns the formatted run + per-platform status", async () => {
+    getCrosspostStatus.mockResolvedValue({
+      run: { runId: "R1", status: "in progress", platforms: ["dev"], startedAt: "t0" },
+      copies: [{ platform: "dev", status: "succeeded", url: "https://dev/x", id: 5 }],
+    });
+
+    const res = await routes["GET /blogs/:blogId/crosspost-status"](ctx({ params: { blogId: "B1" } }));
+
+    expect(getCrosspostStatus).toHaveBeenCalledWith(SUB, "B1", { runId: undefined });
+    const body = JSON.parse(res.body);
+    expect(body.run.run_id).toBe("R1");
+    expect(body.platforms[0]).toMatchObject({ platform: "dev", status: "succeeded", url: "https://dev/x" });
+  });
+
+  test("correlates to a specific run when run_id is given", async () => {
+    getCrosspostStatus.mockResolvedValue({ run: null, copies: [] });
+    await routes["GET /blogs/:blogId/crosspost-status"](ctx({ params: { blogId: "B1" }, query: { run_id: "R9" } }));
+    expect(getCrosspostStatus).toHaveBeenCalledWith(SUB, "B1", { runId: "R9" });
   });
 });
 

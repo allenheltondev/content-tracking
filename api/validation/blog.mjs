@@ -175,3 +175,71 @@ export function formatBlogSummary(row) {
   const { content_markdown, ...summary } = formatBlog(row);
   return summary;
 }
+
+const PLATFORMS = ["dev", "medium", "hashnode"];
+const STAGGER_DAYS_MAX = 30;
+// The last platform publishes at (platforms.length - 1) * stagger_days days.
+// That whole span must finish inside the CrosspostFunction's durable
+// ExecutionTimeout (30 days in template.yaml); cap the span below it with
+// headroom so an accepted schedule can't time out before the last publish.
+const MAX_TOTAL_STAGGER_DAYS = 28;
+
+// Validates POST /blogs/{id}/crosspost. Returns { platforms, staggerDays }.
+// staggerDays (optional) spaces the platforms apart; absent = all immediate.
+export function validateCrosspostRequest(body) {
+  requireObject(body);
+
+  const { platforms, stagger_days } = body;
+  if (!Array.isArray(platforms) || platforms.length === 0) {
+    throw new BadRequestError("platforms must be a non-empty array");
+  }
+  const seen = new Set();
+  for (const p of platforms) {
+    if (!PLATFORMS.includes(p)) {
+      throw new BadRequestError(`platforms must be a subset of ${PLATFORMS.join(", ")}`);
+    }
+    if (seen.has(p)) {
+      throw new BadRequestError(`duplicate platform "${p}"`);
+    }
+    seen.add(p);
+  }
+
+  const out = { platforms };
+  if (stagger_days !== undefined && stagger_days !== null) {
+    if (!Number.isInteger(stagger_days) || stagger_days < 1 || stagger_days > STAGGER_DAYS_MAX) {
+      throw new BadRequestError(`stagger_days must be an integer between 1 and ${STAGGER_DAYS_MAX}`);
+    }
+    const spanDays = (platforms.length - 1) * stagger_days;
+    if (spanDays > MAX_TOTAL_STAGGER_DAYS) {
+      throw new BadRequestError(
+        `a staggered schedule spanning ${spanDays} days exceeds the ${MAX_TOTAL_STAGGER_DAYS}-day limit; reduce stagger_days or the number of platforms`,
+      );
+    }
+    out.staggerDays = stagger_days;
+  }
+  return out;
+}
+
+// Shapes the cross-post status response: the latest run + per-platform copies.
+export function formatCrosspostStatus({ run, copies }) {
+  return {
+    run: run
+      ? {
+        run_id: run.runId,
+        status: run.status,
+        platforms: run.platforms ?? [],
+        started_at: run.startedAt ?? null,
+        completed_at: run.completedAt ?? null,
+      }
+      : null,
+    platforms: (copies ?? []).map((c) => ({
+      platform: c.platform,
+      status: c.status,
+      url: c.url ?? null,
+      id: c.id ?? null,
+      scheduled_for: c.scheduledFor ?? null,
+      published_at: c.publishedAt ?? null,
+      error: c.error ?? null,
+    })),
+  };
+}

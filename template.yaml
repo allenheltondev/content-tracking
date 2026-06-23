@@ -406,6 +406,12 @@ Resources:
       # calls are the heaviest paths.
       MemorySize: 1024
       Timeout: 30
+      Environment:
+        Variables:
+          # Qualified alias ARN of the cross-post durable function. The
+          # blog cross-post trigger starts an execution by async-invoking
+          # this. Merged with the shared Globals env.
+          CROSSPOST_FUNCTION_ARN: !Ref CrosspostFunction.Alias
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: 2012-10-17
@@ -500,6 +506,14 @@ Resources:
               Resource:
                 - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
                 - !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/*"
+            # Start cross-post durable executions by async-invoking the
+            # crosspost function alias. The :* qualifier covers the alias.
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !GetAtt CrosspostFunction.Arn
+                - !Sub "${CrosspostFunction.Arn}:*"
       Events:
         ProxyAny:
           Type: Api
