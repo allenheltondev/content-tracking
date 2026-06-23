@@ -552,6 +552,47 @@ Resources:
               Resource:
                 - !GetAtt ContentTrackingTable.Arn
 
+  # ---------------------------------------------------------------------
+  # Durable functions
+  #
+  # Blog cross-post and weekly analytics are multi-step, stateful, and
+  # long-running (the cross-post stagger spans days), so they run as
+  # Lambda durable functions rather than Step Functions — orchestration
+  # stays co-located with the business logic in Node.
+  #
+  # This is the foundation spike: a hello-world durable function that
+  # proves the build/deploy/replay path. The real crosspost and
+  # weekly-analytics functions follow the same wiring:
+  #   - DurableConfig enables durable execution (set at create only).
+  #   - AWSLambdaBasicDurableExecutionRolePolicy grants the checkpoint
+  #     permissions (lambda:CheckpointDurableExecution,
+  #     lambda:GetDurableExecutionState).
+  #   - AutoPublishAlias publishes a version + alias so callers invoke a
+  #     qualified ARN (durable functions reject $LATEST for determinism).
+  # ---------------------------------------------------------------------
+  HelloDurableFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - index.mjs
+    Properties:
+      CodeUri: functions/hello-durable
+      Handler: index.handler
+      MemorySize: 512
+      Timeout: 30
+      DurableConfig:
+        # 1 hour is plenty for the spike. The real cross-post function
+        # raises this to cover multi-day staggered publishes.
+        ExecutionTimeout: 3600
+        RetentionPeriodInDays: 7
+      AutoPublishAlias: live
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicDurableExecutionRolePolicy
+
   # Static hosting for the dashboard UI. Bucket is private; only the
   # CloudFront distribution (via OAC) can read it. SPA routing is
   # handled by rewriting 403/404 to /index.html so deep links survive a
@@ -1019,6 +1060,14 @@ Outputs:
   ContentTrackingTableName:
     Description: DynamoDB single-table for Booked
     Value: !Ref ContentTrackingTable
+
+  HelloDurableFunctionAliasArn:
+    Description: |
+      Qualified ARN (alias) of the foundation durable function. Durable
+      functions must be invoked via a qualified ARN, never $LATEST. The
+      real crosspost/weekly-analytics functions will surface their own
+      alias ARNs the same way.
+    Value: !Ref HelloDurableFunction.Alias
 
   ContentTrackingApiBaseUrl:
     Description: |
