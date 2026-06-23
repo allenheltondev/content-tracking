@@ -17,6 +17,9 @@ const {
   crosspostRunKey,
   viewSnapshotKey,
   campaignRefKey,
+  startCrosspostRun,
+  recordCrosspostResult,
+  completeCrosspostRun,
 } = await import("../domain/blog.mjs");
 
 // Pulls the typed command (TransactWrite / BatchWrite / etc.) out of a
@@ -305,6 +308,62 @@ describe("domain/blog", () => {
         expect(await listBlogsForCampaign(TENANT, "camp-A")).toEqual([]);
         expect(mockSend).toHaveBeenCalledTimes(1);
       });
+    });
+  });
+
+  describe("cross-post writers", () => {
+    test("startCrosspostRun seeds the run + pending/scheduled copies", async () => {
+      mockSend.mockResolvedValue({});
+      await startCrosspostRun(TENANT, "B1", {
+        runId: "R1",
+        platforms: [{ platform: "dev", delaySeconds: 0 }, { platform: "medium", delaySeconds: 259200 }],
+      });
+
+      const puts = callInput(mockSend, 0).RequestItems["test-booked"].map((r) => r.PutRequest.Item);
+      const run = puts.find((i) => i.entity === "BlogCrosspostRun");
+      expect(run).toMatchObject({ sk: "BLOG#B1#RUN#R1", status: "in progress", platforms: ["dev", "medium"] });
+      const dev = puts.find((i) => i.sk === "BLOG#B1#CROSSPOST#dev");
+      const medium = puts.find((i) => i.sk === "BLOG#B1#CROSSPOST#medium");
+      expect(dev.status).toBe("pending");
+      expect(medium.status).toBe("scheduled");
+      expect(medium.scheduledFor).toBeDefined();
+    });
+
+    test("recordCrosspostResult success updates the copy and mirrors onto the blog root", async () => {
+      mockSend.mockResolvedValue({});
+      await recordCrosspostResult(TENANT, "B1", "dev", { runId: "R1", status: "succeeded", url: "https://dev/x", id: 99 });
+
+      const tx = callInput(mockSend, 0).TransactItems;
+      const copy = tx.find((i) => i.Update.Key.sk === "BLOG#B1#CROSSPOST#dev").Update;
+      expect(copy.ExpressionAttributeValues[":status"]).toBe("succeeded");
+      expect(copy.ExpressionAttributeValues[":url"]).toBe("https://dev/x");
+      expect(copy.UpdateExpression).toMatch(/REMOVE #error/);
+
+      const root = tx.find((i) => i.Update.Key.sk === "BLOG#B1").Update;
+      expect(root.ExpressionAttributeNames["#p"]).toBe("dev");
+      expect(root.UpdateExpression).toMatch(/#links\.#p = :url/);
+      expect(root.UpdateExpression).toMatch(/#ids\.#p = :id/);
+    });
+
+    test("recordCrosspostResult failure marks the copy failed (no root write)", async () => {
+      mockSend.mockResolvedValue({});
+      await recordCrosspostResult(TENANT, "B1", "medium", { runId: "R1", status: "failed", error: "401" });
+
+      const input = callInput(mockSend, 0);
+      expect(input.Key.sk).toBe("BLOG#B1#CROSSPOST#medium");
+      expect(input.ExpressionAttributeValues[":status"]).toBe("failed");
+      expect(input.ExpressionAttributeValues[":error"]).toBe("401");
+      expect(input.TransactItems).toBeUndefined();
+    });
+
+    test("completeCrosspostRun sets the run status + completedAt", async () => {
+      mockSend.mockResolvedValue({});
+      await completeCrosspostRun(TENANT, "B1", "R1", "succeeded");
+
+      const input = callInput(mockSend, 0);
+      expect(input.Key.sk).toBe("BLOG#B1#RUN#R1");
+      expect(input.ExpressionAttributeValues[":status"]).toBe("succeeded");
+      expect(input.ExpressionAttributeValues[":now"]).toBeDefined();
     });
   });
 });
