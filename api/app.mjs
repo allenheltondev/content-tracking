@@ -17,7 +17,6 @@ import { registerProfileRoutes } from "./routes/profile.mjs";
 import { registerMediaKitRoutes } from "./routes/media-kit.mjs";
 import { registerMediaKitPublishRoutes } from "./routes/media-kit-publish.mjs";
 import { registerExtensionPairingRoutes } from "./routes/extension-pairings.mjs";
-import { registerTenantRoutes } from "./routes/tenant.mjs";
 import { logger } from "./services/logger.mjs";
 import { jsonResponse } from "./services/http-handler.mjs";
 import { ApiError } from "./services/errors.mjs";
@@ -42,7 +41,6 @@ registerProfileRoutes(app);
 registerMediaKitRoutes(app);
 registerMediaKitPublishRoutes(app);
 registerExtensionPairingRoutes(app);
-registerTenantRoutes(app);
 
 app.notFound(({ event }) => {
   const method = event.httpMethod || event?.requestContext?.http?.method;

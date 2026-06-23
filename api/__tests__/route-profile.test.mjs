@@ -27,6 +27,11 @@ jest.unstable_mockModule("../services/ga-secrets.mjs", () => ({
   writeCruxApiKey: jest.fn(),
   writeYoutubeApiKey: jest.fn(),
 }));
+jest.unstable_mockModule("../domain/tenant.mjs", () => ({
+  getTenant: jest.fn(async () => null),
+  upsertTenant: jest.fn(async () => ({})),
+  listTenants: jest.fn(),
+}));
 
 const {
   getProfileSettings,
@@ -36,6 +41,7 @@ const {
 const { unpublishMediaKit, removePublicMediaKitSeoFiles } = await import(
   "../services/public-media-kit-store.mjs"
 );
+const { getTenant, upsertTenant } = await import("../domain/tenant.mjs");
 const { registerProfileRoutes } = await import("../routes/profile.mjs");
 
 function buildRouteTable() {
@@ -122,5 +128,55 @@ describe("PUT /profile public_slug teardown", () => {
 
     expect(unpublishMediaKit).not.toHaveBeenCalled();
     expect(clearPublicMediaKitPublished).not.toHaveBeenCalled();
+  });
+});
+
+describe("blog settings via /profile", () => {
+  const routes = buildRouteTable();
+  const getProfile = routes["GET /profile"];
+  const putProfile = routes["PUT /profile"];
+
+  const cognito = (body) => ({
+    event: {
+      body: body === undefined ? undefined : JSON.stringify(body),
+      requestContext: { authorizer: { authSource: "cognito", sub: "user-1" } },
+    },
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getProfileSettings.mockResolvedValue({});
+    saveProfileSettings.mockResolvedValue({});
+    getTenant.mockResolvedValue(null);
+    upsertTenant.mockResolvedValue({});
+  });
+
+  test("GET includes a blog section keyed by the signed-in user (unconfigured by default)", async () => {
+    const res = await getProfile(cognito());
+    const body = JSON.parse(res.body);
+
+    expect(getTenant).toHaveBeenCalledWith("user-1");
+    expect(body.blog.configured).toBe(false);
+    expect(body.blog.platforms.hashnode).toEqual({ publication_id: null, blog_url: null });
+  });
+
+  test("PUT writes per-tenant blog config from the signed-in user", async () => {
+    await putProfile(cognito({ blog: { canonical_base_url: "https://x.io", platforms: { dev: { organization_id: 2491 } } } }));
+
+    expect(upsertTenant).toHaveBeenCalledWith("user-1", {
+      canonicalBaseUrl: "https://x.io",
+      platforms: { dev: { organizationId: "2491" } },
+    });
+  });
+
+  test("PUT does not touch tenant config when no blog section is present", async () => {
+    await putProfile(cognito({ tagline: "hi" }));
+    expect(upsertTenant).not.toHaveBeenCalled();
+  });
+
+  test("PUT rejects blog config without dashboard sign-in", async () => {
+    const noAuth = { event: { body: JSON.stringify({ blog: { admin_email: "a@b.co" } }) } };
+    await expect(putProfile(noAuth)).rejects.toThrow(/dashboard sign-in/);
+    expect(upsertTenant).not.toHaveBeenCalled();
   });
 });

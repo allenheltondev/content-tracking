@@ -28,6 +28,12 @@ import {
   writeGa4ServiceAccount,
   writeYoutubeApiKey,
 } from "../services/ga-secrets.mjs";
+import { getTenant, upsertTenant } from "../domain/tenant.mjs";
+import { requireTenantId } from "../services/identity.mjs";
+import {
+  validateTenantConfig as validateBlogSettings,
+  formatTenant as formatBlogSettings,
+} from "../validation/tenant.mjs";
 
 // The single SETTINGS/PROFILE row carries two concerns: integration
 // settings (GA4 + CrUX, secrets in SSM) and the creator profile that the
@@ -40,8 +46,8 @@ import {
 const ASSET_PREVIEW_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 export function registerProfileRoutes(app) {
-  app.get("/profile", async () => {
-    return jsonResponse(200, await buildProfileView());
+  app.get("/profile", async ({ event }) => {
+    return jsonResponse(200, await buildProfileView({ event }));
   });
 
   app.put("/profile", async ({ event }) => {
@@ -81,6 +87,15 @@ export function registerProfileRoutes(app) {
       await saveProfileSettings(nonSecret);
     }
 
+    // Blog publishing settings (publication targets, canonical base URL,
+    // admin email) are per-tenant — keyed by the signed-in user — so they
+    // live in the tenant config row rather than the shared SETTINGS row.
+    // Surfaced here under `blog` instead of a separate /tenant resource.
+    if (body.blog !== undefined) {
+      const tenantId = requireTenantId(event);
+      await upsertTenant(tenantId, validateBlogSettings(body.blog));
+    }
+
     // A public_slug change orphans the previously-published page: the old S3
     // object stays live under the old slug while GET /media-kit/publish would
     // derive a URL from the NEW slug + the stale timestamp and wrongly report
@@ -105,7 +120,7 @@ export function registerProfileRoutes(app) {
 
     // forceFetch so the response reflects the just-written secrets rather
     // than Powertools' 5-minute cache.
-    return jsonResponse(200, await buildProfileView({ forceFetch: true }));
+    return jsonResponse(200, await buildProfileView({ forceFetch: true, event }));
   });
 
   // Mint a presigned S3 PUT for an avatar or logo. The dashboard uploads the
@@ -118,12 +133,17 @@ export function registerProfileRoutes(app) {
   });
 }
 
-async function buildProfileView({ forceFetch = false } = {}) {
-  const [settings, serviceAccount, cruxKey, youtubeKey] = await Promise.all([
+async function buildProfileView({ forceFetch = false, event } = {}) {
+  // Blog settings are per-tenant; read them by the signed-in user's sub.
+  // Read leniently (skip when there's no cognito sub) so the rest of the
+  // profile view still renders.
+  const tenantId = event?.requestContext?.authorizer?.sub;
+  const [settings, serviceAccount, cruxKey, youtubeKey, blogConfig] = await Promise.all([
     getProfileSettings(),
     readGa4ServiceAccount({ forceFetch }),
     readCruxApiKey({ forceFetch }),
     readYoutubeApiKey({ forceFetch }),
+    tenantId ? getTenant(tenantId) : Promise.resolve(null),
   ]);
 
   const s = settings ?? {};
@@ -176,6 +196,9 @@ async function buildProfileView({ forceFetch = false } = {}) {
     youtube: {
       configured: Boolean(youtubeKey),
     },
+    // Per-tenant blog publishing config (publication targets, canonical
+    // base URL, admin email). configured=false until the user saves it.
+    blog: formatBlogSettings(blogConfig),
     updated_at: s.updatedAt ?? null,
   };
 }
