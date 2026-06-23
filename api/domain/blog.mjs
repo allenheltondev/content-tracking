@@ -382,8 +382,30 @@ export async function deleteBlogRoot(tenantId, blogId) {
 // Marks a cross-post run in progress and seeds a per-platform copy row so
 // the status endpoint can show "pending"/"scheduled" before publishing.
 // `platforms` is [{ platform, delaySeconds }].
+//
+// Re-trigger dedup: a platform whose copy already `succeeded` (from an
+// earlier run) is NOT reset — its copy is left intact and it's returned in
+// `alreadySucceeded` so the durable function skips republishing it. Returns
+// { alreadySucceeded: { <platform>: { url, id, slug } } }.
 export async function startCrosspostRun(tenantId, blogId, { runId, platforms }) {
   const now = new Date().toISOString();
+
+  const existing = await ddb.send(new QueryCommand({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+    ExpressionAttributeValues: {
+      ":pk": tenantPartition(tenantId),
+      ":prefix": `BLOG#${blogId}#CROSSPOST#`,
+    },
+  }));
+
+  const alreadySucceeded = {};
+  for (const copy of existing.Items ?? []) {
+    if (copy.status === "succeeded") {
+      alreadySucceeded[copy.platform] = { url: copy.url, id: copy.id, slug: copy.slug };
+    }
+  }
+
   const run = {
     ...crosspostRunKey(tenantId, blogId, runId),
     entity: "BlogCrosspostRun",
@@ -395,19 +417,23 @@ export async function startCrosspostRun(tenantId, blogId, { runId, platforms }) 
     startedAt: now,
   };
 
-  const copies = platforms.map((p) => {
-    const scheduled = p.delaySeconds > 0;
-    return {
-      ...crosspostCopyKey(tenantId, blogId, p.platform),
-      entity: "BlogCrosspost",
-      tenantId,
-      blogId,
-      platform: p.platform,
-      status: scheduled ? "scheduled" : "pending",
-      runId,
-      ...(scheduled ? { scheduledFor: new Date(Date.now() + p.delaySeconds * 1000).toISOString() } : {}),
-    };
-  });
+  // Seed copies only for platforms not already succeeded, so a re-trigger
+  // never resets a good copy back to pending.
+  const copies = platforms
+    .filter((p) => !alreadySucceeded[p.platform])
+    .map((p) => {
+      const scheduled = p.delaySeconds > 0;
+      return {
+        ...crosspostCopyKey(tenantId, blogId, p.platform),
+        entity: "BlogCrosspost",
+        tenantId,
+        blogId,
+        platform: p.platform,
+        status: scheduled ? "scheduled" : "pending",
+        runId,
+        ...(scheduled ? { scheduledFor: new Date(Date.now() + p.delaySeconds * 1000).toISOString() } : {}),
+      };
+    });
 
   const items = [run, ...copies];
   for (let i = 0; i < items.length; i += 25) {
@@ -417,7 +443,7 @@ export async function startCrosspostRun(tenantId, blogId, { runId, platforms }) 
     }));
   }
 
-  return { run, copies };
+  return { alreadySucceeded };
 }
 
 // Records the outcome of one platform publish. On success it updates the
