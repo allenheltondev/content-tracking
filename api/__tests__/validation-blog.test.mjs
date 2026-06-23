@@ -134,6 +134,21 @@ describe("validation/blog", () => {
       expect(() => validateCrosspostRequest({ platforms: ["dev"], stagger_days: 31 })).toThrow(/between 1 and 30/);
       expect(() => validateCrosspostRequest({ platforms: ["dev"], stagger_days: 1.5 })).toThrow(/between 1 and 30/);
     });
+
+    test("rejects a total span beyond the durable timeout", () => {
+      // 3 platforms * 30 days apart => 60-day span, past the 30-day timeout.
+      expect(() => validateCrosspostRequest({ platforms: ["dev", "medium", "hashnode"], stagger_days: 30 })).toThrow(/exceeds the 28-day limit/);
+      // 2 platforms * 30 => 30-day span, still over 28.
+      expect(() => validateCrosspostRequest({ platforms: ["dev", "medium"], stagger_days: 30 })).toThrow(/exceeds the 28-day limit/);
+    });
+
+    test("accepts a span within the limit", () => {
+      // 3 platforms * 14 => 28-day span, exactly at the limit.
+      expect(validateCrosspostRequest({ platforms: ["dev", "medium", "hashnode"], stagger_days: 14 })).toEqual({
+        platforms: ["dev", "medium", "hashnode"],
+        staggerDays: 14,
+      });
+    });
   });
 
   describe("formatCrosspostStatus", () => {

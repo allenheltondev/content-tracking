@@ -111,7 +111,10 @@ export function registerBlogRoutes(app) {
 
   app.get("/blogs/:blogId/crosspost-status", async ({ event, params }) => {
     const tenantId = requireTenantId(event);
-    const status = await getCrosspostStatus(tenantId, params.blogId);
+    // Pass ?run_id=… to correlate the poll to a specific (just-started) run
+    // rather than whatever the latest persisted run happens to be.
+    const runId = event.queryStringParameters?.run_id;
+    const status = await getCrosspostStatus(tenantId, params.blogId, { runId });
     return jsonResponse(200, formatCrosspostStatus(status));
   });
 }

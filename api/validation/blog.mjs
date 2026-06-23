@@ -178,6 +178,11 @@ export function formatBlogSummary(row) {
 
 const PLATFORMS = ["dev", "medium", "hashnode"];
 const STAGGER_DAYS_MAX = 30;
+// The last platform publishes at (platforms.length - 1) * stagger_days days.
+// That whole span must finish inside the CrosspostFunction's durable
+// ExecutionTimeout (30 days in template.yaml); cap the span below it with
+// headroom so an accepted schedule can't time out before the last publish.
+const MAX_TOTAL_STAGGER_DAYS = 28;
 
 // Validates POST /blogs/{id}/crosspost. Returns { platforms, staggerDays }.
 // staggerDays (optional) spaces the platforms apart; absent = all immediate.
@@ -203,6 +208,12 @@ export function validateCrosspostRequest(body) {
   if (stagger_days !== undefined && stagger_days !== null) {
     if (!Number.isInteger(stagger_days) || stagger_days < 1 || stagger_days > STAGGER_DAYS_MAX) {
       throw new BadRequestError(`stagger_days must be an integer between 1 and ${STAGGER_DAYS_MAX}`);
+    }
+    const spanDays = (platforms.length - 1) * stagger_days;
+    if (spanDays > MAX_TOTAL_STAGGER_DAYS) {
+      throw new BadRequestError(
+        `a staggered schedule spanning ${spanDays} days exceeds the ${MAX_TOTAL_STAGGER_DAYS}-day limit; reduce stagger_days or the number of platforms`,
+      );
     }
     out.staggerDays = stagger_days;
   }

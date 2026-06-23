@@ -381,5 +381,21 @@ describe("domain/blog", () => {
       expect(runInput.Limit).toBe(1);
       expect(status).toEqual({ copies: [{ platform: "dev", status: "succeeded" }], run: { runId: "R1", status: "succeeded" } });
     });
+
+    test("getCrosspostStatus by runId reads that run and filters copies to it", async () => {
+      mockSend
+        .mockResolvedValueOnce({ Items: [
+          { platform: "dev", status: "succeeded", runId: "R2" },
+          { platform: "medium", status: "succeeded", runId: "R1" }, // stale, previous run
+        ] }) // copies query
+        .mockResolvedValueOnce({ Item: { runId: "R2", status: "in progress" } }); // GetItem by runId
+
+      const status = await getCrosspostStatus(TENANT, "B1", { runId: "R2" });
+
+      // run fetched by exact key, not the latest-run query
+      expect(callInput(mockSend, 1).Key.sk).toBe("BLOG#B1#RUN#R2");
+      expect(status.run).toEqual({ runId: "R2", status: "in progress" });
+      expect(status.copies).toEqual([{ platform: "dev", status: "succeeded", runId: "R2" }]);
+    });
   });
 });

@@ -193,10 +193,16 @@ describe("GET /blogs/:blogId/crosspost-status", () => {
 
     const res = await routes["GET /blogs/:blogId/crosspost-status"](ctx({ params: { blogId: "B1" } }));
 
-    expect(getCrosspostStatus).toHaveBeenCalledWith(SUB, "B1");
+    expect(getCrosspostStatus).toHaveBeenCalledWith(SUB, "B1", { runId: undefined });
     const body = JSON.parse(res.body);
     expect(body.run.run_id).toBe("R1");
     expect(body.platforms[0]).toMatchObject({ platform: "dev", status: "succeeded", url: "https://dev/x" });
+  });
+
+  test("correlates to a specific run when run_id is given", async () => {
+    getCrosspostStatus.mockResolvedValue({ run: null, copies: [] });
+    await routes["GET /blogs/:blogId/crosspost-status"](ctx({ params: { blogId: "B1" }, query: { run_id: "R9" } }));
+    expect(getCrosspostStatus).toHaveBeenCalledWith(SUB, "B1", { runId: "R9" });
   });
 });
 
