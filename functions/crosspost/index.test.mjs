@@ -113,3 +113,16 @@ test("a failing platform is recorded failed and the run is failed, without abort
   expect(completeCrosspostRun).toHaveBeenCalledWith(TENANT, "B1", "R1", "failed");
   expect(result.status).toBe("failed");
 });
+
+test("a record-step failure propagates (not swallowed) so the run is not finalized", async () => {
+  // Publish succeeded, but persisting the result fails — this must NOT be
+  // converted to a normal failed outcome, or the copy/root state would be
+  // left out of sync with the published post. It propagates for durable retry.
+  getAdapter.mockImplementation(() => ({ publish: jest.fn(async () => ({ id: "x", url: "https://dev/x" })) }));
+  recordCrosspostResult.mockRejectedValueOnce(new Error("DynamoDB throttled"));
+
+  const event = { tenantId: TENANT, blogId: "B1", runId: "R1", platforms: [{ platform: "dev", delaySeconds: 0 }] };
+
+  await expect(handler(event, makeContext([]))).rejects.toThrow(/throttled/);
+  expect(completeCrosspostRun).not.toHaveBeenCalled();
+});

@@ -50,42 +50,44 @@ export const handler = withDurableExecution(async (event, context) => {
   const baseUrl = loaded.tenant?.canonicalBaseUrl;
 
   const batch = await context.map("publish-platforms", platforms, async (branchContext, p) => {
-    try {
-      if (p.delaySeconds > 0) {
-        await branchContext.wait({ seconds: p.delaySeconds });
-      }
-
-      const transformed = await branchContext.step(`transform:${p.platform}`, async () =>
-        transformBlogForPlatform({ blog: loaded.blog, catalog: loaded.catalog, platform: p.platform, baseUrl }));
-
-      // The publish step never throws: it returns a succeeded/failed
-      // outcome so the per-platform result is always checkpointed cleanly
-      // and one platform's failure can't abort the others.
-      const outcome = await branchContext.step(`publish:${p.platform}`, async () => {
-        try {
-          const config = loaded.tenant?.platforms?.[p.platform] ?? {};
-          const credentials = await getBlogCredentials(tenantId);
-          const published = await getAdapter(p.platform).publish({
-            blog: loaded.blog,
-            content: transformed.body,
-            tags: transformed.tags,
-            config,
-            credential: credentials?.[p.platform],
-          });
-          return { status: "succeeded", url: published.url, id: published.id, slug: published.slug };
-        } catch (err) {
-          return { status: "failed", error: errorMessage(err) };
-        }
-      });
-
-      await branchContext.step(`record:${p.platform}`, async () => {
-        await recordCrosspostResult(tenantId, blogId, p.platform, { runId, ...outcome });
-      });
-
-      return { platform: p.platform, ...outcome };
-    } catch (err) {
-      return { platform: p.platform, status: "failed", error: errorMessage(err) };
+    if (p.delaySeconds > 0) {
+      await branchContext.wait({ seconds: p.delaySeconds });
     }
+
+    const transformed = await branchContext.step(`transform:${p.platform}`, async () =>
+      transformBlogForPlatform({ blog: loaded.blog, catalog: loaded.catalog, platform: p.platform, baseUrl }));
+
+    // Only the publish step swallows its error — a platform's API rejecting
+    // the post is an expected, per-platform outcome that must not abort the
+    // others, so it is captured as a "failed" outcome and recorded.
+    const outcome = await branchContext.step(`publish:${p.platform}`, async () => {
+      try {
+        const config = loaded.tenant?.platforms?.[p.platform] ?? {};
+        const credentials = await getBlogCredentials(tenantId);
+        const published = await getAdapter(p.platform).publish({
+          blog: loaded.blog,
+          content: transformed.body,
+          tags: transformed.tags,
+          config,
+          credential: credentials?.[p.platform],
+        });
+        return { status: "succeeded", url: published.url, id: published.id, slug: published.slug };
+      } catch (err) {
+        return { status: "failed", error: errorMessage(err) };
+      }
+    });
+
+    // The record step is intentionally NOT wrapped: if it throws (e.g.
+    // DynamoDB throttling) after the post already published, swallowing it
+    // would leave the copy/root state out of sync with reality. Letting it
+    // propagate lets the durable runtime retry the record step (the publish
+    // step replays from its checkpoint, so the post is not re-published),
+    // and surfaces a terminal failure instead of hiding it.
+    await branchContext.step(`record:${p.platform}`, async () => {
+      await recordCrosspostResult(tenantId, blogId, p.platform, { runId, ...outcome });
+    });
+
+    return { platform: p.platform, ...outcome };
   });
 
   const results = batch.getResults();
