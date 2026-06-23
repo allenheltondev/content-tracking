@@ -29,6 +29,7 @@ test("async-invokes the crosspost alias with the JSON payload", async () => {
   expect(cmd).toBeInstanceOf(InvokeCommand);
   expect(cmd.input.FunctionName).toBe("arn:aws:lambda:us-east-1:123:function:crosspost:live");
   expect(cmd.input.InvocationType).toBe("Event");
+  expect(cmd.input.DurableExecutionName).toBe("R1"); // idempotency key = runId
   expect(JSON.parse(Buffer.from(cmd.input.Payload).toString())).toEqual(payload);
 });
 

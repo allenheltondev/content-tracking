@@ -19,6 +19,10 @@ export async function startCrosspostExecution(payload) {
   const response = await lambda.send(new InvokeCommand({
     FunctionName: CROSSPOST_FUNCTION_ARN,
     InvocationType: "Event", // async: queue + return, durable execution runs on its own
+    // The runId is the durable execution name (idempotency key). Async
+    // invokes are at-least-once, so a duplicate delivery of the same event
+    // resolves to the same execution instead of starting a second run.
+    DurableExecutionName: payload.runId,
     Payload: Buffer.from(JSON.stringify(payload)),
   }));
 

@@ -85,8 +85,10 @@ export function registerBlogRoutes(app) {
 
   // On-demand cross-post: validate, generate a runId, and start the durable
   // execution (async). Returns immediately; the client polls the status
-  // route below.
-  app.post("/blogs/:blogId/crosspost", async ({ event, params }) => {
+  // route below. Wrapped in withIdempotency so a client retry with the same
+  // Idempotency-Key returns the original runId instead of starting a second
+  // run (the durable execution name + per-platform guard dedupe the rest).
+  app.post("/blogs/:blogId/crosspost", withIdempotency(async ({ event, params }) => {
     const tenantId = requireTenantId(event);
     const blog = await findBlog(tenantId, params.blogId);
     if (!blog) {
@@ -107,7 +109,7 @@ export function registerBlogRoutes(app) {
       status: "in progress",
       platforms: withDelays.map((p) => ({ platform: p.platform, delay_seconds: p.delaySeconds })),
     });
-  });
+  }));
 
   app.get("/blogs/:blogId/crosspost-status", async ({ event, params }) => {
     const tenantId = requireTenantId(event);

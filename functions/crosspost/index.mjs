@@ -43,13 +43,21 @@ export const handler = withDurableExecution(async (event, context) => {
     return { blog, tenant, catalog };
   });
 
-  await context.step("start-run", async () => {
-    await startCrosspostRun(tenantId, blogId, { runId, platforms });
-  });
+  // start-run seeds the run + copy rows and tells us which platforms are
+  // already succeeded from a prior run (so a re-trigger doesn't republish).
+  const startState = await context.step("start-run", async () =>
+    startCrosspostRun(tenantId, blogId, { runId, platforms }));
+  const alreadySucceeded = startState?.alreadySucceeded ?? {};
 
   const baseUrl = loaded.tenant?.canonicalBaseUrl;
 
   const batch = await context.map("publish-platforms", platforms, async (branchContext, p) => {
+    // Skip a platform that already published successfully in an earlier run.
+    const done = alreadySucceeded[p.platform];
+    if (done) {
+      return { platform: p.platform, status: "succeeded", url: done.url, id: done.id, slug: done.slug, skipped: true };
+    }
+
     if (p.delaySeconds > 0) {
       await branchContext.wait({ seconds: p.delaySeconds });
     }

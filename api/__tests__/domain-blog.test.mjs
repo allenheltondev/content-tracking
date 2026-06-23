@@ -314,13 +314,15 @@ describe("domain/blog", () => {
 
   describe("cross-post writers", () => {
     test("startCrosspostRun seeds the run + pending/scheduled copies", async () => {
-      mockSend.mockResolvedValue({});
-      await startCrosspostRun(TENANT, "B1", {
+      mockSend
+        .mockResolvedValueOnce({ Items: [] }) // existing-copies query (none)
+        .mockResolvedValue({}); // batch write
+      const result = await startCrosspostRun(TENANT, "B1", {
         runId: "R1",
         platforms: [{ platform: "dev", delaySeconds: 0 }, { platform: "medium", delaySeconds: 259200 }],
       });
 
-      const puts = callInput(mockSend, 0).RequestItems["test-booked"].map((r) => r.PutRequest.Item);
+      const puts = callInput(mockSend, 1).RequestItems["test-booked"].map((r) => r.PutRequest.Item);
       const run = puts.find((i) => i.entity === "BlogCrosspostRun");
       expect(run).toMatchObject({ sk: "BLOG#B1#RUN#R1", status: "in progress", platforms: ["dev", "medium"] });
       const dev = puts.find((i) => i.sk === "BLOG#B1#CROSSPOST#dev");
@@ -328,6 +330,26 @@ describe("domain/blog", () => {
       expect(dev.status).toBe("pending");
       expect(medium.status).toBe("scheduled");
       expect(medium.scheduledFor).toBeDefined();
+      expect(result.alreadySucceeded).toEqual({});
+    });
+
+    test("startCrosspostRun preserves an already-succeeded copy (re-trigger dedup)", async () => {
+      mockSend
+        .mockResolvedValueOnce({ Items: [
+          { platform: "dev", status: "succeeded", url: "https://dev/x", id: 7 },
+          { platform: "medium", status: "failed" },
+        ] }) // existing copies
+        .mockResolvedValue({}); // batch write
+      const result = await startCrosspostRun(TENANT, "B1", {
+        runId: "R2",
+        platforms: [{ platform: "dev", delaySeconds: 0 }, { platform: "medium", delaySeconds: 0 }],
+      });
+
+      // dev is preserved + returned for skipping; only medium is re-seeded.
+      expect(result.alreadySucceeded).toEqual({ dev: { url: "https://dev/x", id: 7, slug: undefined } });
+      const puts = callInput(mockSend, 1).RequestItems["test-booked"].map((r) => r.PutRequest.Item);
+      expect(puts.find((i) => i.sk === "BLOG#B1#CROSSPOST#dev")).toBeUndefined();
+      expect(puts.find((i) => i.sk === "BLOG#B1#CROSSPOST#medium")).toBeDefined();
     });
 
     test("recordCrosspostResult success updates the copy and mirrors onto the blog root", async () => {

@@ -64,7 +64,7 @@ beforeEach(() => {
   listBlogsByTenant.mockResolvedValue({ items: [blog] });
   getBlogCredentials.mockResolvedValue({ dev: "dk", medium: "mk" });
   transformBlogForPlatform.mockReturnValue({ body: "TBODY", tags: ["t"] });
-  startCrosspostRun.mockResolvedValue({});
+  startCrosspostRun.mockResolvedValue({ alreadySucceeded: {} });
   recordCrosspostResult.mockResolvedValue({});
   completeCrosspostRun.mockResolvedValue({});
 });
@@ -112,6 +112,23 @@ test("a failing platform is recorded failed and the run is failed, without abort
   expect(recordCrosspostResult).toHaveBeenCalledWith(TENANT, "B1", "medium", expect.objectContaining({ status: "failed", error: expect.stringContaining("401") }));
   expect(completeCrosspostRun).toHaveBeenCalledWith(TENANT, "B1", "R1", "failed");
   expect(result.status).toBe("failed");
+});
+
+test("skips a platform that already succeeded in a prior run (no republish)", async () => {
+  startCrosspostRun.mockResolvedValue({ alreadySucceeded: { dev: { url: "https://dev/old", id: "dev-old" } } });
+  const publish = jest.fn(async () => ({ id: "medium-id", url: "https://medium/x" }));
+  getAdapter.mockImplementation(() => ({ publish }));
+
+  const event = { tenantId: TENANT, blogId: "B1", runId: "R2", platforms: [{ platform: "dev", delaySeconds: 0 }, { platform: "medium", delaySeconds: 0 }] };
+  const result = await handler(event, makeContext([]));
+
+  // dev was skipped: no transform/publish/record for it.
+  expect(transformBlogForPlatform).not.toHaveBeenCalledWith(expect.objectContaining({ platform: "dev" }));
+  expect(recordCrosspostResult).not.toHaveBeenCalledWith(TENANT, "B1", "dev", expect.anything());
+  // medium still published.
+  expect(recordCrosspostResult).toHaveBeenCalledWith(TENANT, "B1", "medium", expect.objectContaining({ status: "succeeded" }));
+  expect(result.status).toBe("succeeded");
+  expect(result.results).toContainEqual(expect.objectContaining({ platform: "dev", status: "succeeded", skipped: true }));
 });
 
 test("a record-step failure propagates (not swallowed) so the run is not finalized", async () => {
