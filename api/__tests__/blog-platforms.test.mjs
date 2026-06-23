@@ -1,7 +1,7 @@
 import { jest } from "@jest/globals";
-import { publish as publishDevto } from "../services/blog-platforms/devto.mjs";
-import { publish as publishMedium } from "../services/blog-platforms/medium.mjs";
-import { publish as publishHashnode } from "../services/blog-platforms/hashnode.mjs";
+import { publish as publishDevto, getViews as getViewsDevto } from "../services/blog-platforms/devto.mjs";
+import { publish as publishMedium, getViews as getViewsMedium } from "../services/blog-platforms/medium.mjs";
+import { publish as publishHashnode, getViews as getViewsHashnode } from "../services/blog-platforms/hashnode.mjs";
 import { getAdapter, adapters } from "../services/blog-platforms/index.mjs";
 
 function mockFetch({ ok = true, status = 200, body = {} }) {
@@ -10,6 +10,16 @@ function mockFetch({ ok = true, status = 200, body = {} }) {
     status,
     text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
   }));
+}
+
+// Returns each response in order, repeating the last (for pagination).
+function mockFetchSeq(responses) {
+  let i = 0;
+  globalThis.fetch = jest.fn(async () => {
+    const r = responses[Math.min(i, responses.length - 1)];
+    i += 1;
+    return { ok: r.ok ?? true, status: r.status ?? 200, text: async () => (typeof r.body === "string" ? r.body : JSON.stringify(r.body)) };
+  });
 }
 
 function sentBody() {
@@ -136,6 +146,49 @@ describe("blog-platforms/hashnode", () => {
   test("throws on GraphQL errors even with a 200 response", async () => {
     mockFetch({ ok: true, status: 200, body: { errors: [{ message: "publication not found" }] } });
     await expect(publishHashnode({ blog, content: "B", tags: [], config: { publicationId: "PUB" }, credential: "hn" })).rejects.toThrow(/Hashnode publish failed/);
+  });
+});
+
+describe("getViews", () => {
+  test("dev sums historical daily page views", async () => {
+    mockFetch({ body: { "2026-01-01": { page_views: { total: 10 } }, "2026-01-02": { page_views: { total: 5 } } } });
+    const views = await getViewsDevto({ id: "123", credential: "k" });
+    expect(views).toBe(15);
+    const [url, init] = globalThis.fetch.mock.calls[0];
+    expect(url).toContain("article_id=123");
+    expect(init.headers["api-key"]).toBe("k");
+  });
+
+  test("dev returns 0 with no copy id", async () => {
+    expect(await getViewsDevto({ id: undefined, credential: "k" })).toBe(0);
+  });
+
+  test("medium reads totalStats via the session cookie", async () => {
+    mockFetch({ body: [{ data: { post: { totalStats: { views: 99 } } } }] });
+    const views = await getViewsMedium({ id: "p1", credential: "cookie-value" });
+    expect(views).toBe(99);
+    const [url, init] = globalThis.fetch.mock.calls[0];
+    expect(url).toBe("https://medium.com/_/graphql");
+    expect(init.headers.cookie).toBe("cookie-value");
+    expect(JSON.parse(init.body)[0].variables.postId).toBe("p1");
+  });
+
+  test("medium surfaces a 429 as retryable (upstreamStatus 429)", async () => {
+    mockFetch({ ok: false, status: 429, body: "rate limited" });
+    await expect(getViewsMedium({ id: "p1", credential: "c" })).rejects.toMatchObject({ upstreamStatus: 429 });
+  });
+
+  test("hashnode finds the slug in the paginated post-stats", async () => {
+    mockFetch({ body: { posts: [{ slug: "my-post", views: 42 }] } });
+    const views = await getViewsHashnode({ id: "my-post", config: { publicationId: "PUB" }, credential: "hn" });
+    expect(views).toBe(42);
+    expect(globalThis.fetch.mock.calls[0][0]).toContain("publication=PUB");
+  });
+
+  test("hashnode returns 0 when the slug is not found", async () => {
+    mockFetchSeq([{ body: { posts: [{ slug: "other", views: 1 }] } }, { body: { posts: [] } }]);
+    const views = await getViewsHashnode({ id: "my-post", config: { publicationId: "PUB" }, credential: "hn" });
+    expect(views).toBe(0);
   });
 });
 

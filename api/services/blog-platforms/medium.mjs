@@ -47,3 +47,36 @@ export async function publish({ blog, content, tags = [], config = {}, credentia
   const data = JSON.parse(text);
   return { id: data.data?.id, url: data.data?.url };
 }
+
+// All-time views for a post via Medium's private stats GraphQL. `credential`
+// here is the logged-in session cookie (the "medium-cookie" secret), NOT
+// the integration token used to publish — Medium has no public stats API.
+// A 429 is surfaced as a retryable UpstreamError so the weekly job backs off.
+export async function getViews({ id, credential }) {
+  if (!id) return 0;
+  if (!credential) {
+    throw new Error("Medium session cookie is not configured for this tenant");
+  }
+
+  const response = await fetch("https://medium.com/_/graphql", {
+    method: "POST",
+    headers: { "content-type": "application/json", "cookie": credential },
+    body: JSON.stringify([{
+      operationName: "StatsPostReferrersContainer",
+      variables: { postId: id },
+      query: "query StatsPostReferrersContainer($postId: ID!) { post(id: $postId) { totalStats { views } } }",
+    }]),
+  });
+
+  const text = await response.text();
+  if (response.status === 429) {
+    throw new UpstreamError("Medium stats rate limited", 429);
+  }
+  if (!response.ok) {
+    logger.error("Medium analytics failed", { status: response.status, body: text });
+    throw new UpstreamError(`Medium analytics failed: ${text}`, response.status);
+  }
+
+  const json = JSON.parse(text);
+  return json?.[0]?.data?.post?.totalStats?.views ?? 0;
+}

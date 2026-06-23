@@ -54,3 +54,35 @@ export async function publish({ blog, content, tags = [], config = {}, credentia
   const data = JSON.parse(text);
   return { id: data.id, url: data.url };
 }
+
+// Dev.to's historical analytics only goes back to its launch; this is the
+// earliest start the legacy used to get an all-time total.
+const ANALYTICS_START_DATE = "2019-04-01";
+
+// All-time views for an article, summed from Dev.to's historical daily
+// analytics. `id` is the Dev.to article id; returns 0 when there's no copy.
+export async function getViews({ id, credential }) {
+  if (!id) return 0;
+  if (!credential) {
+    throw new Error("Dev.to credential is not configured for this tenant");
+  }
+
+  const url = `https://dev.to/api/analytics/historical?start=${ANALYTICS_START_DATE}&article_id=${id}`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: { "api-key": credential, "accept": "application/vnd.forem.api-v1+json" },
+  });
+
+  const text = await response.text();
+  if (!response.ok) {
+    logger.error("Dev.to analytics failed", { status: response.status, body: text });
+    throw new UpstreamError(`Dev.to analytics failed: ${text}`, response.status);
+  }
+
+  const data = JSON.parse(text);
+  let views = 0;
+  for (const day of Object.values(data)) {
+    views += day?.page_views?.total ?? 0;
+  }
+  return views;
+}
