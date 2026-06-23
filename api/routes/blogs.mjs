@@ -3,6 +3,7 @@ import {
   deleteBlog,
   getBlog,
   listBlogsByTenant,
+  listBlogsForCampaign,
   updateBlog,
 } from "../domain/blog.mjs";
 import { requireTenantId } from "../services/identity.mjs";
@@ -32,6 +33,17 @@ export function registerBlogRoutes(app) {
   app.get("/blogs", async ({ event }) => {
     const tenantId = requireTenantId(event);
     const qs = event.queryStringParameters ?? {};
+
+    // ?campaignId=… returns just the blogs linked to that campaign (used by
+    // the campaign detail view). It's a bounded set, so it isn't paginated.
+    if (qs.campaignId) {
+      const items = await listBlogsForCampaign(tenantId, qs.campaignId);
+      return jsonResponse(200, {
+        blogs: items.map(formatBlogSummary),
+        nextStartKey: null,
+      });
+    }
+
     const limit = parseLimit(qs.limit);
     const exclusiveStartKey = decodeCursor(qs.startKey);
     const { items, lastEvaluatedKey } = await listBlogsByTenant(tenantId, { limit, exclusiveStartKey });

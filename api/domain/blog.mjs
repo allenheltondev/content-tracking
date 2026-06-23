@@ -1,15 +1,18 @@
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import {
+  BatchGetCommand,
   BatchWriteCommand,
   DeleteCommand,
   GetCommand,
   PutCommand,
   QueryCommand,
+  TransactWriteCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ulid } from "ulid";
 import { TABLE_NAME, ddb } from "../services/ddb.mjs";
 import { NotFoundError } from "../services/errors.mjs";
+import { findCampaign } from "./campaign.mjs";
 
 // Blog records are tenant-scoped by partition. Everything for a tenant
 // lives under pk = TENANT#{tenantId} where tenantId is the Cognito sub
@@ -58,6 +61,27 @@ export function campaignRefKey(tenantId, campaignId, blogId) {
   return { pk: tenantPartition(tenantId), sk: `CAMPAIGNREF#${campaignId}#${blogId}` };
 }
 
+function campaignRefItem(tenantId, campaignId, blogId, createdAt) {
+  return {
+    ...campaignRefKey(tenantId, campaignId, blogId),
+    entity: "BlogCampaignRef",
+    tenantId,
+    blogId,
+    campaignId,
+    createdAt,
+  };
+}
+
+// Guards a campaign reference: the campaign must exist. Campaigns are not
+// tenant-scoped yet, so this only checks existence (not ownership); when
+// campaigns move to the shared pool this should also verify the tenant.
+async function assertCampaignExists(campaignId) {
+  const campaign = await findCampaign(campaignId);
+  if (!campaign) {
+    throw new NotFoundError("Campaign", campaignId);
+  }
+}
+
 // Attributes the partial update must never touch: keys, identity,
 // immutable metadata, and the maps the cross-post flow owns. links/ids
 // are excluded so a blog edit can't clobber the per-platform copy URLs
@@ -101,11 +125,28 @@ export async function createBlog(tenantId, fields) {
   // blogId is a fresh ULID so a collision is effectively impossible; the
   // condition is hygiene. pk is shared across the tenant partition, so the
   // uniqueness guard is on sk (the full key identifies the item).
-  await ddb.send(new PutCommand({
-    TableName: TABLE_NAME,
-    Item: item,
-    ConditionExpression: "attribute_not_exists(sk)",
-  }));
+  const blogPut = {
+    Put: {
+      TableName: TABLE_NAME,
+      Item: item,
+      ConditionExpression: "attribute_not_exists(sk)",
+    },
+  };
+
+  // When the blog references a campaign, write the reverse-lookup ref row
+  // atomically with the blog so a campaign's blog list can never point at a
+  // half-created blog. The campaign must exist.
+  if (item.campaignId) {
+    await assertCampaignExists(item.campaignId);
+    await ddb.send(new TransactWriteCommand({
+      TransactItems: [
+        blogPut,
+        { Put: { TableName: TABLE_NAME, Item: campaignRefItem(tenantId, item.campaignId, blogId, now) } },
+      ],
+    }));
+  } else {
+    await ddb.send(new PutCommand(blogPut.Put));
+  }
 
   return item;
 }
@@ -148,7 +189,9 @@ export async function listBlogsByTenant(tenantId, { limit, exclusiveStartKey } =
   };
 }
 
-export async function updateBlog(tenantId, blogId, fields) {
+// Builds the SET/REMOVE expression for a partial blog update, shared by the
+// plain update and the campaign-aware transactional update.
+function buildBlogUpdateExpression(fields) {
   const names = { "#updatedAt": "updatedAt" };
   const values = { ":updatedAt": new Date().toISOString() };
   const setClauses = ["#updatedAt = :updatedAt"];
@@ -182,13 +225,26 @@ export async function updateBlog(tenantId, blogId, fields) {
     updateExpression += ` REMOVE ${removeClauses.join(", ")}`;
   }
 
+  return {
+    UpdateExpression: updateExpression,
+    ExpressionAttributeNames: names,
+    ExpressionAttributeValues: values,
+  };
+}
+
+export async function updateBlog(tenantId, blogId, fields) {
+  // A change to campaignId also moves the reverse-lookup ref row, so it
+  // goes through a transaction that updates the blog and swaps the ref
+  // together.
+  if ("campaignId" in fields) {
+    return updateBlogWithCampaign(tenantId, blogId, fields);
+  }
+
   try {
     const result = await ddb.send(new UpdateCommand({
       TableName: TABLE_NAME,
       Key: blogKey(tenantId, blogId),
-      UpdateExpression: updateExpression,
-      ExpressionAttributeNames: names,
-      ExpressionAttributeValues: values,
+      ...buildBlogUpdateExpression(fields),
       ConditionExpression: "attribute_exists(sk)",
       ReturnValues: "ALL_NEW",
     }));
@@ -201,11 +257,46 @@ export async function updateBlog(tenantId, blogId, fields) {
   }
 }
 
+async function updateBlogWithCampaign(tenantId, blogId, fields) {
+  // Need the old campaignId to know which ref row to remove. getBlog throws
+  // NotFound when the blog is missing.
+  const existing = await getBlog(tenantId, blogId);
+  const oldCampaignId = existing.campaignId ?? null;
+  const newCampaignId = fields.campaignId ?? null; // null clears the link
+
+  if (newCampaignId && newCampaignId !== oldCampaignId) {
+    await assertCampaignExists(newCampaignId);
+  }
+
+  const transactItems = [
+    {
+      Update: {
+        TableName: TABLE_NAME,
+        Key: blogKey(tenantId, blogId),
+        ...buildBlogUpdateExpression(fields),
+        ConditionExpression: "attribute_exists(sk)",
+      },
+    },
+  ];
+  if (oldCampaignId && oldCampaignId !== newCampaignId) {
+    transactItems.push({ Delete: { TableName: TABLE_NAME, Key: campaignRefKey(tenantId, oldCampaignId, blogId) } });
+  }
+  if (newCampaignId && newCampaignId !== oldCampaignId) {
+    transactItems.push({
+      Put: { TableName: TABLE_NAME, Item: campaignRefItem(tenantId, newCampaignId, blogId, new Date().toISOString()) },
+    });
+  }
+
+  await ddb.send(new TransactWriteCommand({ TransactItems: transactItems }));
+  return getBlog(tenantId, blogId);
+}
+
 // Deletes the blog and all of its child rows (copies, runs, snapshots) in
-// one sweep. begins_with(sk, "BLOG#{blogId}") matches the root and its
-// children; ULIDs are fixed-length so it never spills into another blog.
-// The campaign ref (sk=CAMPAIGNREF#...) uses a different prefix and is
-// cleaned up by the campaign-linkage flow.
+// one sweep, plus the campaign ref row when the blog is linked.
+// begins_with(sk, "BLOG#{blogId}") matches the root and its children;
+// ULIDs are fixed-length so it never spills into another blog. The campaign
+// ref uses a different prefix, so it is added to the delete batch explicitly
+// using the root's campaignId.
 export async function deleteBlog(tenantId, blogId) {
   const found = await ddb.send(new QueryCommand({
     TableName: TABLE_NAME,
@@ -214,26 +305,57 @@ export async function deleteBlog(tenantId, blogId) {
       ":pk": tenantPartition(tenantId),
       ":prefix": `BLOG#${blogId}`,
     },
-    ProjectionExpression: "pk, sk",
+    ProjectionExpression: "pk, sk, campaignId",
   }));
 
   const items = found.Items ?? [];
-  if (!items.some((it) => it.sk === `BLOG#${blogId}`)) {
+  const root = items.find((it) => it.sk === `BLOG#${blogId}`);
+  if (!root) {
     throw new NotFoundError("Blog", blogId);
   }
 
-  for (let i = 0; i < items.length; i += 25) {
-    const chunk = items.slice(i, i + 25);
+  const keys = items.map((it) => ({ pk: it.pk, sk: it.sk }));
+  if (root.campaignId) {
+    keys.push(campaignRefKey(tenantId, root.campaignId, blogId));
+  }
+
+  for (let i = 0; i < keys.length; i += 25) {
+    const chunk = keys.slice(i, i + 25);
     await ddb.send(new BatchWriteCommand({
       RequestItems: {
-        [TABLE_NAME]: chunk.map((it) => ({
-          DeleteRequest: { Key: { pk: it.pk, sk: it.sk } },
-        })),
+        [TABLE_NAME]: chunk.map((key) => ({ DeleteRequest: { Key: key } })),
       },
     }));
   }
 
-  return { deleted: items.length };
+  return { deleted: keys.length };
+}
+
+// Lists the blogs a campaign references, newest first. Reads the ref rows
+// (cheap), then batch-gets the blog roots so the data is fresh rather than
+// denormalized onto the ref. Campaigns reference few blogs, so a single
+// BatchGet (<=100 keys) is sufficient.
+export async function listBlogsForCampaign(tenantId, campaignId) {
+  const refs = await ddb.send(new QueryCommand({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+    ExpressionAttributeValues: {
+      ":pk": tenantPartition(tenantId),
+      ":prefix": `CAMPAIGNREF#${campaignId}#`,
+    },
+  }));
+
+  const blogIds = (refs.Items ?? []).map((r) => r.blogId).filter(Boolean);
+  if (blogIds.length === 0) return [];
+
+  const result = await ddb.send(new BatchGetCommand({
+    RequestItems: {
+      [TABLE_NAME]: { Keys: blogIds.map((id) => blogKey(tenantId, id)) },
+    },
+  }));
+
+  const blogs = result.Responses?.[TABLE_NAME] ?? [];
+  return blogs.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
 }
 
 // Single-purpose delete of just the blog root, used where a cascade is not

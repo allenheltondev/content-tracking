@@ -7,6 +7,7 @@ jest.unstable_mockModule("../domain/blog.mjs", () => ({
   createBlog: jest.fn(),
   getBlog: jest.fn(),
   listBlogsByTenant: jest.fn(),
+  listBlogsForCampaign: jest.fn(),
   updateBlog: jest.fn(),
   deleteBlog: jest.fn(),
 }));
@@ -16,7 +17,7 @@ jest.unstable_mockModule("../services/idempotency.mjs", () => ({
   withIdempotency: (fn) => fn,
 }));
 
-const { createBlog, getBlog, listBlogsByTenant, updateBlog, deleteBlog } = await import("../domain/blog.mjs");
+const { createBlog, getBlog, listBlogsByTenant, listBlogsForCampaign, updateBlog, deleteBlog } = await import("../domain/blog.mjs");
 const { registerBlogRoutes } = await import("../routes/blogs.mjs");
 
 function buildRouteTable() {
@@ -90,6 +91,17 @@ describe("GET /blogs", () => {
     expect(body.blogs).toHaveLength(1);
     expect(body.blogs[0]).not.toHaveProperty("content_markdown");
     expect(body.blogs[0].blog_id).toBe("B1");
+  });
+
+  test("?campaignId returns the campaign's blogs (unpaginated)", async () => {
+    listBlogsForCampaign.mockResolvedValue([sampleRow]);
+    const res = await routes["GET /blogs"](ctx({ query: { campaignId: "camp-1" } }));
+
+    expect(listBlogsForCampaign).toHaveBeenCalledWith(SUB, "camp-1");
+    expect(listBlogsByTenant).not.toHaveBeenCalled();
+    const body = JSON.parse(res.body);
+    expect(body.blogs[0].blog_id).toBe("B1");
+    expect(body.nextStartKey).toBeNull();
   });
 });
 
