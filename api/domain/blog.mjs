@@ -374,3 +374,133 @@ export async function deleteBlogRoot(tenantId, blogId) {
     throw err;
   }
 }
+
+// ---------------------------------------------------------------------
+// Cross-post run + copy writers (used by the crosspost durable function)
+// ---------------------------------------------------------------------
+
+// Marks a cross-post run in progress and seeds a per-platform copy row so
+// the status endpoint can show "pending"/"scheduled" before publishing.
+// `platforms` is [{ platform, delaySeconds }].
+export async function startCrosspostRun(tenantId, blogId, { runId, platforms }) {
+  const now = new Date().toISOString();
+  const run = {
+    ...crosspostRunKey(tenantId, blogId, runId),
+    entity: "BlogCrosspostRun",
+    tenantId,
+    blogId,
+    runId,
+    status: "in progress",
+    platforms: platforms.map((p) => p.platform),
+    startedAt: now,
+  };
+
+  const copies = platforms.map((p) => {
+    const scheduled = p.delaySeconds > 0;
+    return {
+      ...crosspostCopyKey(tenantId, blogId, p.platform),
+      entity: "BlogCrosspost",
+      tenantId,
+      blogId,
+      platform: p.platform,
+      status: scheduled ? "scheduled" : "pending",
+      runId,
+      ...(scheduled ? { scheduledFor: new Date(Date.now() + p.delaySeconds * 1000).toISOString() } : {}),
+    };
+  });
+
+  const items = [run, ...copies];
+  for (let i = 0; i < items.length; i += 25) {
+    const chunk = items.slice(i, i + 25);
+    await ddb.send(new BatchWriteCommand({
+      RequestItems: { [TABLE_NAME]: chunk.map((Item) => ({ PutRequest: { Item } })) },
+    }));
+  }
+
+  return { run, copies };
+}
+
+// Records the outcome of one platform publish. On success it updates the
+// copy row and mirrors the native URL/id onto the blog root (links.<p> /
+// ids.<p>) in one transaction. On failure it just marks the copy failed.
+export async function recordCrosspostResult(tenantId, blogId, platform, { runId, status, url, id, slug, error }) {
+  const now = new Date().toISOString();
+
+  if (status !== "succeeded") {
+    await ddb.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: crosspostCopyKey(tenantId, blogId, platform),
+      UpdateExpression: "SET #status = :status, #error = :error, #runId = :runId, #attemptedAt = :now",
+      ExpressionAttributeNames: { "#status": "status", "#error": "error", "#runId": "runId", "#attemptedAt": "attemptedAt" },
+      ExpressionAttributeValues: { ":status": status, ":error": error ?? "unknown error", ":runId": runId, ":now": now },
+    }));
+    return;
+  }
+
+  // Success: build the copy-update clauses dynamically so undefined fields
+  // aren't referenced in the expression.
+  const names = { "#status": "status", "#publishedAt": "publishedAt", "#runId": "runId", "#error": "error" };
+  const values = { ":status": "succeeded", ":now": now, ":runId": runId };
+  const setClauses = ["#status = :status", "#publishedAt = :now", "#runId = :runId"];
+  if (url !== undefined) {
+    names["#url"] = "url";
+    values[":url"] = url;
+    setClauses.push("#url = :url");
+  }
+  if (id !== undefined) {
+    names["#cid"] = "id";
+    values[":id"] = id;
+    setClauses.push("#cid = :id");
+  }
+  if (slug !== undefined) {
+    names["#slug"] = "slug";
+    values[":slug"] = slug;
+    setClauses.push("#slug = :slug");
+  }
+  const copyUpdate = {
+    Update: {
+      TableName: TABLE_NAME,
+      Key: crosspostCopyKey(tenantId, blogId, platform),
+      UpdateExpression: `SET ${setClauses.join(", ")} REMOVE #error`,
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: values,
+    },
+  };
+
+  // Mirror onto the blog root: links.<platform> = url, ids.<platform> = id.
+  const rootNames = { "#updatedAt": "updatedAt", "#p": platform };
+  const rootValues = { ":now": now };
+  const rootSet = ["#updatedAt = :now"];
+  if (url !== undefined) {
+    rootNames["#links"] = "links";
+    rootValues[":url"] = url;
+    rootSet.push("#links.#p = :url");
+  }
+  if (id !== undefined) {
+    rootNames["#ids"] = "ids";
+    rootValues[":id"] = id;
+    rootSet.push("#ids.#p = :id");
+  }
+  const rootUpdate = {
+    Update: {
+      TableName: TABLE_NAME,
+      Key: blogKey(tenantId, blogId),
+      UpdateExpression: `SET ${rootSet.join(", ")}`,
+      ExpressionAttributeNames: rootNames,
+      ExpressionAttributeValues: rootValues,
+    },
+  };
+
+  await ddb.send(new TransactWriteCommand({ TransactItems: [copyUpdate, rootUpdate] }));
+}
+
+// Finalizes the run record with the overall status.
+export async function completeCrosspostRun(tenantId, blogId, runId, status) {
+  await ddb.send(new UpdateCommand({
+    TableName: TABLE_NAME,
+    Key: crosspostRunKey(tenantId, blogId, runId),
+    UpdateExpression: "SET #status = :status, #completedAt = :now",
+    ExpressionAttributeNames: { "#status": "status", "#completedAt": "completedAt" },
+    ExpressionAttributeValues: { ":status": status, ":now": new Date().toISOString() },
+  }));
+}

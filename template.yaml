@@ -593,6 +593,62 @@ Resources:
         - AWSLambdaBasicExecutionRole
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicDurableExecutionRolePolicy
 
+  # On-demand cross-post orchestration. Reads the blog + tenant config +
+  # catalog, publishes to each requested platform (optionally staggered),
+  # and records the per-platform copy back. ExecutionTimeout is generous so
+  # a staggered rollout can span weeks while the function is suspended.
+  CrosspostFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - index.mjs
+    Properties:
+      CodeUri: functions/crosspost
+      Handler: index.handler
+      MemorySize: 512
+      Timeout: 60
+      DurableConfig:
+        # 30 days: covers a multi-day/week staggered publish. No compute is
+        # billed while suspended in a wait.
+        ExecutionTimeout: 2592000
+        RetentionPeriodInDays: 30
+      AutoPublishAlias: live
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicDurableExecutionRolePolicy
+        - Version: 2012-10-17
+          Statement:
+            # Read blog/tenant/catalog and write run + copy rows.
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:Query
+                - dynamodb:BatchGetItem
+                - dynamodb:BatchWriteItem
+                - dynamodb:TransactWriteItems
+              Resource:
+                - !GetAtt ContentTrackingTable.Arn
+                - !Sub "${ContentTrackingTable.Arn}/index/*"
+            # Read the tenant's platform credentials (SecureString).
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+              Resource:
+                - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/booked/${Environment}/tenants/*"
+            # Decrypt those SecureStrings via the SSM service.
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+              Resource: "*"
+              Condition:
+                StringEquals:
+                  kms:ViaService: !Sub "ssm.${AWS::Region}.amazonaws.com"
+
   # Static hosting for the dashboard UI. Bucket is private; only the
   # CloudFront distribution (via OAC) can read it. SPA routing is
   # handled by rewriting 403/404 to /index.html so deep links survive a
@@ -1068,6 +1124,13 @@ Outputs:
       real crosspost/weekly-analytics functions will surface their own
       alias ARNs the same way.
     Value: !Ref HelloDurableFunction.Alias
+
+  CrosspostFunctionAliasArn:
+    Description: |
+      Qualified ARN (alias) of the cross-post durable function. The API
+      trigger (POST /blogs/{id}/crosspost) starts an execution against this
+      alias. Wired into the API Lambda's env in a later change.
+    Value: !Ref CrosspostFunction.Alias
 
   ContentTrackingApiBaseUrl:
     Description: |
