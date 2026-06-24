@@ -100,6 +100,14 @@ Parameters:
       Region the BedrockRuntime client is configured for. Stays separate
       from the stack region so you can route to a region where the model
       is available without moving the rest of the stack.
+  EmbeddingModelId:
+    Type: String
+    Default: amazon.titan-embed-text-v2:0
+    Description: |
+      Bedrock embedding model used by VectorizeBlogFunction to turn blog text
+      into vectors. Titan Text Embeddings V2 at 1024 dimensions. If you change
+      the model or its dimension, the BlogVectorIndex Dimension below must match
+      and existing vectors must be re-embedded (run scripts/backfill-blog-vectors.mjs).
   BaseCustomDomain:
     Type: String
     Default: ""
@@ -257,6 +265,11 @@ Resources:
       TimeToLiveSpecification:
         AttributeName: expiresAt
         Enabled: true
+      # Streams blog root changes to VectorizeBlogFunction, which (re)embeds the
+      # post into the S3 vector index. NEW_AND_OLD_IMAGES so the handler sees the
+      # full item on create/edit and the old item on delete (for vector cleanup).
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
 
   # Holds raw brief uploads (PDFs uploaded via presigned URL from the client,
   # plus chat transcripts the brief pipeline writes inline). Separate
@@ -662,6 +675,142 @@ Resources:
               Condition:
                 StringEquals:
                   kms:ViaService: !Sub "ssm.${AWS::Region}.amazonaws.com"
+
+  # ---------------------------------------------------------------------
+  # Blog vectorization: S3 Vectors store + the stream-driven embedder.
+  #
+  # Blog posts are chunked, embedded with Titan Text Embeddings V2, and stored
+  # in an S3 vector index so a later feature can do semantic retrieval (writing
+  # suggestions / Q&A) over the catalog. Ingestion is event-driven off the
+  # DynamoDB stream so the write path (POST/PATCH /blogs) stays fast and the
+  # cross-post flow's root updates don't pay any embedding cost.
+  # ---------------------------------------------------------------------
+
+  # Vector bucket, one per environment (name charset: lowercase/digits/hyphen).
+  # Encryption defaults to SSE-S3 (AES256). DeletionPolicy Retain because a
+  # vector bucket must be empty to delete; retaining avoids a stack-delete
+  # failure and preserves embeddings.
+  BlogVectorBucket:
+    Type: AWS::S3Vectors::VectorBucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VectorBucketName: !Sub "content-tracking-blog-vectors-${Environment}-${AWS::AccountId}"
+
+  # The vector index. Dimension MUST match the embedding model's output
+  # (Titan v2 @ 1024). `text` is declared non-filterable so each chunk's source
+  # text rides along in results without counting against the 2 KB filterable
+  # metadata budget. Cosine distance suits normalized text embeddings.
+  BlogVectorIndex:
+    Type: AWS::S3Vectors::Index
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VectorBucketArn: !GetAtt BlogVectorBucket.VectorBucketArn
+      IndexName: blog-vectors
+      DataType: float32
+      Dimension: 1024
+      DistanceMetric: cosine
+      MetadataConfiguration:
+        NonFilterableMetadataKeys:
+          - text
+
+  # Poison-record sink for the stream consumer. A record that still fails after
+  # the configured retries is sent here instead of blocking the shard.
+  VectorizeBlogDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "content-tracking-vectorize-blog-dlq-${Environment}"
+      MessageRetentionPeriod: 1209600 # 14 days
+
+  # Consumes the DynamoDB stream (filtered to Blog roots) and (re)embeds each
+  # post into BlogVectorIndex. Idempotent via a content-hash guard, so MODIFY
+  # events that don't change the text (e.g. cross-post link mirroring) are
+  # no-ops. Timeout is generous because a long post embeds many chunks.
+  VectorizeBlogFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - index.mjs
+    Properties:
+      CodeUri: functions/vectorize-blog
+      Handler: index.handler
+      MemorySize: 512
+      Timeout: 300
+      Environment:
+        Variables:
+          EMBEDDING_MODEL_ID: !Ref EmbeddingModelId
+          VECTOR_BUCKET_NAME: !Sub "content-tracking-blog-vectors-${Environment}-${AWS::AccountId}"
+          VECTOR_INDEX_NAME: blog-vectors
+      Events:
+        BlogStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt ContentTrackingTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 5
+            MaximumRetryAttempts: 3
+            BisectBatchOnFunctionError: true
+            # Only blog ROOT changes reach the function. Two patterns: the
+            # create/edit path keys off NewImage.entity, the delete path off
+            # OldImage.entity (REMOVE has no NewImage).
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"eventName":["INSERT","MODIFY"],"dynamodb":{"NewImage":{"entity":{"S":["Blog"]}}}}'
+                - Pattern: '{"eventName":["REMOVE"],"dynamodb":{"OldImage":{"entity":{"S":["Blog"]}}}}'
+            DestinationConfig:
+              OnFailure:
+                Destination: !GetAtt VectorizeBlogDLQ.Arn
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            # Read the stream.
+            - Effect: Allow
+              Action:
+                - dynamodb:DescribeStream
+                - dynamodb:GetRecords
+                - dynamodb:GetShardIterator
+                - dynamodb:ListStreams
+              Resource:
+                - !GetAtt ContentTrackingTable.StreamArn
+                - !Sub "${ContentTrackingTable.StreamArn}/*"
+            # Read/write the per-blog vector-state row.
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+              Resource:
+                - !GetAtt ContentTrackingTable.Arn
+            # Embed via Titan. Wildcard region/model mirrors ApiFunction so a
+            # cross-region inference profile or a model swap doesn't need an
+            # IAM change.
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource:
+                - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
+            # Read/write vectors in the index (Query/Get included for the
+            # follow-up retrieval feature so it won't need a policy change).
+            - Effect: Allow
+              Action:
+                - s3vectors:PutVectors
+                - s3vectors:DeleteVectors
+                - s3vectors:GetVectors
+                - s3vectors:ListVectors
+                - s3vectors:QueryVectors
+              Resource:
+                - !GetAtt BlogVectorBucket.VectorBucketArn
+                - !GetAtt BlogVectorIndex.IndexArn
+            # Deliver poison records to the DLQ.
+            - Effect: Allow
+              Action:
+                - sqs:SendMessage
+              Resource:
+                - !GetAtt VectorizeBlogDLQ.Arn
 
   # Static hosting for the dashboard UI. Bucket is private; only the
   # CloudFront distribution (via OAC) can read it. SPA routing is
@@ -1130,6 +1279,16 @@ Outputs:
   ContentTrackingTableName:
     Description: DynamoDB single-table for Booked
     Value: !Ref ContentTrackingTable
+
+  BlogVectorBucketName:
+    Description: |
+      S3 vector bucket holding blog post embeddings. Pass to
+      scripts/backfill-blog-vectors.mjs --bucket to vectorize the back catalog.
+    Value: !Sub "content-tracking-blog-vectors-${Environment}-${AWS::AccountId}"
+
+  BlogVectorIndexName:
+    Description: S3 vector index name for blog embeddings (--index for the backfill script).
+    Value: blog-vectors
 
   HelloDurableFunctionAliasArn:
     Description: |

@@ -57,6 +57,17 @@ export function viewSnapshotKey(tenantId, blogId, date) {
   return { pk: tenantPartition(tenantId), sk: `BLOG#${blogId}#VIEWCOUNT#${date}` };
 }
 
+// Tracks what's been vectorized for a blog so the stream-driven vectorizer
+// can skip re-embedding when the content text is unchanged (the blog root is
+// also MODIFYed by the cross-post flow, which must not trigger re-embedding)
+// and knows how many chunk vectors exist to clean up. Lives under the
+// BLOG#{blogId} prefix so deleteBlog's cascade removes it for free. Its
+// entity (BlogVectorIndex) differs from the root (Blog), so the stream filter
+// that watches Blog roots never re-fires on this row's own writes.
+export function vectorStateKey(tenantId, blogId) {
+  return { pk: tenantPartition(tenantId), sk: `BLOG#${blogId}#VECTORINDEX` };
+}
+
 export function campaignRefKey(tenantId, campaignId, blogId) {
   return { pk: tenantPartition(tenantId), sk: `CAMPAIGNREF#${campaignId}#${blogId}` };
 }
@@ -160,6 +171,32 @@ export async function getBlog(tenantId, blogId) {
     throw new NotFoundError("Blog", blogId);
   }
   return result.Item;
+}
+
+// Reads the vectorization state row (or null when the blog has never been
+// vectorized). Returns { contentHash, chunkCount, embeddedAt } when present.
+export async function getVectorState(tenantId, blogId) {
+  const result = await ddb.send(new GetCommand({
+    TableName: TABLE_NAME,
+    Key: vectorStateKey(tenantId, blogId),
+  }));
+  return result.Item ?? null;
+}
+
+// Records the content hash + chunk count after a successful (re)vectorization.
+export async function putVectorState(tenantId, blogId, { contentHash, chunkCount }) {
+  await ddb.send(new PutCommand({
+    TableName: TABLE_NAME,
+    Item: {
+      ...vectorStateKey(tenantId, blogId),
+      entity: "BlogVectorIndex",
+      tenantId,
+      blogId,
+      contentHash,
+      chunkCount,
+      embeddedAt: new Date().toISOString(),
+    },
+  }));
 }
 
 // Returns the blog (without throwing) for callers that need existence
