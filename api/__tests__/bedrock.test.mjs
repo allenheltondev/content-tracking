@@ -4,7 +4,7 @@ process.env.BEDROCK_MODEL_ID = "us.amazon.nova-pro-v1:0";
 process.env.BEDROCK_REGION = "us-east-1";
 
 const { BedrockRuntimeClient } = await import("@aws-sdk/client-bedrock-runtime");
-const { summarizeBrief, reviewDraft, recommendEngagement } = await import("../services/bedrock.mjs");
+const { summarizeBrief, reviewDraft, recommendEngagement, answerBlogQuestion } = await import("../services/bedrock.mjs");
 const { UpstreamError } = await import("../services/errors.mjs");
 
 describe("services/bedrock summarizeBrief", () => {
@@ -303,6 +303,66 @@ describe("services/bedrock recommendEngagement", () => {
     mockSend.mockRejectedValueOnce(new Error("throttled"));
     await expect(
       recommendEngagement({ contentPost: { url: "u" }, crossPostLinks: [], otherContentPosts: [], socialPosts: [] }),
+    ).rejects.toThrow(UpstreamError);
+  });
+});
+
+describe("services/bedrock answerBlogQuestion", () => {
+  let mockSend;
+
+  beforeEach(() => {
+    mockSend = jest.fn();
+    BedrockRuntimeClient.prototype.send = mockSend;
+    jest.clearAllMocks();
+  });
+
+  const answerResponse = (input) => ({
+    stopReason: "tool_use",
+    output: {
+      message: {
+        role: "assistant",
+        content: [{ toolUse: { name: "record_blog_answer", input } }],
+      },
+    },
+    usage: { inputTokens: 150, outputTokens: 60 },
+  });
+
+  test("forces the record_blog_answer tool and numbers the source excerpts", async () => {
+    mockSend.mockResolvedValueOnce(answerResponse({
+      answer: "You covered build caching.",
+      sources_used: [2],
+      confidence: "high",
+    }));
+
+    const result = await answerBlogQuestion({
+      question: "What have I written about caching?",
+      chunks: [
+        { blogId: "B1", title: "Faster Builds", text: "cut build time" },
+        { blogId: "B2", title: "Caching Layers", text: "cache between layers" },
+      ],
+    });
+
+    expect(result.answer).toBe("You covered build caching.");
+    expect(result.sources_used).toEqual([2]);
+
+    const command = mockSend.mock.calls[0][0];
+    expect(command.input.toolConfig.toolChoice.tool.name).toBe("record_blog_answer");
+    expect(command.input.system).toEqual(
+      expect.arrayContaining([expect.objectContaining({ cachePoint: { type: "default" } })]),
+    );
+
+    const userText = command.input.messages[0].content[0].text;
+    expect(userText).toContain("What have I written about caching?");
+    // Excerpts are numbered 1-based with their titles and bodies.
+    expect(userText).toContain('[1] "Faster Builds"');
+    expect(userText).toContain("[2] \"Caching Layers\"");
+    expect(userText).toContain("cache between layers");
+  });
+
+  test("wraps Bedrock errors in UpstreamError", async () => {
+    mockSend.mockRejectedValueOnce(new Error("throttled"));
+    await expect(
+      answerBlogQuestion({ question: "q", chunks: [{ blogId: "B1", title: "T", text: "x" }] }),
     ).rejects.toThrow(UpstreamError);
   });
 });

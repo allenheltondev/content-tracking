@@ -778,3 +778,19 @@ export interface EngagementRecommendation {
   already_covered: string[];
   generated_at: string;
 }
+
+// Blog catalog RAG Q&A (POST /blogs/ask). The model answers grounded only in
+// the creator's own posts; `sources` are the posts the answer drew on.
+export type BlogAnswerConfidence = 'high' | 'medium' | 'low';
+
+export interface BlogAnswerSource {
+  blog_id: string;
+  title: string | null;
+  slug: string | null;
+}
+
+export interface BlogAnswer {
+  answer: string;
+  confidence: BlogAnswerConfidence;
+  sources: BlogAnswerSource[];
+}

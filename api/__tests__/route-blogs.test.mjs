@@ -21,9 +21,23 @@ jest.unstable_mockModule("../services/idempotency.mjs", () => ({
 jest.unstable_mockModule("../services/crosspost-invoker.mjs", () => ({
   startCrosspostExecution: jest.fn(),
 }));
+// RAG Q&A collaborators (POST /blogs/ask): embed the question, retrieve
+// chunks, answer with Bedrock. Mocked so the route is exercised in isolation.
+jest.unstable_mockModule("../services/embeddings.mjs", () => ({
+  embedText: jest.fn(),
+}));
+jest.unstable_mockModule("../services/blog-vectors.mjs", () => ({
+  queryBlogChunks: jest.fn(),
+}));
+jest.unstable_mockModule("../services/bedrock.mjs", () => ({
+  answerBlogQuestion: jest.fn(),
+}));
 
 const { createBlog, getBlog, findBlog, getCrosspostStatus, listBlogsByTenant, listBlogsForCampaign, updateBlog, deleteBlog } = await import("../domain/blog.mjs");
 const { startCrosspostExecution } = await import("../services/crosspost-invoker.mjs");
+const { embedText } = await import("../services/embeddings.mjs");
+const { queryBlogChunks } = await import("../services/blog-vectors.mjs");
+const { answerBlogQuestion } = await import("../services/bedrock.mjs");
 const { registerBlogRoutes } = await import("../routes/blogs.mjs");
 
 function buildRouteTable() {
@@ -203,6 +217,86 @@ describe("GET /blogs/:blogId/crosspost-status", () => {
     getCrosspostStatus.mockResolvedValue({ run: null, copies: [] });
     await routes["GET /blogs/:blogId/crosspost-status"](ctx({ params: { blogId: "B1" }, query: { run_id: "R9" } }));
     expect(getCrosspostStatus).toHaveBeenCalledWith(SUB, "B1", { runId: "R9" });
+  });
+});
+
+describe("POST /blogs/ask", () => {
+  const ask = () => routes["POST /blogs/ask"];
+
+  test("embeds the question, retrieves chunks, and answers grounded with citations", async () => {
+    embedText.mockResolvedValue([0.1, 0.2, 0.3]);
+    queryBlogChunks.mockResolvedValue([
+      { blogId: "B1", title: "Faster Builds", slug: "faster-builds", text: "cut build time", distance: 0.1 },
+      { blogId: "B2", title: "Caching", slug: "caching", text: "cache layers", distance: 0.3 },
+    ]);
+    answerBlogQuestion.mockResolvedValue({
+      answer: "You wrote about cutting build times.",
+      sources_used: [1],
+      confidence: "high",
+    });
+
+    const res = await ask()(ctx({ body: { question: "How do I speed up builds?" } }));
+
+    expect(res.statusCode).toBe(200);
+    expect(embedText).toHaveBeenCalledWith("How do I speed up builds?");
+    // Tenant-scoped retrieval with the validated default top_k.
+    expect(queryBlogChunks).toHaveBeenCalledWith({
+      tenantId: SUB,
+      queryEmbedding: [0.1, 0.2, 0.3],
+      topK: 8,
+      blogId: undefined,
+    });
+    const body = JSON.parse(res.body);
+    expect(body.answer).toMatch(/build times/);
+    expect(body.confidence).toBe("high");
+    // Only the cited source is surfaced.
+    expect(body.sources).toEqual([{ blog_id: "B1", title: "Faster Builds", slug: "faster-builds" }]);
+  });
+
+  test("passes top_k and blog_id through to retrieval", async () => {
+    embedText.mockResolvedValue([0.5]);
+    queryBlogChunks.mockResolvedValue([{ blogId: "B9", title: "T", slug: "t", text: "x" }]);
+    answerBlogQuestion.mockResolvedValue({ answer: "a", sources_used: [], confidence: "low" });
+
+    await ask()(ctx({ body: { question: "what did I say?", top_k: 3, blog_id: "B9" } }));
+
+    expect(queryBlogChunks).toHaveBeenCalledWith({
+      tenantId: SUB,
+      queryEmbedding: [0.5],
+      topK: 3,
+      blogId: "B9",
+    });
+  });
+
+  test("short-circuits without calling Bedrock when nothing matches", async () => {
+    embedText.mockResolvedValue([0.1]);
+    queryBlogChunks.mockResolvedValue([]);
+
+    const res = await ask()(ctx({ body: { question: "obscure topic" } }));
+
+    expect(res.statusCode).toBe(200);
+    expect(answerBlogQuestion).not.toHaveBeenCalled();
+    const body = JSON.parse(res.body);
+    expect(body.confidence).toBe("low");
+    expect(body.sources).toEqual([]);
+  });
+
+  test("ignores out-of-range and duplicate source numbers from the model", async () => {
+    embedText.mockResolvedValue([0.1]);
+    queryBlogChunks.mockResolvedValue([
+      { blogId: "B1", title: "One", slug: "one", text: "a" },
+      { blogId: "B1", title: "One", slug: "one", text: "b" },
+    ]);
+    answerBlogQuestion.mockResolvedValue({ answer: "a", sources_used: [1, 2, 99], confidence: "medium" });
+
+    const res = await ask()(ctx({ body: { question: "q" } }));
+    // Both chunks are blog B1, and 99 is out of range → one citation.
+    expect(JSON.parse(res.body).sources).toEqual([{ blog_id: "B1", title: "One", slug: "one" }]);
+  });
+
+  test("rejects an empty question before embedding", async () => {
+    await expect(ask()(ctx({ body: { question: "   " } }))).rejects.toThrow(/question must be a non-empty string/);
+    expect(embedText).not.toHaveBeenCalled();
   });
 });
 

@@ -220,6 +220,57 @@ export function validateCrosspostRequest(body) {
   return out;
 }
 
+const QUESTION_MAX = 2000;
+const QA_TOP_K_MAX = 20;
+const QA_TOP_K_DEFAULT = 8;
+
+// Validates POST /blogs/ask. Returns { question, topK, blogId? }. top_k bounds
+// how many chunks feed the model; blog_id (optional) scopes the search to one
+// post instead of the whole catalog.
+export function validateBlogQuestion(body) {
+  requireObject(body);
+
+  const { question, top_k, blog_id } = body;
+  if (typeof question !== "string" || question.trim().length === 0) {
+    throw new BadRequestError("question must be a non-empty string");
+  }
+  if (question.length > QUESTION_MAX) {
+    throw new BadRequestError(`question must be at most ${QUESTION_MAX} chars`);
+  }
+
+  const out = { question: question.trim(), topK: QA_TOP_K_DEFAULT };
+
+  if (top_k !== undefined && top_k !== null) {
+    if (!Number.isInteger(top_k) || top_k < 1 || top_k > QA_TOP_K_MAX) {
+      throw new BadRequestError(`top_k must be an integer between 1 and ${QA_TOP_K_MAX}`);
+    }
+    out.topK = top_k;
+  }
+
+  if (blog_id !== undefined && blog_id !== null) {
+    if (typeof blog_id !== "string" || blog_id.length === 0 || blog_id.length > CAMPAIGN_ID_MAX) {
+      throw new BadRequestError(`blog_id must be a string up to ${CAMPAIGN_ID_MAX} chars`);
+    }
+    out.blogId = blog_id;
+  }
+
+  return out;
+}
+
+// Shapes the RAG answer response. `citations` is the resolved, deduped set of
+// posts the answer drew on.
+export function formatBlogAnswer({ answer, confidence, citations }) {
+  return {
+    answer,
+    confidence,
+    sources: (citations ?? []).map((c) => ({
+      blog_id: c.blogId,
+      title: c.title ?? null,
+      slug: c.slug ?? null,
+    })),
+  };
+}
+
 // Shapes the cross-post status response: the latest run + per-platform copies.
 export function formatCrosspostStatus({ run, copies }) {
   return {

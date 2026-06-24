@@ -42,6 +42,9 @@ function NavItems({
       <NavLink to="/insights" className={className} onClick={onNavigate}>
         Insights
       </NavLink>
+      <NavLink to="/ask" className={className} onClick={onNavigate}>
+        Ask
+      </NavLink>
       <NavLink to="/media-kit" className={className} onClick={onNavigate}>
         Media kit
       </NavLink>
