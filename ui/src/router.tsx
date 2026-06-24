@@ -14,6 +14,8 @@ import VendorNew from './routes/VendorNew';
 import VendorEdit from './routes/VendorEdit';
 import Revenue from './routes/Revenue';
 import Insights from './routes/Insights';
+import Blogs from './routes/Blogs';
+import BlogDetail from './routes/BlogDetail';
 import Ask from './routes/Ask';
 import Compose from './routes/Compose';
 import Voice from './routes/Voice';
@@ -61,6 +63,8 @@ export const router = createBrowserRouter([
       { path: 'vendors/:vendorId/edit', element: <VendorEdit /> },
       { path: 'revenue', element: <Revenue /> },
       { path: 'insights', element: <Insights /> },
+      { path: 'blogs', element: <Blogs /> },
+      { path: 'blogs/:blogId', element: <BlogDetail /> },
       { path: 'ask', element: <Ask /> },
       { path: 'compose', element: <Compose /> },
       { path: 'voice', element: <Voice /> },
