@@ -1,6 +1,7 @@
 import type { FormEvent, ReactElement } from 'react';
 import { useState } from 'react';
 import { useApiFetch } from '../auth/useApiFetch';
+import { useAuth } from '../auth/useAuth';
 import {
   PLATFORM_CHAR_LIMITS,
   VOICE_PLATFORMS,
@@ -8,8 +9,10 @@ import {
   createVoiceSample,
   platformLabel,
 } from '../api/voice';
+import { streamGenerate, streamingEnabled } from '../api/stream';
 import type { VoiceFormat } from '../api/types';
 import CopyButton from '../components/CopyButton';
+import Markdown from '../components/Markdown';
 
 // "blog" is inherently long-form, so it pins the format.
 function formatFor(platform: string, chosen: VoiceFormat): VoiceFormat {
@@ -36,6 +39,7 @@ function PlatformSelect({
 
 export default function Compose(): ReactElement {
   const apiFetch = useApiFetch();
+  const { getAccessToken } = useAuth();
 
   const [topic, setTopic] = useState('');
   const [platform, setPlatform] = useState<string>('x');
@@ -50,6 +54,7 @@ export default function Compose(): ReactElement {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [preview, setPreview] = useState(false);
 
   const effectiveFormat = formatFor(platform, format);
   const trimmed = topic.trim();
@@ -62,16 +67,37 @@ export default function Compose(): ReactElement {
     setBusy(true);
     setError(null);
     setSaveState('idle');
+    const body = {
+      mode: 'compose',
+      topic: trimmed,
+      platform,
+      format: effectiveFormat,
+      guidance: guidance.trim() || undefined,
+    };
     try {
-      const res = await composeVoice(apiFetch, {
-        topic: trimmed,
-        platform,
-        format: effectiveFormat,
-        guidance: guidance.trim() || undefined,
-      });
-      setEditedPost(res.post);
-      setEditedTitle(res.title ?? '');
-      setHasDraft(true);
+      if (streamingEnabled()) {
+        // Stream tokens in live — the draft types itself out.
+        setEditedTitle('');
+        setEditedPost('');
+        setHasDraft(true);
+        const token = await getAccessToken();
+        let acc = '';
+        await streamGenerate(token, body, (text) => {
+          acc += text;
+          setEditedPost(acc);
+        });
+        if (acc.length === 0) setHasDraft(false);
+      } else {
+        const res = await composeVoice(apiFetch, {
+          topic: trimmed,
+          platform,
+          format: effectiveFormat,
+          guidance: guidance.trim() || undefined,
+        });
+        setEditedPost(res.post);
+        setEditedTitle(res.title ?? '');
+        setHasDraft(true);
+      }
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -174,25 +200,46 @@ export default function Compose(): ReactElement {
         <div className="card card-body space-y-3">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-lg font-semibold text-foreground">Draft</h2>
-            <span className="text-xs text-muted-foreground">{platformLabel(platform)} · editable</span>
+            <div className="flex items-center gap-2">
+              {effectiveFormat === 'blog' && !busy && editedPost.length > 0 && (
+                <button
+                  type="button"
+                  className="btn-link text-xs"
+                  onClick={() => setPreview((v) => !v)}
+                >
+                  {preview ? 'Edit' : 'Preview'}
+                </button>
+              )}
+              <span className="text-xs text-muted-foreground">
+                {busy ? 'writing…' : `${platformLabel(platform)} · editable`}
+              </span>
+            </div>
           </div>
 
-          {effectiveFormat === 'blog' && (
+          {effectiveFormat === 'blog' && (editedTitle.length > 0 || !streamingEnabled()) && !preview && (
             <input
               type="text"
               className="input font-medium"
               value={editedTitle}
               onChange={(e) => editDraft({ title: e.target.value })}
               placeholder="Title"
+              disabled={busy}
             />
           )}
 
-          <textarea
-            className="input whitespace-pre-wrap"
-            rows={effectiveFormat === 'blog' ? 14 : 5}
-            value={editedPost}
-            onChange={(e) => editDraft({ post: e.target.value })}
-          />
+          {effectiveFormat === 'blog' && preview && !busy ? (
+            <div className="rounded-md border border-border p-3 text-sm">
+              <Markdown>{composedText}</Markdown>
+            </div>
+          ) : (
+            <textarea
+              className="input whitespace-pre-wrap"
+              rows={effectiveFormat === 'blog' ? 14 : 5}
+              value={editedPost}
+              onChange={(e) => editDraft({ post: e.target.value })}
+              disabled={busy}
+            />
+          )}
 
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2">
