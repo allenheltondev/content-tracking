@@ -12,7 +12,7 @@ import {
 import { streamGenerate, streamingEnabled } from '../api/stream';
 import type { VoiceFormat } from '../api/types';
 import CopyButton from '../components/CopyButton';
-import Markdown from '../components/Markdown';
+import Markdown from '../components/MarkdownLazy';
 
 // "blog" is inherently long-form, so it pins the format.
 function formatFor(platform: string, chosen: VoiceFormat): VoiceFormat {

@@ -6,7 +6,7 @@ import { askBlog } from '../api/blogs';
 import { streamGenerate, streamingEnabled } from '../api/stream';
 import type { BlogAnswerConfidence, BlogAnswerSource } from '../api/types';
 import CopyButton from '../components/CopyButton';
-import Markdown from '../components/Markdown';
+import Markdown from '../components/MarkdownLazy';
 
 // Confidence pill styling. High = the excerpts directly answered the question;
 // low = they barely touched it (or the catalog had nothing relevant). Only the
