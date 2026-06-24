@@ -108,6 +108,14 @@ Parameters:
       into vectors. Titan Text Embeddings V2 at 1024 dimensions. If you change
       the model or its dimension, the BlogVectorIndex Dimension below must match
       and existing vectors must be re-embedded (run scripts/backfill-blog-vectors.mjs).
+  ReflectionThreshold:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    Description: |
+      How many new voice samples (per platform) accumulate before
+      VoiceMemoryFunction automatically re-derives that platform's writing-style
+      profile. Lower = the profile adapts faster but spends more on Bedrock.
   BaseCustomDomain:
     Type: String
     Default: ""
@@ -184,6 +192,11 @@ Globals:
         EMBEDDING_MODEL_ID: !Ref EmbeddingModelId
         VECTOR_BUCKET_NAME: !Sub "content-tracking-blog-vectors-${Environment}-${AWS::AccountId}"
         VECTOR_INDEX_NAME: blog-vectors
+        # Voice feature: a second index in the SAME bucket holds per-sample
+        # voice embeddings; REFLECTION_THRESHOLD drives the auto-reflection
+        # cadence in VoiceMemoryFunction (and the manual-reflect route).
+        VOICE_VECTOR_INDEX_NAME: voice-samples
+        REFLECTION_THRESHOLD: !Ref ReflectionThreshold
         # Read by api/services/extension-secret.mjs on both the API
         # Lambda (mint) and the authorizer Lambda (verify). Passed in
         # via the deploy workflow from the EXTENSION_TOKEN_SIGNING_KEY
@@ -527,9 +540,10 @@ Resources:
               Resource:
                 - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
                 - !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/*"
-            # S3 Vectors: semantic search for POST /blogs/ask. GetVectors is
-            # required alongside QueryVectors because the query returns metadata
-            # and uses a tenant filter.
+            # S3 Vectors: semantic search for POST /blogs/ask and
+            # POST /voice/compose. GetVectors is required alongside QueryVectors
+            # because the query returns metadata and uses a tenant filter. The
+            # API reads both indexes; writes happen only on the stream consumers.
             - Effect: Allow
               Action:
                 - s3vectors:QueryVectors
@@ -537,6 +551,7 @@ Resources:
               Resource:
                 - !GetAtt BlogVectorBucket.VectorBucketArn
                 - !GetAtt BlogVectorIndex.IndexArn
+                - !GetAtt BlogVoiceIndex.IndexArn
             # Start cross-post durable executions by async-invoking the
             # crosspost function alias. The :* qualifier covers the alias.
             - Effect: Allow
@@ -733,6 +748,24 @@ Resources:
         NonFilterableMetadataKeys:
           - text
 
+  # Second index in the same bucket for the Voice feature: one vector per voice
+  # sample (whole short post, no chunking), retrieved as few-shot style examples.
+  # Filter metadata is {tenantId, platform, format}; the sample text rides along
+  # as non-filterable. Same dim/metric as BlogVectorIndex (shared Titan model).
+  BlogVoiceIndex:
+    Type: AWS::S3Vectors::Index
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VectorBucketArn: !GetAtt BlogVectorBucket.VectorBucketArn
+      IndexName: voice-samples
+      DataType: float32
+      Dimension: 1024
+      DistanceMetric: cosine
+      MetadataConfiguration:
+        NonFilterableMetadataKeys:
+          - text
+
   # Poison-record sink for the stream consumer. A record that still fails after
   # the configured retries is sent here instead of blocking the shard.
   VectorizeBlogDLQ:
@@ -826,6 +859,101 @@ Resources:
                 - sqs:SendMessage
               Resource:
                 - !GetAtt VectorizeBlogDLQ.Arn
+
+  # Poison-record sink for the voice-memory stream consumer.
+  VoiceMemoryDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "content-tracking-voice-memory-dlq-${Environment}"
+      MessageRetentionPeriod: 1209600 # 14 days
+
+  # Second consumer on the SAME table stream (its own event-source mapping +
+  # iterator), filtered to new VoiceSample rows. Embeds each sample into the
+  # voice-samples index, bumps the platform's reflection counter (idempotently),
+  # and re-derives the style profile via Bedrock once the counter crosses
+  # ReflectionThreshold. Timeout is generous because reflection adds a Converse
+  # call on top of the embedding.
+  VoiceMemoryFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - index.mjs
+    Properties:
+      CodeUri: functions/voice-memory
+      Handler: index.handler
+      MemorySize: 512
+      Timeout: 300
+      # EMBEDDING_MODEL_ID / BEDROCK_MODEL_ID / VECTOR_BUCKET_NAME /
+      # VOICE_VECTOR_INDEX_NAME / REFLECTION_THRESHOLD inherited from Globals.
+      Events:
+        VoiceStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt ContentTrackingTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 5
+            MaximumRetryAttempts: 3
+            BisectBatchOnFunctionError: true
+            # Only new voice samples reach the function. Samples are immutable,
+            # so INSERT only — the profile/reflection rows it writes carry other
+            # entity values and never match.
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"eventName":["INSERT"],"dynamodb":{"NewImage":{"entity":{"S":["VoiceSample"]}}}}'
+            DestinationConfig:
+              OnFailure:
+                Destination: !GetAtt VoiceMemoryDLQ.Arn
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            # Read the stream.
+            - Effect: Allow
+              Action:
+                - dynamodb:DescribeStream
+                - dynamodb:GetRecords
+                - dynamodb:GetShardIterator
+                - dynamodb:ListStreams
+              Resource:
+                - !GetAtt ContentTrackingTable.StreamArn
+                - !Sub "${ContentTrackingTable.StreamArn}/*"
+            # Sentinel mark on the sample, counter bump + profile + reflection
+            # rows, and the recent-samples Query that feeds the reflection.
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:Query
+              Resource:
+                - !GetAtt ContentTrackingTable.Arn
+            # Embed samples (Titan) and reflect the profile (Converse).
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:Converse
+              Resource:
+                - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
+                - !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/*"
+            # Read/write vectors in the voice index.
+            - Effect: Allow
+              Action:
+                - s3vectors:PutVectors
+                - s3vectors:DeleteVectors
+                - s3vectors:GetVectors
+                - s3vectors:QueryVectors
+              Resource:
+                - !GetAtt BlogVectorBucket.VectorBucketArn
+                - !GetAtt BlogVoiceIndex.IndexArn
+            # Deliver poison records to the DLQ.
+            - Effect: Allow
+              Action:
+                - sqs:SendMessage
+              Resource:
+                - !GetAtt VoiceMemoryDLQ.Arn
 
   # Static hosting for the dashboard UI. Bucket is private; only the
   # CloudFront distribution (via OAC) can read it. SPA routing is
@@ -1304,6 +1432,10 @@ Outputs:
   BlogVectorIndexName:
     Description: S3 vector index name for blog embeddings (--index for the backfill script).
     Value: blog-vectors
+
+  BlogVoiceIndexName:
+    Description: S3 vector index name for voice samples (the Voice feature).
+    Value: voice-samples
 
   HelloDurableFunctionAliasArn:
     Description: |

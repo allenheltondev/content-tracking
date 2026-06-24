@@ -1,0 +1,216 @@
+import type { FormEvent, ReactElement } from 'react';
+import { useState } from 'react';
+import { useApiFetch } from '../auth/useApiFetch';
+import { VOICE_PLATFORMS, composeVoice, createVoiceSample } from '../api/voice';
+import type { VoiceDraft, VoiceFormat } from '../api/types';
+
+// "blog" is inherently long-form, so it pins the format.
+function formatFor(platform: string, chosen: VoiceFormat): VoiceFormat {
+  return platform === 'blog' ? 'blog' : chosen;
+}
+
+export default function Compose(): ReactElement {
+  const apiFetch = useApiFetch();
+
+  const [topic, setTopic] = useState('');
+  const [platform, setPlatform] = useState<string>('x');
+  const [format, setFormat] = useState<VoiceFormat>('social');
+  const [guidance, setGuidance] = useState('');
+
+  const [draft, setDraft] = useState<VoiceDraft | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+
+  const effectiveFormat = formatFor(platform, format);
+  const trimmed = topic.trim();
+
+  const compose = async (e: FormEvent): Promise<void> => {
+    e.preventDefault();
+    if (trimmed.length === 0 || busy) return;
+    setBusy(true);
+    setError(null);
+    setDraft(null);
+    setSaveState('idle');
+    try {
+      const res = await composeVoice(apiFetch, {
+        topic: trimmed,
+        platform,
+        format: effectiveFormat,
+        guidance: guidance.trim() || undefined,
+      });
+      setDraft(res);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Saving the draft teaches the voice — the saved post becomes a future
+  // few-shot example and counts toward the next reflection.
+  const saveDraft = async (): Promise<void> => {
+    if (!draft) return;
+    setSaveState('saving');
+    try {
+      const text = draft.title ? `${draft.title}\n\n${draft.post}` : draft.post;
+      await createVoiceSample(apiFetch, { text, platform, format: effectiveFormat, source: 'generated' });
+      setSaveState('saved');
+    } catch (err) {
+      setError((err as Error).message);
+      setSaveState('idle');
+    }
+  };
+
+  return (
+    <section className="space-y-6 max-w-3xl">
+      <header>
+        <h1 className="text-2xl font-semibold text-foreground">Compose in your voice</h1>
+        <p className="text-sm text-muted-foreground">
+          Draft a post that sounds like you. It learns from your saved posts per platform — save
+          the drafts you like to make it better over time.
+        </p>
+      </header>
+
+      <form onSubmit={compose} className="space-y-3">
+        <label className="block">
+          <span className="field-label">Topic</span>
+          <textarea
+            className="input"
+            rows={2}
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            placeholder="e.g. Why I stopped writing integration tests for everything"
+            disabled={busy}
+          />
+        </label>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label className="block">
+            <span className="field-label">Platform</span>
+            <select className="input" value={platform} onChange={(e) => setPlatform(e.target.value)} disabled={busy}>
+              {VOICE_PLATFORMS.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="field-label">Format</span>
+            <select
+              className="input"
+              value={effectiveFormat}
+              onChange={(e) => setFormat(e.target.value as VoiceFormat)}
+              disabled={busy || platform === 'blog'}
+            >
+              <option value="social">Short / social</option>
+              <option value="blog">Long-form / blog</option>
+            </select>
+          </label>
+        </div>
+
+        <label className="block">
+          <span className="field-label">Guidance (optional)</span>
+          <input
+            type="text"
+            className="input"
+            value={guidance}
+            onChange={(e) => setGuidance(e.target.value)}
+            placeholder="e.g. keep it under 3 sentences, end with a question"
+            disabled={busy}
+          />
+        </label>
+
+        <button type="submit" className="btn-primary" disabled={busy || trimmed.length === 0}>
+          {busy ? 'Composing…' : 'Compose'}
+        </button>
+      </form>
+
+      {error && <p className="form-error">{error}</p>}
+
+      {draft && (
+        <div className="card card-body space-y-4">
+          {draft.title && <h2 className="text-lg font-semibold text-foreground">{draft.title}</h2>}
+          <p className="text-foreground whitespace-pre-wrap">{draft.post}</p>
+          <div className="flex items-center gap-3 border-t border-border pt-3">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => void saveDraft()}
+              disabled={saveState !== 'idle'}
+            >
+              {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved ✓' : 'Save to voice'}
+            </button>
+            <span className="text-xs text-muted-foreground">
+              Saving teaches your {platform} voice and counts toward the next refresh.
+            </span>
+          </div>
+        </div>
+      )}
+
+      <TeachSample />
+    </section>
+  );
+}
+
+// Paste an existing post you wrote to seed the voice without generating one.
+function TeachSample(): ReactElement {
+  const apiFetch = useApiFetch();
+  const [text, setText] = useState('');
+  const [platform, setPlatform] = useState<string>('x');
+  const [format, setFormat] = useState<VoiceFormat>('social');
+  const [state, setState] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [error, setError] = useState<string | null>(null);
+
+  const effectiveFormat = formatFor(platform, format);
+
+  const save = async (e: FormEvent): Promise<void> => {
+    e.preventDefault();
+    if (text.trim().length === 0 || state === 'saving') return;
+    setState('saving');
+    setError(null);
+    try {
+      await createVoiceSample(apiFetch, { text: text.trim(), platform, format: effectiveFormat, source: 'manual' });
+      setText('');
+      setState('saved');
+    } catch (err) {
+      setError((err as Error).message);
+      setState('idle');
+    }
+  };
+
+  return (
+    <form onSubmit={save} className="card card-body space-y-3">
+      <div>
+        <h2 className="text-lg font-semibold text-foreground">Teach a sample</h2>
+        <p className="text-sm text-muted-foreground">
+          Paste a post you already wrote to teach your voice directly.
+        </p>
+      </div>
+      <textarea
+        className="input"
+        rows={4}
+        value={text}
+        onChange={(e) => { setText(e.target.value); setState('idle'); }}
+        placeholder="Paste an existing post in your voice…"
+      />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <select className="input" value={platform} onChange={(e) => setPlatform(e.target.value)}>
+          {VOICE_PLATFORMS.map((p) => (<option key={p} value={p}>{p}</option>))}
+        </select>
+        <select
+          className="input"
+          value={effectiveFormat}
+          onChange={(e) => setFormat(e.target.value as VoiceFormat)}
+          disabled={platform === 'blog'}
+        >
+          <option value="social">Short / social</option>
+          <option value="blog">Long-form / blog</option>
+        </select>
+      </div>
+      {error && <p className="form-error">{error}</p>}
+      <button type="submit" className="btn-secondary" disabled={state === 'saving' || text.trim().length === 0}>
+        {state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved ✓' : 'Save sample'}
+      </button>
+    </form>
+  );
+}
