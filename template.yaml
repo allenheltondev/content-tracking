@@ -964,6 +964,74 @@ Resources:
               Resource:
                 - !GetAtt VoiceMemoryDLQ.Arn
 
+  # Response-streaming endpoint for live "typing" of composed posts and blog
+  # answers. API Gateway (REST) can't stream, so this is a Lambda Function URL
+  # with InvokeMode RESPONSE_STREAM. AuthType is NONE because Function URLs
+  # can't use a Cognito authorizer — the function verifies the same id token
+  # in-process (same user pool/client as ApiAuthorizerFunction).
+  StreamGenerateFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - index.mjs
+    Properties:
+      CodeUri: functions/stream-generate
+      Handler: index.handler
+      MemorySize: 512
+      Timeout: 120
+      Environment:
+        Variables:
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+      FunctionUrlConfig:
+        AuthType: NONE
+        InvokeMode: RESPONSE_STREAM
+        Cors:
+          AllowOrigins:
+            - !If
+              - DeployCustomDomain
+              - !Sub "https://booked.${BaseCustomDomain}"
+              - !Sub "https://${DashboardDistribution.DomainName}"
+          AllowMethods:
+            - POST
+          AllowHeaders:
+            - authorization
+            - content-type
+          MaxAge: 300
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            # Embed the topic/question and stream the model output.
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+                - bedrock:Converse
+                - bedrock:ConverseStream
+              Resource:
+                - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
+                - !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/*"
+            # Retrieve few-shot examples (voice) / passages (blog).
+            - Effect: Allow
+              Action:
+                - s3vectors:QueryVectors
+                - s3vectors:GetVectors
+              Resource:
+                - !GetAtt BlogVectorBucket.VectorBucketArn
+                - !GetAtt BlogVectorIndex.IndexArn
+                - !GetAtt BlogVoiceIndex.IndexArn
+            # Read the voice profile injected into the compose prompt.
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:Query
+              Resource:
+                - !GetAtt ContentTrackingTable.Arn
+
   # Static hosting for the dashboard UI. Bucket is private; only the
   # CloudFront distribution (via OAC) can read it. SPA routing is
   # handled by rewriting 403/404 to /index.html so deep links survive a
@@ -1445,6 +1513,13 @@ Outputs:
   BlogVoiceIndexName:
     Description: S3 vector index name for voice samples (the Voice feature).
     Value: voice-samples
+
+  StreamGenerateUrl:
+    Description: |
+      Function URL for streaming compose/ask. Set as VITE_STREAM_BASE_URL in the
+      dashboard build so it can render generations live; if unset the UI falls
+      back to the buffered REST endpoints.
+    Value: !GetAtt StreamGenerateFunctionUrl.FunctionUrl
 
   HelloDurableFunctionAliasArn:
     Description: |
