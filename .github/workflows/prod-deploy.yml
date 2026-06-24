@@ -157,6 +157,7 @@ jobs:
             echo "dashboard-bucket=$(read_out DashboardBucketName)"
             echo "dashboard-distribution-id=$(read_out DashboardDistributionId)"
             echo "dashboard-url=$(read_out DashboardUrl)"
+            echo "stream-url=$(read_out StreamGenerateUrl)"
           } >> "$GITHUB_OUTPUT"
 
       - name: Install dashboard dependencies
@@ -171,6 +172,9 @@ jobs:
           VITE_AWS_REGION: ${{ env.AWS_REGION }}
           VITE_USER_POOL_ID: ${{ vars.USER_POOL_ID }}
           VITE_USER_POOL_CLIENT_ID: ${{ vars.USER_POOL_CLIENT_ID }}
+          # Streaming Function URL (StreamGenerateUrl output). Optional in the
+          # UI — empty falls back to the buffered REST endpoints.
+          VITE_STREAM_BASE_URL: ${{ steps.outputs.outputs.stream-url }}
         run: npm run build
 
       - name: Package Chrome extension into dashboard build
