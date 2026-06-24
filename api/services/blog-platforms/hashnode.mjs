@@ -74,3 +74,39 @@ export async function publish({ blog, content, tags = [], config = {}, credentia
 
   return { id: post.id, slug: post.slug, url };
 }
+
+// Bound on the private post-stats pagination so a misbehaving endpoint
+// can't loop forever.
+const MAX_STATS_PAGES = 50;
+
+// All-time views for a post via Hashnode's private post-stats endpoint.
+// `id` is the post slug; this pages through the publication's stats and
+// matches it. Returns 0 when the slug isn't found.
+export async function getViews({ id, config = {}, credential }) {
+  if (!id) return 0;
+  if (!credential) {
+    throw new Error("Hashnode credential is not configured for this tenant");
+  }
+  if (!config.publicationId) {
+    throw new Error("Hashnode publicationId is not configured for this tenant");
+  }
+
+  for (let page = 0; page < MAX_STATS_PAGES; page += 1) {
+    const url = `https://hashnode.com/ajax/user/post-stats?publication=${config.publicationId}&page=${page}`;
+    const response = await fetch(url, { method: "GET", headers: { "Authorization": credential } });
+
+    const text = await response.text();
+    if (!response.ok) {
+      logger.error("Hashnode analytics failed", { status: response.status, body: text });
+      throw new UpstreamError(`Hashnode analytics failed: ${text}`, response.status);
+    }
+
+    const posts = JSON.parse(text).posts ?? [];
+    if (posts.length === 0) break;
+
+    const match = posts.find((p) => p.slug === id);
+    if (match) return Number(match.views) || 0;
+  }
+
+  return 0;
+}
