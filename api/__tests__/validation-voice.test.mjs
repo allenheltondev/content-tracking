@@ -60,7 +60,7 @@ describe("validation/voice", () => {
     test("formatVoiceProfile returns null for a missing row", () => {
       expect(formatVoiceProfile(null)).toBeNull();
       expect(formatVoiceProfile({ platform: "x", profile: { tone: "wry" }, samplesSinceReflection: 2, version: 1, updatedAt: "t1" }))
-        .toMatchObject({ platform: "x", samples_since_reflection: 2, version: 1, updated_at: "t1" });
+        .toMatchObject({ platform: "x", samples_since_reflection: 2, reflection_threshold: 5, version: 1, updated_at: "t1" });
     });
     test("formatVoiceReflection", () => {
       expect(formatVoiceReflection({ reflectionId: "R1", platform: "x", changeSummary: "c", sampleWindow: 5, model: "m", createdAt: "t0" }))

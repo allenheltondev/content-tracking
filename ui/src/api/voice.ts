@@ -16,6 +16,34 @@ export const VOICE_PLATFORMS = [
   'devto',
 ] as const;
 
+// Display names so selects/labels read "LinkedIn" / "Dev.to", not "linkedin".
+export const PLATFORM_LABELS: Record<string, string> = {
+  blog: 'Blog',
+  x: 'X',
+  linkedin: 'LinkedIn',
+  bluesky: 'Bluesky',
+  instagram: 'Instagram',
+  threads: 'Threads',
+  mastodon: 'Mastodon',
+  medium: 'Medium',
+  devto: 'Dev.to',
+};
+
+export function platformLabel(platform: string): string {
+  return PLATFORM_LABELS[platform] ?? platform;
+}
+
+// Soft character limits for short-form platforms, used to warn (not block) when
+// a social draft runs long. Absent = no limit shown (blog, medium, dev.to).
+export const PLATFORM_CHAR_LIMITS: Record<string, number> = {
+  x: 280,
+  bluesky: 300,
+  mastodon: 500,
+  threads: 500,
+  instagram: 2200,
+  linkedin: 3000,
+};
+
 export interface ComposeParams {
   topic: string;
   platform: string;

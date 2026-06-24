@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useApiFetch } from '../auth/useApiFetch';
 import { askBlog } from '../api/blogs';
 import type { BlogAnswer, BlogAnswerConfidence } from '../api/types';
+import CopyButton from '../components/CopyButton';
 
 // Confidence pill styling. High = the excerpts directly answered the question;
 // low = they barely touched it (or the catalog had nothing relevant).
@@ -85,11 +86,14 @@ function AnswerCard({ answer }: { answer: BlogAnswer }): ReactElement {
     <div className="card card-body space-y-4">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-foreground">Answer</h2>
-        <span
-          className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${CONFIDENCE_CLASS[answer.confidence]}`}
-        >
-          {answer.confidence} confidence
-        </span>
+        <div className="flex items-center gap-2">
+          <span
+            className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${CONFIDENCE_CLASS[answer.confidence]}`}
+          >
+            {answer.confidence} confidence
+          </span>
+          <CopyButton text={answer.answer} />
+        </div>
       </div>
 
       <p className="text-foreground whitespace-pre-wrap">{answer.answer}</p>
