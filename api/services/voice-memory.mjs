@@ -3,11 +3,10 @@ import { putVoiceSample } from "./voice-vectors.mjs";
 import { reflectVoiceProfile } from "./bedrock.mjs";
 import { logger } from "./logger.mjs";
 import {
-  bumpSampleCounter,
+  countSampleOnce,
   createReflection,
   getVoiceProfile,
   listRecentSamples,
-  markSampleVectorized,
   putVoiceProfile,
 } from "../domain/voice.mjs";
 
@@ -23,12 +22,18 @@ import {
 const REFLECTION_THRESHOLD = Number(process.env.REFLECTION_THRESHOLD ?? 5);
 const WINDOW = Math.max(REFLECTION_THRESHOLD, 10);
 
-// Processes one new VoiceSample: embed → upsert vector → (idempotently) bump the
-// platform counter → reflect when the counter crosses the threshold.
+// Processes one new VoiceSample: embed → upsert vector → count it once → reflect
+// when the counter crosses the threshold.
 //
-// Ordering matters for exactly-once: the vector Put is idempotent (deterministic
-// key), then a conditional sentinel gates the non-idempotent counter bump, so a
-// redelivered stream record re-puts the (identical) vector and then no-ops.
+// Ordering for exactly-once under at-least-once stream delivery:
+//  1. The vector Put is idempotent (deterministic key), and runs first so a
+//     counted sample always has a vector.
+//  2. countSampleOnce marks the sample and increments the counter ATOMICALLY,
+//     so a redelivery can neither double-count nor leave the sample counted
+//     without its mark (or vice versa) — it simply skips.
+//  3. Reflection is a best-effort follow-up. If it fails, the counter is not
+//     reset, so it stays >= threshold and the next sample re-triggers it (and
+//     the manual /reflect route is always available) — no work is lost.
 export async function recordVoiceSample(sample) {
   const { tenantId, platform, sampleId, format, text } = sample;
   if (!tenantId || !platform || !sampleId || !text) {
@@ -39,13 +44,11 @@ export async function recordVoiceSample(sample) {
   const embedding = await embedText(text);
   await putVoiceSample({ tenantId, platform, format, sampleId, text, embedding });
 
-  const firstTime = await markSampleVectorized(tenantId, platform, sampleId);
-  if (!firstTime) {
-    logger.info("Voice sample already counted; skipping bump", { platform, sampleId });
+  const { counted, count } = await countSampleOnce(tenantId, platform, sampleId);
+  if (!counted) {
+    logger.info("Voice sample already counted; skipping", { platform, sampleId });
     return { skipped: true, reason: "already-counted" };
   }
-
-  const count = await bumpSampleCounter(tenantId, platform);
   logger.info("Recorded voice sample", { platform, sampleId, count });
 
   if (count >= REFLECTION_THRESHOLD) {

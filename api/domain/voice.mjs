@@ -1,10 +1,10 @@
-import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
+import { ConditionalCheckFailedException, TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import {
   DeleteCommand,
   GetCommand,
   PutCommand,
   QueryCommand,
-  UpdateCommand,
+  TransactWriteCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ulid } from "ulid";
 import { TABLE_NAME, ddb } from "../services/ddb.mjs";
@@ -107,24 +107,65 @@ export async function deleteVoiceSampleRow(tenantId, platform, sampleId) {
   }
 }
 
-// Idempotency sentinel for the stream consumer: marks a sample as vectorized,
-// returning true only the FIRST time. A redelivered stream record fails the
-// condition and gets false, so the non-idempotent counter bump that follows
-// runs exactly once per sample.
-export async function markSampleVectorized(tenantId, platform, sampleId) {
+// Counts a new sample toward the platform's reflection cadence — exactly once,
+// even under the stream's at-least-once delivery. A single transaction marks
+// the sample (conditional on not-yet-marked) AND increments the profile counter
+// (creating the profile row on first use). Because the two writes are atomic,
+// a sample can never end up marked-but-uncounted: a redelivered record fails
+// the condition and the whole unit is skipped. Returns { counted, count }; the
+// count is read consistently so the caller's reflection decision sees the
+// just-written total.
+export async function countSampleOnce(tenantId, platform, sampleId) {
+  const now = new Date().toISOString();
   try {
-    await ddb.send(new UpdateCommand({
-      TableName: TABLE_NAME,
-      Key: voiceSampleKey(tenantId, platform, sampleId),
-      UpdateExpression: "SET vectorizedAt = :now",
-      ConditionExpression: "attribute_not_exists(vectorizedAt)",
-      ExpressionAttributeValues: { ":now": new Date().toISOString() },
+    await ddb.send(new TransactWriteCommand({
+      TransactItems: [
+        {
+          Update: {
+            TableName: TABLE_NAME,
+            Key: voiceSampleKey(tenantId, platform, sampleId),
+            UpdateExpression: "SET vectorizedAt = :now",
+            ConditionExpression: "attribute_not_exists(vectorizedAt)",
+            ExpressionAttributeValues: { ":now": now },
+          },
+        },
+        {
+          Update: {
+            TableName: TABLE_NAME,
+            Key: voiceProfileKey(tenantId, platform),
+            UpdateExpression:
+              "SET entity = if_not_exists(entity, :e), tenantId = if_not_exists(tenantId, :t), "
+              + "platform = if_not_exists(platform, :p), createdAt = if_not_exists(createdAt, :now), "
+              + "updatedAt = :now ADD samplesSinceReflection :one",
+            ExpressionAttributeValues: {
+              ":e": "VoiceProfile",
+              ":t": tenantId,
+              ":p": platform,
+              ":now": now,
+              ":one": 1,
+            },
+          },
+        },
+      ],
     }));
-    return true;
   } catch (err) {
-    if (err instanceof ConditionalCheckFailedException) return false;
+    // The sample's conditional check failing means it was already counted on an
+    // earlier delivery — skip. Any other cancellation (throttle, conflict) is
+    // transient: rethrow so the stream retries the whole unit.
+    if (err instanceof TransactionCanceledException
+      && err.CancellationReasons?.[0]?.Code === "ConditionalCheckFailed") {
+      return { counted: false, count: 0 };
+    }
     throw err;
   }
+
+  const res = await ddb.send(new GetCommand({
+    TableName: TABLE_NAME,
+    Key: voiceProfileKey(tenantId, platform),
+    ConsistentRead: true,
+    ProjectionExpression: "samplesSinceReflection",
+  }));
+  return { counted: true, count: res.Item?.samplesSinceReflection ?? 0 };
 }
 
 export async function getVoiceProfile(tenantId, platform) {
@@ -146,31 +187,6 @@ export async function listProfiles(tenantId) {
     },
   }));
   return result.Items ?? [];
-}
-
-// Atomically increments the platform profile's "samples since last reflection"
-// counter, creating the profile row on the first sample, and returns the new
-// count. Non-idempotent (ADD) by design — the stream consumer gates it behind a
-// per-sample sentinel so a redelivery can't double-count.
-export async function bumpSampleCounter(tenantId, platform) {
-  const now = new Date().toISOString();
-  const result = await ddb.send(new UpdateCommand({
-    TableName: TABLE_NAME,
-    Key: voiceProfileKey(tenantId, platform),
-    UpdateExpression:
-      "SET entity = if_not_exists(entity, :e), tenantId = if_not_exists(tenantId, :t), "
-      + "platform = if_not_exists(platform, :p), createdAt = if_not_exists(createdAt, :now), "
-      + "updatedAt = :now ADD samplesSinceReflection :one",
-    ExpressionAttributeValues: {
-      ":e": "VoiceProfile",
-      ":t": tenantId,
-      ":p": platform,
-      ":now": now,
-      ":one": 1,
-    },
-    ReturnValues: "UPDATED_NEW",
-  }));
-  return result.Attributes?.samplesSinceReflection ?? 0;
 }
 
 // Writes the (re)reflected profile: the full JSON profile, a bumped version,

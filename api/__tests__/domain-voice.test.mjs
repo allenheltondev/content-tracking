@@ -3,7 +3,7 @@ import { jest } from "@jest/globals";
 process.env.TABLE_NAME = "test-booked";
 
 const { DynamoDBDocumentClient } = await import("@aws-sdk/lib-dynamodb");
-const { ConditionalCheckFailedException } = await import("@aws-sdk/client-dynamodb");
+const { ConditionalCheckFailedException, TransactionCanceledException } = await import("@aws-sdk/client-dynamodb");
 const {
   voiceSampleKey,
   voiceProfileKey,
@@ -11,10 +11,9 @@ const {
   createVoiceSample,
   listRecentSamples,
   deleteVoiceSampleRow,
-  markSampleVectorized,
+  countSampleOnce,
   getVoiceProfile,
   listProfiles,
-  bumpSampleCounter,
   putVoiceProfile,
   createReflection,
   listReflections,
@@ -69,22 +68,34 @@ describe("domain/voice", () => {
     expect(out).toEqual([{ sampleId: "S2" }]);
   });
 
-  test("bumpSampleCounter ADDs and returns the new count", async () => {
-    mockSend.mockResolvedValue({ Attributes: { samplesSinceReflection: 3 } });
-    const count = await bumpSampleCounter(TENANT, "x");
-    expect(count).toBe(3);
-    const cmd = input(mockSend);
-    expect(cmd.UpdateExpression).toContain("ADD samplesSinceReflection :one");
-    expect(cmd.ReturnValues).toBe("UPDATED_NEW");
+  test("countSampleOnce marks + counts atomically and returns the new count", async () => {
+    mockSend.mockResolvedValueOnce({}); // TransactWrite
+    mockSend.mockResolvedValueOnce({ Item: { samplesSinceReflection: 3 } }); // consistent read
+
+    const res = await countSampleOnce(TENANT, "x", "S1");
+    expect(res).toEqual({ counted: true, count: 3 });
+
+    const txn = input(mockSend, 0);
+    expect(txn.TransactItems).toHaveLength(2);
+    expect(txn.TransactItems[0].Update.ConditionExpression).toBe("attribute_not_exists(vectorizedAt)");
+    expect(txn.TransactItems[1].Update.UpdateExpression).toContain("ADD samplesSinceReflection :one");
+    expect(input(mockSend, 1).ConsistentRead).toBe(true);
   });
 
-  test("markSampleVectorized returns true on first mark, false on redelivery", async () => {
-    mockSend.mockResolvedValueOnce({});
-    expect(await markSampleVectorized(TENANT, "x", "S1")).toBe(true);
-    expect(input(mockSend).ConditionExpression).toBe("attribute_not_exists(vectorizedAt)");
+  test("countSampleOnce returns counted:false when the sample was already counted", async () => {
+    const cancelled = new TransactionCanceledException({ $metadata: {}, message: "cancelled" });
+    cancelled.CancellationReasons = [{ Code: "ConditionalCheckFailed" }, { Code: "None" }];
+    mockSend.mockRejectedValueOnce(cancelled);
 
-    mockSend.mockRejectedValueOnce(new ConditionalCheckFailedException({ $metadata: {}, message: "exists" }));
-    expect(await markSampleVectorized(TENANT, "x", "S1")).toBe(false);
+    expect(await countSampleOnce(TENANT, "x", "S1")).toEqual({ counted: false, count: 0 });
+    expect(mockSend).toHaveBeenCalledTimes(1); // no consistent read on the skip path
+  });
+
+  test("countSampleOnce rethrows a transient cancellation (e.g. conflict)", async () => {
+    const cancelled = new TransactionCanceledException({ $metadata: {}, message: "conflict" });
+    cancelled.CancellationReasons = [{ Code: "TransactionConflict" }];
+    mockSend.mockRejectedValueOnce(cancelled);
+    await expect(countSampleOnce(TENANT, "x", "S1")).rejects.toThrow(TransactionCanceledException);
   });
 
   test("putVoiceProfile resets the counter, sets version, preserves createdAt", async () => {

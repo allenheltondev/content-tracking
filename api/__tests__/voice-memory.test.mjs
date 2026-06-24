@@ -8,8 +8,7 @@ jest.unstable_mockModule("../services/embeddings.mjs", () => ({ embedText: jest.
 jest.unstable_mockModule("../services/voice-vectors.mjs", () => ({ putVoiceSample: jest.fn() }));
 jest.unstable_mockModule("../services/bedrock.mjs", () => ({ reflectVoiceProfile: jest.fn() }));
 jest.unstable_mockModule("../domain/voice.mjs", () => ({
-  markSampleVectorized: jest.fn(),
-  bumpSampleCounter: jest.fn(),
+  countSampleOnce: jest.fn(),
   listRecentSamples: jest.fn(),
   getVoiceProfile: jest.fn(),
   putVoiceProfile: jest.fn(),
@@ -20,7 +19,7 @@ const { embedText } = await import("../services/embeddings.mjs");
 const { putVoiceSample } = await import("../services/voice-vectors.mjs");
 const { reflectVoiceProfile } = await import("../services/bedrock.mjs");
 const {
-  markSampleVectorized, bumpSampleCounter, listRecentSamples,
+  countSampleOnce, listRecentSamples,
   getVoiceProfile, putVoiceProfile, createReflection,
 } = await import("../domain/voice.mjs");
 const { recordVoiceSample, runReflection } = await import("../services/voice-memory.mjs");
@@ -31,8 +30,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   embedText.mockResolvedValue([0.1, 0.2]);
   putVoiceSample.mockResolvedValue();
-  markSampleVectorized.mockResolvedValue(true);
-  bumpSampleCounter.mockResolvedValue(1);
+  countSampleOnce.mockResolvedValue({ counted: true, count: 1 });
   listRecentSamples.mockResolvedValue([{ text: "a" }, { text: "b" }]);
   getVoiceProfile.mockResolvedValue(null);
   reflectVoiceProfile.mockResolvedValue({ profile: { tone: "wry" }, change_summary: "built it" });
@@ -41,30 +39,29 @@ beforeEach(() => {
 });
 
 describe("recordVoiceSample", () => {
-  test("embeds, upserts, marks, and bumps — no reflection below threshold", async () => {
-    bumpSampleCounter.mockResolvedValue(2);
+  test("embeds, upserts, and counts — no reflection below threshold", async () => {
+    countSampleOnce.mockResolvedValue({ counted: true, count: 2 });
     const res = await recordVoiceSample(sample);
     expect(res).toEqual({ count: 2 });
     expect(embedText).toHaveBeenCalledWith("hello world");
     expect(putVoiceSample).toHaveBeenCalledTimes(1);
-    expect(markSampleVectorized).toHaveBeenCalledWith("T1", "x", "S1");
+    expect(countSampleOnce).toHaveBeenCalledWith("T1", "x", "S1");
     expect(reflectVoiceProfile).not.toHaveBeenCalled();
   });
 
   test("triggers reflection once the counter reaches the threshold", async () => {
-    bumpSampleCounter.mockResolvedValue(3);
+    countSampleOnce.mockResolvedValue({ counted: true, count: 3 });
     await recordVoiceSample(sample);
     expect(reflectVoiceProfile).toHaveBeenCalledTimes(1);
     expect(putVoiceProfile).toHaveBeenCalledWith("T1", "x", expect.objectContaining({ version: 1 }));
     expect(createReflection).toHaveBeenCalledTimes(1);
   });
 
-  test("redelivery (sentinel already set) skips the bump and reflection", async () => {
-    markSampleVectorized.mockResolvedValue(false);
+  test("redelivery (already counted) skips reflection but re-puts the vector", async () => {
+    countSampleOnce.mockResolvedValue({ counted: false, count: 0 });
     const res = await recordVoiceSample(sample);
     expect(res).toEqual({ skipped: true, reason: "already-counted" });
     expect(putVoiceSample).toHaveBeenCalledTimes(1); // idempotent re-put still happens
-    expect(bumpSampleCounter).not.toHaveBeenCalled();
     expect(reflectVoiceProfile).not.toHaveBeenCalled();
   });
 

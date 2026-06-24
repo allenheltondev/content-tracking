@@ -552,6 +552,15 @@ Resources:
                 - !GetAtt BlogVectorBucket.VectorBucketArn
                 - !GetAtt BlogVectorIndex.IndexArn
                 - !GetAtt BlogVoiceIndex.IndexArn
+            # DELETE /voice/samples removes a sample's vector directly (blog
+            # vectors are only ever deleted by the stream consumer, so this is
+            # scoped to the voice index).
+            - Effect: Allow
+              Action:
+                - s3vectors:DeleteVectors
+              Resource:
+                - !GetAtt BlogVectorBucket.VectorBucketArn
+                - !GetAtt BlogVoiceIndex.IndexArn
             # Start cross-post durable executions by async-invoking the
             # crosspost function alias. The :* qualifier covers the alias.
             - Effect: Allow
