@@ -830,3 +830,54 @@ export interface VoiceReflection {
   model: string | null;
   created_at: string;
 }
+
+// Blog catalog management (the /blogs CRUD + cross-post surface).
+export interface BlogSummary {
+  blog_id: string;
+  title: string;
+  slug: string;
+  description: string | null;
+  image: string | null;
+  image_attribution: string | null;
+  tags: string[];
+  categories: string[];
+  canonical_url: string | null;
+  campaign_id: string | null;
+  links: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Blog extends BlogSummary {
+  content_markdown: string | null;
+}
+
+export interface BlogListResponse {
+  blogs: BlogSummary[];
+  nextStartKey: string | null;
+}
+
+export type CrosspostPlatform = 'dev' | 'medium' | 'hashnode';
+
+export interface CrosspostRun {
+  run_id: string;
+  status: string;
+  platforms: { platform: string; delay_seconds?: number }[];
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface CrosspostCopy {
+  platform: string;
+  status: string;
+  url: string | null;
+  id: string | null;
+  scheduled_for: string | null;
+  published_at: string | null;
+  error: string | null;
+}
+
+export interface CrosspostStatus {
+  run: CrosspostRun | null;
+  platforms: CrosspostCopy[];
+}
