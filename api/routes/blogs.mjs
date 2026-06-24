@@ -15,11 +15,16 @@ import { decodeCursor, encodeCursor, parseLimit } from "../services/pagination.m
 import { startCrosspostExecution } from "../services/crosspost-invoker.mjs";
 import { emptyResponse, jsonResponse } from "../services/http-handler.mjs";
 import { BadRequestError, NotFoundError } from "../services/errors.mjs";
+import { embedText } from "../services/embeddings.mjs";
+import { queryBlogChunks } from "../services/blog-vectors.mjs";
+import { answerBlogQuestion } from "../services/bedrock.mjs";
 import {
   formatBlog,
+  formatBlogAnswer,
   formatBlogSummary,
   formatCrosspostStatus,
   validateBlogCreate,
+  validateBlogQuestion,
   validateBlogUpdate,
   validateCrosspostRequest,
 } from "../validation/blog.mjs";
@@ -37,6 +42,36 @@ export function registerBlogRoutes(app) {
     const item = await createBlog(tenantId, fields);
     return jsonResponse(201, formatBlog(item));
   }));
+
+  // POST /blogs/ask — RAG Q&A over the tenant's blog catalog. Embeds the
+  // question, retrieves the nearest chunks from the vector index (tenant-
+  // scoped, optionally one post), and asks Bedrock to answer grounded in
+  // them. Registered before /blogs/:blogId so the literal path wins. Nothing
+  // is persisted; a retry just re-runs.
+  app.post("/blogs/ask", async ({ event }) => {
+    const tenantId = requireTenantId(event);
+    const { question, topK, blogId } = validateBlogQuestion(parseBody(event));
+
+    const queryEmbedding = await embedText(question);
+    const chunks = await queryBlogChunks({ tenantId, queryEmbedding, topK, blogId });
+
+    // No vectors matched (empty catalog or nothing relevant): answer plainly
+    // without spending a Bedrock call.
+    if (chunks.length === 0) {
+      return jsonResponse(200, formatBlogAnswer({
+        answer: "I couldn't find anything in your blog catalog relevant to that question.",
+        confidence: "low",
+        citations: [],
+      }));
+    }
+
+    const { answer, sources_used, confidence } = await answerBlogQuestion({ question, chunks });
+    return jsonResponse(200, formatBlogAnswer({
+      answer,
+      confidence: confidence ?? "low",
+      citations: resolveCitations(sources_used, chunks),
+    }));
+  });
 
   app.get("/blogs", async ({ event }) => {
     const tenantId = requireTenantId(event);
@@ -119,6 +154,22 @@ export function registerBlogRoutes(app) {
     const status = await getCrosspostStatus(tenantId, params.blogId, { runId });
     return jsonResponse(200, formatCrosspostStatus(status));
   });
+}
+
+// Maps the model's 1-based source_used numbers back to the posts they point
+// at, deduped to one citation per blog (the same post can contribute several
+// chunks). Out-of-range numbers are ignored so a stray index can't crash the
+// response.
+function resolveCitations(sourcesUsed, chunks) {
+  const seen = new Set();
+  const citations = [];
+  for (const n of sourcesUsed ?? []) {
+    const chunk = chunks[n - 1];
+    if (!chunk || !chunk.blogId || seen.has(chunk.blogId)) continue;
+    seen.add(chunk.blogId);
+    citations.push({ blogId: chunk.blogId, title: chunk.title, slug: chunk.slug });
+  }
+  return citations;
 }
 
 function parseBody(event) {

@@ -2,6 +2,7 @@ import {
   S3VectorsClient,
   PutVectorsCommand,
   DeleteVectorsCommand,
+  QueryVectorsCommand,
 } from "@aws-sdk/client-s3vectors";
 import { logger } from "./logger.mjs";
 
@@ -64,6 +65,44 @@ export async function putBlogChunks({ tenantId, blogId, slug, title, chunks }) {
   }
 
   logger.info("Put blog chunk vectors", { blogId, count: vectors.length });
+}
+
+// Nearest-neighbour search over a tenant's blog chunks. `queryEmbedding` is
+// the embedded question; the metadata filter scopes results to the caller's
+// tenant (and optionally one blog) so a query never leaks across tenants.
+// Returns the matched chunks with their distance, closest first.
+//
+// Note: returnMetadata / a filter both require s3vectors:GetVectors in
+// addition to s3vectors:QueryVectors on the caller's IAM.
+export async function queryBlogChunks({ tenantId, queryEmbedding, topK = 8, blogId }) {
+  if (!BUCKET || !INDEX) {
+    throw new Error("VECTOR_BUCKET_NAME / VECTOR_INDEX_NAME env vars are not set");
+  }
+  if (!tenantId) throw new Error("queryBlogChunks requires a tenantId");
+
+  // Implicit AND across keys: tenantId always, blogId when narrowing to a post.
+  const filter = { tenantId };
+  if (blogId) filter.blogId = blogId;
+
+  const res = await client.send(new QueryVectorsCommand({
+    vectorBucketName: BUCKET,
+    indexName: INDEX,
+    topK,
+    queryVector: { float32: queryEmbedding },
+    filter,
+    returnMetadata: true,
+    returnDistance: true,
+  }));
+
+  return (res.vectors ?? []).map((v) => ({
+    key: v.key,
+    distance: v.distance,
+    blogId: v.metadata?.blogId,
+    title: v.metadata?.title,
+    slug: v.metadata?.slug,
+    chunkIndex: v.metadata?.chunkIndex,
+    text: v.metadata?.text,
+  }));
 }
 
 // Deletes the vectors for chunk indices in [fromIndex, toIndex). Used both to
