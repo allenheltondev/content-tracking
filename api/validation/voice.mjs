@@ -21,6 +21,10 @@ export const VOICE_PLATFORMS = [
 export const VOICE_FORMATS = ["social", "blog"];
 const SOURCES = ["manual", "generated", "blog-seed"];
 
+// Surfaced to the UI so it can render real progress toward the next automatic
+// reflection. Mirrors the ReflectionThreshold template parameter.
+const REFLECTION_THRESHOLD = Number(process.env.REFLECTION_THRESHOLD ?? 5);
+
 const TOPIC_MAX = 2000;
 const GUIDANCE_MAX = 1000;
 const SAMPLE_TEXT_MAX = 20_000;
@@ -115,6 +119,7 @@ export function formatVoiceProfile(row) {
     platform: row.platform,
     profile: row.profile ?? null,
     samples_since_reflection: row.samplesSinceReflection ?? 0,
+    reflection_threshold: REFLECTION_THRESHOLD,
     version: row.version ?? 0,
     created_at: row.createdAt ?? null,
     updated_at: row.updatedAt ?? null,
