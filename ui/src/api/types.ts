@@ -794,3 +794,38 @@ export interface BlogAnswer {
   confidence: BlogAnswerConfidence;
   sources: BlogAnswerSource[];
 }
+
+// Voice feature (learn + draft in the creator's per-platform writing style).
+export type VoiceFormat = 'social' | 'blog';
+
+export interface VoiceDraft {
+  post: string;
+  title: string | null;
+}
+
+export interface VoiceSample {
+  sample_id: string;
+  platform: string;
+  format: string | null;
+  source: string | null;
+  text: string;
+  created_at: string;
+}
+
+export interface VoiceProfile {
+  platform: string;
+  profile: Record<string, unknown> | null;
+  samples_since_reflection: number;
+  version: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface VoiceReflection {
+  reflection_id: string;
+  platform: string;
+  change_summary: string | null;
+  sample_window: number | null;
+  model: string | null;
+  created_at: string;
+}

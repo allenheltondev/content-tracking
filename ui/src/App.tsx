@@ -45,6 +45,12 @@ function NavItems({
       <NavLink to="/ask" className={className} onClick={onNavigate}>
         Ask
       </NavLink>
+      <NavLink to="/compose" className={className} onClick={onNavigate}>
+        Compose
+      </NavLink>
+      <NavLink to="/voice" className={className} onClick={onNavigate}>
+        Voice
+      </NavLink>
       <NavLink to="/media-kit" className={className} onClick={onNavigate}>
         Media kit
       </NavLink>

@@ -4,7 +4,7 @@ process.env.BEDROCK_MODEL_ID = "us.amazon.nova-pro-v1:0";
 process.env.BEDROCK_REGION = "us-east-1";
 
 const { BedrockRuntimeClient } = await import("@aws-sdk/client-bedrock-runtime");
-const { summarizeBrief, reviewDraft, recommendEngagement, answerBlogQuestion } = await import("../services/bedrock.mjs");
+const { summarizeBrief, reviewDraft, recommendEngagement, answerBlogQuestion, composeVoicePost, reflectVoiceProfile } = await import("../services/bedrock.mjs");
 const { UpstreamError } = await import("../services/errors.mjs");
 
 describe("services/bedrock summarizeBrief", () => {
@@ -363,6 +363,78 @@ describe("services/bedrock answerBlogQuestion", () => {
     mockSend.mockRejectedValueOnce(new Error("throttled"));
     await expect(
       answerBlogQuestion({ question: "q", chunks: [{ blogId: "B1", title: "T", text: "x" }] }),
+    ).rejects.toThrow(UpstreamError);
+  });
+});
+
+describe("services/bedrock voice", () => {
+  let mockSend;
+  beforeEach(() => {
+    mockSend = jest.fn();
+    BedrockRuntimeClient.prototype.send = mockSend;
+    jest.clearAllMocks();
+  });
+
+  const toolResponse = (name, input) => ({
+    stopReason: "tool_use",
+    output: { message: { role: "assistant", content: [{ toolUse: { name, input } }] } },
+    usage: { inputTokens: 100, outputTokens: 40 },
+  });
+
+  test("composeVoicePost forces record_voice_post, threads profile + examples, blog gets more tokens", async () => {
+    mockSend.mockResolvedValueOnce(toolResponse("record_voice_post", { post: "Drafted.", title: "T" }));
+
+    const result = await composeVoicePost({
+      topic: "ship faster",
+      platform: "blog",
+      format: "blog",
+      profile: { tone: "wry" },
+      samples: [{ text: "past post one" }],
+      guidance: "mention CI",
+    });
+
+    expect(result.post).toBe("Drafted.");
+    const command = mockSend.mock.calls[0][0];
+    expect(command.input.toolConfig.toolChoice.tool.name).toBe("record_voice_post");
+    expect(command.input.inferenceConfig.maxTokens).toBe(3072);
+    const userText = command.input.messages[0].content[0].text;
+    expect(userText).toContain("STYLE PROFILE (blog)");
+    expect(userText).toContain('"tone": "wry"');
+    expect(userText).toContain("[1] past post one");
+    expect(userText).toContain("ship faster");
+    expect(userText).toContain("mention CI");
+  });
+
+  test("composeVoicePost caps social drafts at 512 tokens", async () => {
+    mockSend.mockResolvedValueOnce(toolResponse("record_voice_post", { post: "short" }));
+    await composeVoicePost({ topic: "t", platform: "x", format: "social", profile: null, samples: [] });
+    expect(mockSend.mock.calls[0][0].input.inferenceConfig.maxTokens).toBe(512);
+  });
+
+  test("reflectVoiceProfile forces record_voice_profile and feeds recent samples", async () => {
+    mockSend.mockResolvedValueOnce(toolResponse("record_voice_profile", {
+      profile: { tone: "earnest" }, change_summary: "tightened tone",
+    }));
+
+    const result = await reflectVoiceProfile({
+      platform: "linkedin",
+      currentProfile: { tone: "old" },
+      samples: [{ text: "recent post" }],
+    });
+
+    expect(result.profile.tone).toBe("earnest");
+    expect(result.change_summary).toBe("tightened tone");
+    const command = mockSend.mock.calls[0][0];
+    expect(command.input.toolConfig.toolChoice.tool.name).toBe("record_voice_profile");
+    const userText = command.input.messages[0].content[0].text;
+    expect(userText).toContain("CURRENT PROFILE (linkedin)");
+    expect(userText).toContain("recent post");
+  });
+
+  test("wraps Bedrock errors in UpstreamError", async () => {
+    mockSend.mockRejectedValueOnce(new Error("throttled"));
+    await expect(
+      composeVoicePost({ topic: "t", platform: "x", format: "social", profile: null, samples: [] }),
     ).rejects.toThrow(UpstreamError);
   });
 });

@@ -631,6 +631,139 @@ export async function answerBlogQuestion({ question, chunks }) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Voice: learn a person's writing style and draft in it. The profile schema is
+// shared by both tools so the shape compose reads is exactly the shape reflect
+// writes — they can't drift.
+// ---------------------------------------------------------------------------
+const VOICE_PROFILE_SCHEMA = {
+  type: "object",
+  description: "Structured description of how this person writes on this platform.",
+  properties: {
+    tone: { type: "string", description: "Overall voice and attitude (e.g. wry, earnest, blunt, warm)." },
+    audience: { type: "string", description: "Who they write for." },
+    sentence_structure: { type: "string", description: "Typical sentence length, rhythm, and complexity." },
+    vocabulary: { type: "string", description: "Characteristic word choices, jargon level, formality." },
+    signature_phrases: {
+      type: "array",
+      description: "Recurring phrases, openers, or verbal tics that are distinctively theirs.",
+      items: { type: "string" },
+    },
+    formatting_preferences: {
+      type: "string",
+      description: "Use of emoji, lists, headings, line breaks, length, hashtags, links, CTAs.",
+    },
+    dos: { type: "array", description: "Concrete things to do to sound like them.", items: { type: "string" } },
+    donts: { type: "array", description: "Concrete things to avoid that would sound off-voice.", items: { type: "string" } },
+  },
+};
+
+const RECORD_VOICE_POST_TOOL = {
+  toolSpec: {
+    name: "record_voice_post",
+    description: "Record a drafted post written in the user's voice.",
+    inputSchema: {
+      json: {
+        type: "object",
+        required: ["post"],
+        properties: {
+          post: {
+            type: "string",
+            description: "The drafted post, ready to publish, in the user's voice and the requested platform's format.",
+          },
+          title: {
+            type: "string",
+            description: "A title/headline when the format calls for one (blog). Omit for short social posts.",
+          },
+        },
+      },
+    },
+  },
+};
+
+const COMPOSE_SYSTEM_PROMPT = `You are a ghostwriter who writes in one specific person's voice. You are given (1) a structured style profile describing how they write on a platform, and (2) a few of their past posts as examples of that voice.
+
+Write a NEW post on the requested topic for the requested platform that authentically matches their voice — tone, sentence structure, vocabulary, signature phrases, and formatting preferences. Match the requested format: 'social' = short, punchy, platform-native (no title); 'blog' = long-form structured prose with a title.
+
+Emulate the style, do not copy the example posts' content. If the profile is empty, infer the voice from the examples. Output only by calling the record_voice_post tool.`;
+
+// Drafts a post in the user's voice. `profile` is the stored VoiceProfile.profile
+// JSON (or null on cold start); `samples` are few-shot examples ([{ text }] from
+// queryVoiceSamples). Returns { post, title? }. Not persisted by this call.
+export async function composeVoicePost({ topic, platform, format, profile, samples, guidance }) {
+  const examples = (samples ?? []).filter((s) => s?.text);
+  const exampleBlock = examples.length > 0
+    ? examples.map((s, i) => `[${i + 1}] ${s.text}`).join("\n\n")
+    : "(no examples yet)";
+
+  const userContent = [{
+    text: `=== STYLE PROFILE (${platform}) ===\n${
+      profile ? JSON.stringify(profile, null, 2) : "(no learned profile yet — infer the voice from the examples below)"
+    }\n\n=== PAST POSTS (examples of their voice; emulate, don't copy) ===\n${exampleBlock}\n\n=== TASK ===\nWrite a ${
+      format === "blog" ? "long-form blog post" : "short social post"
+    } for ${platform} about:\n${topic}${
+      guidance ? `\n\nAdditional guidance: ${guidance}` : ""
+    }\n\nCall record_voice_post with the result.`,
+  }];
+
+  return invokeToolUse({
+    system: COMPOSE_SYSTEM_PROMPT,
+    userContent,
+    tool: RECORD_VOICE_POST_TOOL,
+    // The most generative of the pipelines — give it room and warmth.
+    temperature: 0.6,
+    maxTokens: format === "blog" ? 3072 : 512,
+  });
+}
+
+const RECORD_VOICE_PROFILE_TOOL = {
+  toolSpec: {
+    name: "record_voice_profile",
+    description: "Record the updated structured writing-style profile for a platform.",
+    inputSchema: {
+      json: {
+        type: "object",
+        required: ["profile", "change_summary"],
+        properties: {
+          profile: VOICE_PROFILE_SCHEMA,
+          change_summary: {
+            type: "string",
+            description: "One-paragraph summary of what changed versus the previous profile, and why.",
+          },
+        },
+      },
+    },
+  },
+};
+
+const REFLECT_SYSTEM_PROMPT = `You maintain a structured profile of how a specific person writes on a given platform. You are given their current profile (which may be empty) and their most recent posts.
+
+Update the profile to reflect how they actually write now: infer tone, audience, sentence structure, vocabulary, signature phrases, formatting preferences, and concrete dos/donts directly from the samples. Emit the FULL updated profile (a replacement, not a diff) plus a short change_summary describing what you changed versus the prior profile.
+
+Be specific and grounded in the samples — do not invent traits the samples don't demonstrate. Output only by calling the record_voice_profile tool.`;
+
+// Re-derives the style profile from recent samples. `currentProfile` is the
+// prior VoiceProfile.profile JSON (or null); `samples` are recent VoiceSample
+// rows ([{ text }]). Returns { profile, change_summary }.
+export async function reflectVoiceProfile({ platform, currentProfile, samples }) {
+  const recent = (samples ?? []).filter((s) => s?.text);
+  const userContent = [{
+    text: `=== CURRENT PROFILE (${platform}) ===\n${
+      currentProfile ? JSON.stringify(currentProfile, null, 2) : "(none yet — build it from scratch)"
+    }\n\n=== RECENT POSTS ===\n${
+      recent.map((s, i) => `[${i + 1}] ${s.text}`).join("\n\n")
+    }\n\nUpdate the profile by calling record_voice_profile.`,
+  }];
+
+  return invokeToolUse({
+    system: REFLECT_SYSTEM_PROMPT,
+    userContent,
+    tool: RECORD_VOICE_PROFILE_TOOL,
+    temperature: 0.3,
+    maxTokens: 2048,
+  });
+}
+
 // Shared Converse plumbing: forces a single tool call, marks the system
 // prompt cacheable, logs usage, and returns the tool input. The brief,
 // draft-review, and engagement-recommendation pipelines all run through here.
