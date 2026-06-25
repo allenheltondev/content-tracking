@@ -18,6 +18,7 @@ import { registerMediaKitRoutes } from "./routes/media-kit.mjs";
 import { registerMediaKitPublishRoutes } from "./routes/media-kit-publish.mjs";
 import { registerExtensionPairingRoutes } from "./routes/extension-pairings.mjs";
 import { registerBlogRoutes } from "./routes/blogs.mjs";
+import { registerContentRoutes } from "./routes/content.mjs";
 import { registerVoiceRoutes } from "./routes/voice.mjs";
 import { logger } from "./services/logger.mjs";
 import { jsonResponse } from "./services/http-handler.mjs";
@@ -44,6 +45,7 @@ registerMediaKitRoutes(app);
 registerMediaKitPublishRoutes(app);
 registerExtensionPairingRoutes(app);
 registerBlogRoutes(app);
+registerContentRoutes(app);
 registerVoiceRoutes(app);
 
 app.notFound(({ event }) => {
