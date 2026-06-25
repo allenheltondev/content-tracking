@@ -126,51 +126,56 @@ Out of the primary bar:
    the cross-post targets; campaign analytics aggregate the content's variants.
 4. **Ask spans content + performance** ("what did my best posts have in common?").
 
-## 7. Phasing
+## 7. Phasing — *foundation-first*
 
-### Phase 1 — Perceived integration (no data migration) ← *do this first*
-On the existing Blog/ContentPost/SocialPost/Voice entities:
-- **Nav reframe** to the lifecycle (group the items into Create / Campaigns /
-  Analytics; demote Ask to ⌘K, Voice to secondary). `ui/src/App.tsx`,
-  `ui/src/router.tsx`.
-- **Contextual AI / close cheap loops on current data:**
-  - Compose → **"Save as blog"** (creates a Blog via the existing `createBlogPost`
-    API) and inline cross-post — Compose stops being a dead end.
-  - **Global Ask palette** (⌘K) reusing the streaming client.
-  - Auto-create a **VoiceSample from a successful cross-post copy**.
-  - **Home** surfaces drafts/voice nudges next to campaigns/revenue.
-- *Ships something that feels like one product within a small, low-risk change set.*
+> **Sequencing decision (owner):** lead with the unified `Content` model, then
+> layer the IA/contextual-AI integration on top — so the cohesive UX is built
+> once, on the final shape, rather than reworked after a migration. Tradeoff:
+> the first phase is mostly backend + migration with less immediately-visible UI;
+> the integrated *feel* arrives in Phase 2.
 
-### Phase 2 — Unify the content model
-- Introduce the `Content` entity + variants + stats + vector state
-  (`api/domain/content.mjs`, mirroring `blog.mjs`).
-- Migrate **Blog → Content(type=blog)** first (closest shape; deterministic ids,
-  idempotent script like `scripts/backfill-*.mjs`, dual-read during transition),
-  then fold ContentPost/SocialPost in as Content + variants.
-- Re-point the vector stream, `/ask`, and voice at `Content`; campaigns reference
-  Content. Keep the campaign analytics that already works intact.
+### Phase 1 — Unify the content model ← *foundation, do first*
+- Introduce the `Content` entity + published variants + stats + vector state
+  (`api/domain/content.mjs`, mirroring `blog.mjs`); `type` ∈ {blog, social,
+  video}, `source` ∈ {owned, sponsored}.
+- **Migrate Blog → Content(type=blog, source=owned)** first (closest shape), then
+  fold campaign **ContentPost/SocialPost → Content(source=sponsored) + variants**
+  and their snapshots → stats. Deterministic ids, idempotent + dry-runnable
+  scripts (mirror `scripts/backfill-*.mjs`), **dual-read** during transition.
+- Re-point the vector stream, `/ask`, voice-seed, and cross-post at `Content`;
+  campaigns reference Content. **Keep the campaign analytics path intact.**
 
-### Phase 3 — Full closed loops + intelligence
-- Engagement → voice feedback; cross-content Ask incl. performance; campaign
-  deliverable *is* Content; proactive suggestions on Home.
+### Phase 2 — Integration on the unified model (the visible payoff)
+On the now-single `Content` entity:
+- **Nav reframe** to the lifecycle (Home · Create · Analytics · Sponsorships ▾;
+  Ask → ⌘K, Voice → secondary). `ui/src/App.tsx`, `ui/src/router.tsx`.
+- **Create** = the unified content library (drafts + published, owned + sponsored).
+- **Compose → a Content draft → publish/cross-post** (no longer a dead end).
+- **Global Ask palette** (⌘K) over all Content.
+
+### Phase 3 — Close the loops + intelligence
+- Cross-post copy → VoiceSample automatically; engagement → voice feedback;
+  campaign deliverable *is* Content; Ask spans content + performance; proactive
+  suggestions on Home.
 
 ## 8. Risks & guardrails
 
 - **Don't break what works:** the campaign analytics / clicks / web-vitals path is
-  solid — Phase 2 must preserve it (dual-read, no big-bang cutover).
+  solid — **Phase 1's migration must preserve it** via dual-read, no big-bang
+  cutover.
 - **Live-data migration** (Blog/ContentPost/SocialPost): deterministic ids,
-  idempotent + dry-runnable scripts, verify counts before/after.
-- **Scope discipline:** Phase 1 must land visibly fast; resist starting the model
-  migration inside it.
+  idempotent + dry-runnable scripts, verify counts before/after, cut fallbacks
+  only after staging parity.
+- **Less visible early:** foundation-first means Phase 1 ships little UI; keep the
+  migration tightly scoped (blogs first, then campaign posts) so Phase 2's visible
+  payoff isn't far behind.
 
-## 9. Verification (per phase)
+## 9. Verification
 
-- **Phase 1:** `npm test` (api), `npm run build` + `npm run lint` (ui); manual walk
-  of the new nav and the Compose → save-as-blog → cross-post → voice-sample loop on
-  staging.
-- **Phase 2:** migration scripts dry-run then `--apply` on staging; confirm
-  vector/ask/voice still answer and campaign analytics are unchanged; row-count
-  parity Blog/ContentPost/SocialPost → Content.
+Per-phase verification lives in §11 (Phase 1) and §12 (Phase 2). Headline:
+migration scripts are dry-run-then-`--apply` on staging with row-count parity, and
+`/content/ask` + voice + campaign analytics must all still work before fallbacks
+are cut.
 
 ## 10. Resolved decisions
 
@@ -180,50 +185,72 @@ On the existing Blog/ContentPost/SocialPost/Voice entities:
    YouTube deliverables unify too.
 3. **Demote Ask (→ ⌘K) and Voice (→ secondary) in Phase 1.**
 
-## 11. Phase 1 — executable build plan (no data migration)
+## 11. Phase 1 — Content model build plan (foundation)
 
-Builds on the Blogs UI (PR #172). All UI + one small backend loop; existing
-entities/APIs. Reuses `useApiFetch`, the `api/*.ts` clients, `MarkdownLazy`,
-`streamGenerate`, and the `.card`/`.btn-*`/`.input` tokens. Suggested as 4 small
-PRs so each ships independently.
+The data unification everything else rests on. Mirrors the conventions already
+proven in `api/domain/blog.mjs` + the blog vector pipeline, and reuses the
+backfill-script pattern (`scripts/backfill-*.mjs`). Dual-read keeps the app
+working throughout; each sub-step is its own PR.
 
-**1.1 Nav reframe** — `ui/src/App.tsx` (`NavItems`), `ui/src/router.tsx`.
-  - Primary bar → **Home · Create · Analytics · Sponsorships ▾**.
-  - "Create" routes to the content library (today's `routes/Blogs.tsx`, relabeled);
-    "New" opens Compose. "Analytics" = `routes/Insights.tsx` relabeled.
-  - **Sponsorships ▾**: a dropdown (desktop) / labeled group (mobile sheet) linking
-    Campaigns, Vendors, Revenue, Media kit. New small `NavMenu` component.
-  - Remove Ask & Voice from the bar; add Voice to `UserMenu`
-    (`components/UserMenu.tsx`). Keep the `/ask`,`/voice` routes alive.
+**11.1 `Content` entity** — new `api/domain/content.mjs` (mirror blog.mjs).
+  - Root `sk=CONTENT#{id}` (entity "Content"): `type` {blog|social|video},
+    `source` {owned|sponsored}, title, slug, body, status
+    {draft|scheduled|published|archived}, campaignId?, tags, categories,
+    canonicalUrl, links, createdAt, publishedAt; gsi1pk=`TENANT#{sub}#CONTENT`,
+    gsi1sk=`{createdAt}#{id}`.
+  - Children: `PUBLISH#{platform}` (variant: url/externalId/status/publishedAt),
+    `STATS#{platform}#{date}` (snapshot), `VECTORINDEX` (embed state).
+  - CRUD + child writers + `listContent` (GSI1; filter type/source/status) +
+    cascade delete — copy shapes from blog.mjs. `api/routes/content.mjs` +
+    validation; register in `app.mjs`.
 
-**1.2 Global Ask palette (⌘K)** — new `components/CommandPalette.tsx`, mounted in
-  `App.tsx`.
-  - ⌘K/Ctrl-K + a button open a modal; "Ask your content" input streams via the
-    existing `streamGenerate` (fallback `askBlog`), renders with `MarkdownLazy`,
-    shows sources. Reuses everything from `routes/Ask.tsx` — that page can become a
-    thin wrapper or be retired.
+**11.2 Generalize the vector + AI pipeline.**
+  - New `content-vectors` S3 Vectors index (template.yaml, sibling of
+    `blog-vectors`); `functions/vectorize-content` (generalize vectorize-blog)
+    keyed on `entity=Content`, metadata by contentId.
+  - `/blogs/ask` → `/content/ask` (keep `/blogs/ask` as a thin alias);
+    `queryBlogChunks` → `queryContentChunks`. Voice-seed + Compose-save read/write
+    Content.
 
-**1.3 Compose → into the library** — `ui/src/routes/Compose.tsx`.
-  - Blog-format drafts get **"Save as blog"** → `createBlogPost` (api/blogs.ts) →
-    navigate to `/blogs/:id`. Compose stops being a dead end and feeds Create.
-  - (Social-format keeps "Save to voice"; arbitrary non-campaign social content has
-    no store until Phase 2.)
+**11.3 Migration scripts** (dry-run + `--apply`, deterministic ids, idempotent).
+  - `scripts/migrate-blogs-to-content.mjs`: Blog → Content(type=blog,
+    source=owned); `BLOG#{id}#CROSSPOST#{platform}` → `PUBLISH` variants; blog
+    vector state → content vector state (or let the stream re-embed).
+    `contentId = blogId` → clean 1:1, idempotent.
+  - `scripts/migrate-campaign-posts-to-content.mjs`: ContentPost/SocialPost
+    (campaign-scoped) → Content(source=sponsored, campaignId) + snapshots → STATS.
+    ⚠ **Wrinkle:** campaigns are a GLOBAL pool (`pk=CAMPAIGN#{id}`), not
+    tenant-partitioned, while Content is tenant-scoped — so this migration must
+    resolve the owning tenant. Trivial in the single-tenant stack (one sub); needs
+    an explicit owner mapping before multi-tenant.
 
-**1.4 Home as the spine** — `ui/src/routes/Home.tsx`.
-  - Add a **Content** strip: recent drafts/posts (`listBlogs`) + a **voice nudge**
-    (`listVoiceProfiles` → platforms with `samples_since_reflection` near the
-    threshold) + a "Compose" CTA — beside the existing campaigns/revenue cards.
+**11.4 Dual-read transition.** List/detail read Content first, fall back to the
+  legacy entities until migration is verified on staging — then cut the fallbacks.
+  **Leave the campaign analytics path (clicks / web-vitals) untouched.**
 
-**1.5 (optional, one backend loop) cross-post → voice sample** —
-  `functions/crosspost/index.mjs`.
-  - After a per-platform publish succeeds, create a `VoiceSample`
-    (`source='generated'`) from the blog body via `api/domain/voice.mjs`
-    `createVoiceSample`, so distributing automatically teaches your voice. The one
-    non-UI change in Phase 1; defer to Phase 3 if we want Phase 1 UI-only.
+**Verification:** `npm test` (api: content domain/routes/vectors + migration unit
+tests); scripts dry-run → `--apply` on staging; confirm `/content/ask` + voice
+still answer and campaign analytics are unchanged; row-count parity
+Blog/ContentPost/SocialPost → Content.
 
-**Verification:** `npm run build` + `npm run lint` (ui); for 1.5, `npm test` (api)
-+ a crosspost unit-test update. Manual on staging: new nav + ⌘K ask + Compose →
-save-as-blog → it appears under Create → cross-post → a voice sample appears.
+**Sequencing:** 11.1 → 11.2 (entity + pipeline, invisible) → migrate blogs (low
+risk) → migrate campaign posts (the tenant wrinkle) → 11.4 cut fallbacks.
 
-**Dependencies / sequencing:** merge **#172 (Blogs UI)** first — it's the Create
-library. Then 1.1 → 1.2 → 1.3 → 1.4 (independent; any order), 1.5 last.
+## 12. Phase 2 — Integration UI (on the unified `Content` model)
+
+Now that everything is `Content`, the UX integration is built once on the final
+shape. Reuses `useApiFetch`, `MarkdownLazy`, `streamGenerate`, the `.card`/
+`.btn-*`/`.input` tokens.
+
+- **2.1 Nav reframe** (`ui/src/App.tsx`, `router.tsx`): **Home · Create ·
+  Analytics · Sponsorships ▾**; Ask → ⌘K; Voice → user menu; new `NavMenu`.
+- **2.2 Create = the content library** — list all Content (drafts + published,
+  owned + sponsored), filterable by type; "New" → Compose.
+- **2.3 Global Ask palette (⌘K)** — `components/CommandPalette.tsx` over all
+  Content, reusing `streamGenerate`.
+- **2.4 Compose → a Content draft → publish/cross-post** (no dead end).
+- **2.5 Home as spine** — a Content strip (drafts + voice nudge) beside
+  campaigns/revenue.
+
+**Verification:** `npm run build` + `npm run lint`; manual staging walk of the new
+nav, ⌘K ask, and Compose → draft → appears in Create → cross-post.
