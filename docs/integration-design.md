@@ -95,21 +95,27 @@ the stream consumer keys off `entity=Content` instead of `Blog`.
 | **Voice** | The **engine behind Compose** (a panel + a manageable settings page), with the "you saved X → your voice sharpened" feedback shown inline. Demoted from primary nav. |
 | Brief AI / draft review / engagement recs (already in CampaignDetail) | Wired to the `Content` object so they connect the loop (brief → content draft → review → cross-post targets). |
 
-## 5. Information architecture (nav redesign)
+## 5. Information architecture (nav redesign) — *decided*
 
-From 9 flat siblings to a lifecycle-shaped IA:
+From 9 flat siblings to a lifecycle-shaped IA. **Create (your content) is the
+center; the business machinery nests under Sponsorships.**
 
-- **Home** — the spine. "What needs attention" across the loop: drafts to publish,
-  posts to start tracking, payments due, voice nudges. (Extend `routes/Home.tsx`,
-  which already orchestrates campaigns/revenue.)
+Primary nav:
+- **Home** (`/`) — the spine. "What needs attention" across the loop: drafts to
+  publish, posts to start tracking, payments due, voice nudges. (Extend
+  `routes/Home.tsx`, which already orchestrates campaigns/revenue.)
 - **Create** — the unified content library (drafts + published) with **Compose**
-  as "New". Subsumes Blogs + Compose.
-- **Campaigns** — sponsorships (brief → deliverable → payment); **Vendors** &
-  **Revenue** live here/adjacent.
+  as "New". Subsumes Blogs + Compose. `Content.type` includes **video**.
 - **Analytics** — engagement across all content + clicks + web vitals (today's
-  Insights, broadened to all content).
-- **Voice**, **Media kit**, **Settings** — secondary (under Create / a menu).
-- **Ask** — global ⌘K, no tab.
+  Insights, broadened).
+- **Sponsorships ▾** — a grouped menu: **Campaigns, Vendors, Revenue, Media kit**
+  (the brief→deliverable→payment→pitch business).
+
+Out of the primary bar:
+- **Ask** — global **⌘K** command palette, available everywhere; no tab.
+- **Voice** — moves to a secondary spot (user menu / under Create); it's the
+  engine behind Compose, surfaced in-flow, not a primary destination.
+- **Profile, Settings** — stay in the user menu.
 
 ## 6. The closed loops (the payoff)
 
@@ -166,10 +172,58 @@ On the existing Blog/ContentPost/SocialPost/Voice entities:
   vector/ask/voice still answer and campaign analytics are unchanged; row-count
   parity Blog/ContentPost/SocialPost → Content.
 
-## 10. Open questions for the owner
+## 10. Resolved decisions
 
-1. **Campaigns' place in the IA** — peer of Create, or nested under a
-   "Sponsorships" area? (Spine says one loop, but campaigns are a big subsystem.)
-2. **Video** — is it in scope for `Content.type`, or blog+social only for now?
-3. **Phase-1 nav** — comfortable demoting **Ask** to ⌘K and **Voice** to secondary,
-   or keep them as tabs until Phase 2?
+1. **Campaigns nest under Sponsorships** — Create is the visual center; Campaigns
+   / Vendors / Revenue / Media kit group under a "Sponsorships" menu.
+2. **Video is a first-class `Content.type` now** (blog | social | video), so
+   YouTube deliverables unify too.
+3. **Demote Ask (→ ⌘K) and Voice (→ secondary) in Phase 1.**
+
+## 11. Phase 1 — executable build plan (no data migration)
+
+Builds on the Blogs UI (PR #172). All UI + one small backend loop; existing
+entities/APIs. Reuses `useApiFetch`, the `api/*.ts` clients, `MarkdownLazy`,
+`streamGenerate`, and the `.card`/`.btn-*`/`.input` tokens. Suggested as 4 small
+PRs so each ships independently.
+
+**1.1 Nav reframe** — `ui/src/App.tsx` (`NavItems`), `ui/src/router.tsx`.
+  - Primary bar → **Home · Create · Analytics · Sponsorships ▾**.
+  - "Create" routes to the content library (today's `routes/Blogs.tsx`, relabeled);
+    "New" opens Compose. "Analytics" = `routes/Insights.tsx` relabeled.
+  - **Sponsorships ▾**: a dropdown (desktop) / labeled group (mobile sheet) linking
+    Campaigns, Vendors, Revenue, Media kit. New small `NavMenu` component.
+  - Remove Ask & Voice from the bar; add Voice to `UserMenu`
+    (`components/UserMenu.tsx`). Keep the `/ask`,`/voice` routes alive.
+
+**1.2 Global Ask palette (⌘K)** — new `components/CommandPalette.tsx`, mounted in
+  `App.tsx`.
+  - ⌘K/Ctrl-K + a button open a modal; "Ask your content" input streams via the
+    existing `streamGenerate` (fallback `askBlog`), renders with `MarkdownLazy`,
+    shows sources. Reuses everything from `routes/Ask.tsx` — that page can become a
+    thin wrapper or be retired.
+
+**1.3 Compose → into the library** — `ui/src/routes/Compose.tsx`.
+  - Blog-format drafts get **"Save as blog"** → `createBlogPost` (api/blogs.ts) →
+    navigate to `/blogs/:id`. Compose stops being a dead end and feeds Create.
+  - (Social-format keeps "Save to voice"; arbitrary non-campaign social content has
+    no store until Phase 2.)
+
+**1.4 Home as the spine** — `ui/src/routes/Home.tsx`.
+  - Add a **Content** strip: recent drafts/posts (`listBlogs`) + a **voice nudge**
+    (`listVoiceProfiles` → platforms with `samples_since_reflection` near the
+    threshold) + a "Compose" CTA — beside the existing campaigns/revenue cards.
+
+**1.5 (optional, one backend loop) cross-post → voice sample** —
+  `functions/crosspost/index.mjs`.
+  - After a per-platform publish succeeds, create a `VoiceSample`
+    (`source='generated'`) from the blog body via `api/domain/voice.mjs`
+    `createVoiceSample`, so distributing automatically teaches your voice. The one
+    non-UI change in Phase 1; defer to Phase 3 if we want Phase 1 UI-only.
+
+**Verification:** `npm run build` + `npm run lint` (ui); for 1.5, `npm test` (api)
++ a crosspost unit-test update. Manual on staging: new nav + ⌘K ask + Compose →
+save-as-blog → it appears under Create → cross-post → a voice sample appears.
+
+**Dependencies / sequencing:** merge **#172 (Blogs UI)** first — it's the Create
+library. Then 1.1 → 1.2 → 1.3 → 1.4 (independent; any order), 1.5 last.
