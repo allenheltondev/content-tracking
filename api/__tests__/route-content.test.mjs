@@ -10,10 +10,24 @@ jest.unstable_mockModule("../domain/content.mjs", () => ({
   listContentByTenant: jest.fn(),
   updateContent: jest.fn(),
 }));
+// RAG Q&A collaborators (POST /content/ask): embed the question, retrieve
+// chunks, answer with Bedrock. Mocked so the route is exercised in isolation.
+jest.unstable_mockModule("../services/embeddings.mjs", () => ({
+  embedText: jest.fn(),
+}));
+jest.unstable_mockModule("../services/content-vectors.mjs", () => ({
+  queryContentChunks: jest.fn(),
+}));
+jest.unstable_mockModule("../services/bedrock.mjs", () => ({
+  answerContentQuestion: jest.fn(),
+}));
 
 const {
   createContent, deleteContent, getContent, listContentByTenant, updateContent,
 } = await import("../domain/content.mjs");
+const { embedText } = await import("../services/embeddings.mjs");
+const { queryContentChunks } = await import("../services/content-vectors.mjs");
+const { answerContentQuestion } = await import("../services/bedrock.mjs");
 const { registerContentRoutes } = await import("../routes/content.mjs");
 
 function buildRouteTable() {
@@ -114,5 +128,87 @@ describe("DELETE /content/:contentId", () => {
     const res = await routes["DELETE /content/:contentId"](ctx({ params: { contentId: "C1" } }));
     expect(res.statusCode).toBe(204);
     expect(deleteContent).toHaveBeenCalledWith(SUB, "C1");
+  });
+});
+
+describe("POST /content/ask", () => {
+  const ask = () => routes["POST /content/ask"];
+
+  test("embeds the question, retrieves chunks, and answers grounded with citations", async () => {
+    embedText.mockResolvedValue([0.1, 0.2, 0.3]);
+    queryContentChunks.mockResolvedValue([
+      { contentId: "C1", title: "Faster Builds", slug: "faster-builds", type: "blog", text: "cut build time", distance: 0.1 },
+      { contentId: "C2", title: "Caching", slug: "caching", type: "blog", text: "cache layers", distance: 0.3 },
+    ]);
+    answerContentQuestion.mockResolvedValue({
+      answer: "You wrote about cutting build times.",
+      sources_used: [1],
+      confidence: "high",
+    });
+
+    const res = await ask()(ctx({ body: { question: "How do I speed up builds?" } }));
+
+    expect(res.statusCode).toBe(200);
+    expect(embedText).toHaveBeenCalledWith("How do I speed up builds?");
+    // Tenant-scoped retrieval with the validated default top_k.
+    expect(queryContentChunks).toHaveBeenCalledWith({
+      tenantId: SUB,
+      queryEmbedding: [0.1, 0.2, 0.3],
+      topK: 8,
+      contentId: undefined,
+      type: undefined,
+    });
+    const body = JSON.parse(res.body);
+    expect(body.answer).toMatch(/build times/);
+    expect(body.confidence).toBe("high");
+    // Only the cited source is surfaced.
+    expect(body.sources).toEqual([{ content_id: "C1", title: "Faster Builds", slug: "faster-builds", type: "blog" }]);
+  });
+
+  test("passes top_k, content_id, and type through to retrieval", async () => {
+    embedText.mockResolvedValue([0.5]);
+    queryContentChunks.mockResolvedValue([{ contentId: "C9", title: "T", slug: "t", type: "video", text: "x" }]);
+    answerContentQuestion.mockResolvedValue({ answer: "a", sources_used: [], confidence: "low" });
+
+    await ask()(ctx({ body: { question: "what did I say?", top_k: 3, content_id: "C9", type: "video" } }));
+
+    expect(queryContentChunks).toHaveBeenCalledWith({
+      tenantId: SUB,
+      queryEmbedding: [0.5],
+      topK: 3,
+      contentId: "C9",
+      type: "video",
+    });
+  });
+
+  test("short-circuits without calling Bedrock when nothing matches", async () => {
+    embedText.mockResolvedValue([0.1]);
+    queryContentChunks.mockResolvedValue([]);
+
+    const res = await ask()(ctx({ body: { question: "obscure topic" } }));
+
+    expect(res.statusCode).toBe(200);
+    expect(answerContentQuestion).not.toHaveBeenCalled();
+    const body = JSON.parse(res.body);
+    expect(body.confidence).toBe("low");
+    expect(body.sources).toEqual([]);
+  });
+
+  test("ignores out-of-range and duplicate source numbers from the model", async () => {
+    embedText.mockResolvedValue([0.1]);
+    queryContentChunks.mockResolvedValue([
+      { contentId: "C1", title: "One", slug: "one", type: "blog", text: "a" },
+      { contentId: "C1", title: "One", slug: "one", type: "blog", text: "b" },
+    ]);
+    answerContentQuestion.mockResolvedValue({ answer: "a", sources_used: [1, 2, 99], confidence: "medium" });
+
+    const res = await ask()(ctx({ body: { question: "q" } }));
+    // Both chunks are content C1, and 99 is out of range → one citation.
+    expect(JSON.parse(res.body).sources).toEqual([{ content_id: "C1", title: "One", slug: "one", type: "blog" }]);
+  });
+
+  test("rejects an empty question before embedding", async () => {
+    await expect(ask()(ctx({ body: { question: "   " } }))).rejects.toThrow(/question must be a non-empty string/);
+    expect(embedText).not.toHaveBeenCalled();
   });
 });
