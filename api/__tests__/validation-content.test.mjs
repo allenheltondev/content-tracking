@@ -1,8 +1,10 @@
 import {
   validateContentCreate,
   validateContentUpdate,
+  validateContentQuestion,
   formatContent,
   formatContentSummary,
+  formatContentAnswer,
   CONTENT_TYPES,
   CONTENT_SOURCES,
   CONTENT_STATUSES,
@@ -137,6 +139,55 @@ describe("validation/content", () => {
     test("formatContentSummary omits content_markdown", () => {
       expect(formatContentSummary(row)).not.toHaveProperty("content_markdown");
       expect(formatContentSummary(row).content_id).toBe("C1");
+    });
+  });
+
+  describe("validateContentQuestion", () => {
+    test("accepts a minimal question and applies the default top_k", () => {
+      expect(validateContentQuestion({ question: "  what did I write?  " }))
+        .toEqual({ question: "what did I write?", topK: 8 });
+    });
+
+    test("threads top_k, content_id, and type through", () => {
+      expect(validateContentQuestion({ question: "q", top_k: 3, content_id: "C9", type: "video" }))
+        .toEqual({ question: "q", topK: 3, contentId: "C9", type: "video" });
+    });
+
+    test("rejects an empty question", () => {
+      expect(() => validateContentQuestion({ question: "   " })).toThrow(/question must be a non-empty string/);
+    });
+
+    test("rejects an out-of-range top_k", () => {
+      expect(() => validateContentQuestion({ question: "q", top_k: 0 })).toThrow(/top_k must be an integer/);
+      expect(() => validateContentQuestion({ question: "q", top_k: 99 })).toThrow(/top_k must be an integer/);
+    });
+
+    test("rejects an unknown type", () => {
+      expect(() => validateContentQuestion({ question: "q", type: "podcast" })).toThrow(/type must be one of/);
+    });
+  });
+
+  describe("formatContentAnswer", () => {
+    test("maps citations to snake_case sources", () => {
+      expect(formatContentAnswer({
+        answer: "You wrote about builds.",
+        confidence: "high",
+        citations: [{ contentId: "C1", title: "Builds", slug: "builds", type: "blog" }],
+      })).toEqual({
+        answer: "You wrote about builds.",
+        confidence: "high",
+        sources: [{ content_id: "C1", title: "Builds", slug: "builds", type: "blog" }],
+      });
+    });
+
+    test("defaults missing citation fields to null and handles no citations", () => {
+      expect(formatContentAnswer({ answer: "none", confidence: "low" }))
+        .toEqual({ answer: "none", confidence: "low", sources: [] });
+      expect(formatContentAnswer({
+        answer: "a",
+        confidence: "medium",
+        citations: [{ contentId: "C2" }],
+      }).sources).toEqual([{ content_id: "C2", title: null, slug: null, type: null }]);
     });
   });
 });

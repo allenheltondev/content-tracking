@@ -201,3 +201,59 @@ export function formatContentSummary(row) {
   const { content_markdown, ...summary } = formatContent(row);
   return summary;
 }
+
+const QUESTION_MAX = 2000;
+const QA_TOP_K_MAX = 20;
+const QA_TOP_K_DEFAULT = 8;
+
+// Validates POST /content/ask. Returns { question, topK, contentId?, type? }.
+// top_k bounds how many chunks feed the model; content_id (optional) scopes the
+// search to one piece, and type (optional) to one content type.
+export function validateContentQuestion(body) {
+  requireObject(body);
+
+  const { question, top_k, content_id, type } = body;
+  if (typeof question !== "string" || question.trim().length === 0) {
+    throw new BadRequestError("question must be a non-empty string");
+  }
+  if (question.length > QUESTION_MAX) {
+    throw new BadRequestError(`question must be at most ${QUESTION_MAX} chars`);
+  }
+
+  const out = { question: question.trim(), topK: QA_TOP_K_DEFAULT };
+
+  if (top_k !== undefined && top_k !== null) {
+    if (!Number.isInteger(top_k) || top_k < 1 || top_k > QA_TOP_K_MAX) {
+      throw new BadRequestError(`top_k must be an integer between 1 and ${QA_TOP_K_MAX}`);
+    }
+    out.topK = top_k;
+  }
+
+  if (content_id !== undefined && content_id !== null) {
+    if (typeof content_id !== "string" || content_id.length === 0 || content_id.length > CAMPAIGN_ID_MAX) {
+      throw new BadRequestError(`content_id must be a string up to ${CAMPAIGN_ID_MAX} chars`);
+    }
+    out.contentId = content_id;
+  }
+
+  if (type !== undefined && type !== null) {
+    out.type = validateType(type);
+  }
+
+  return out;
+}
+
+// Shapes the RAG answer response. `citations` is the resolved, deduped set of
+// content pieces the answer drew on.
+export function formatContentAnswer({ answer, confidence, citations }) {
+  return {
+    answer,
+    confidence,
+    sources: (citations ?? []).map((c) => ({
+      content_id: c.contentId,
+      title: c.title ?? null,
+      slug: c.slug ?? null,
+      type: c.type ?? null,
+    })),
+  };
+}
