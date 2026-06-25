@@ -192,6 +192,11 @@ Globals:
         EMBEDDING_MODEL_ID: !Ref EmbeddingModelId
         VECTOR_BUCKET_NAME: !Sub "content-tracking-blog-vectors-${Environment}-${AWS::AccountId}"
         VECTOR_INDEX_NAME: blog-vectors
+        # Content vectorization: a third index in the SAME bucket holds the
+        # generalized Content entity's chunk embeddings, written by the
+        # stream-driven VectorizeContentFunction and read by the API Lambda
+        # (the upcoming POST /content/ask).
+        CONTENT_VECTOR_INDEX_NAME: content-vectors
         # Voice feature: a second index in the SAME bucket holds per-sample
         # voice embeddings; REFLECTION_THRESHOLD drives the auto-reflection
         # cadence in VoiceMemoryFunction (and the manual-reflect route).
@@ -551,6 +556,7 @@ Resources:
               Resource:
                 - !GetAtt BlogVectorBucket.VectorBucketArn
                 - !GetAtt BlogVectorIndex.IndexArn
+                - !GetAtt ContentVectorIndex.IndexArn
                 - !GetAtt BlogVoiceIndex.IndexArn
             # DELETE /voice/samples removes a sample's vector directly (blog
             # vectors are only ever deleted by the stream consumer, so this is
@@ -757,6 +763,26 @@ Resources:
         NonFilterableMetadataKeys:
           - text
 
+  # Generalized content index, sibling of BlogVectorIndex in the same bucket:
+  # one set of chunk vectors per Content entity item. Dimension MUST match the
+  # embedding model's output (Titan v2 @ 1024). `text` is declared
+  # non-filterable so each chunk's source text rides along in results without
+  # counting against the 2 KB filterable metadata budget. Cosine distance suits
+  # normalized text embeddings.
+  ContentVectorIndex:
+    Type: AWS::S3Vectors::Index
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VectorBucketArn: !GetAtt BlogVectorBucket.VectorBucketArn
+      IndexName: content-vectors
+      DataType: float32
+      Dimension: 1024
+      DistanceMetric: cosine
+      MetadataConfiguration:
+        NonFilterableMetadataKeys:
+          - text
+
   # Second index in the same bucket for the Voice feature: one vector per voice
   # sample (whole short post, no chunking), retrieved as few-shot style examples.
   # Filter metadata is {tenantId, platform, format}; the sample text rides along
@@ -868,6 +894,102 @@ Resources:
                 - sqs:SendMessage
               Resource:
                 - !GetAtt VectorizeBlogDLQ.Arn
+
+  # Poison-record sink for the content stream consumer. A record that still
+  # fails after the configured retries is sent here instead of blocking the
+  # shard.
+  VectorizeContentDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "content-tracking-vectorize-content-dlq-${Environment}"
+      MessageRetentionPeriod: 1209600 # 14 days
+
+  # Consumes the DynamoDB stream (filtered to Content roots) and (re)embeds each
+  # piece into ContentVectorIndex. Idempotent via a content-hash guard, so
+  # MODIFY events that don't change the text (e.g. publish link mirroring) are
+  # no-ops. Timeout is generous because a long piece embeds many chunks. Runs
+  # side by side with VectorizeBlogFunction over the same stream.
+  VectorizeContentFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - index.mjs
+    Properties:
+      CodeUri: functions/vectorize-content
+      Handler: index.handler
+      MemorySize: 512
+      Timeout: 300
+      # EMBEDDING_MODEL_ID / VECTOR_BUCKET_NAME / CONTENT_VECTOR_INDEX_NAME are
+      # inherited from Globals (shared with the API Lambda).
+      Events:
+        ContentStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt ContentTrackingTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 5
+            MaximumRetryAttempts: 3
+            BisectBatchOnFunctionError: true
+            # Only content ROOT changes reach the function. Two patterns: the
+            # create/edit path keys off NewImage.entity, the delete path off
+            # OldImage.entity (REMOVE has no NewImage).
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"eventName":["INSERT","MODIFY"],"dynamodb":{"NewImage":{"entity":{"S":["Content"]}}}}'
+                - Pattern: '{"eventName":["REMOVE"],"dynamodb":{"OldImage":{"entity":{"S":["Content"]}}}}'
+            DestinationConfig:
+              OnFailure:
+                Destination: !GetAtt VectorizeContentDLQ.Arn
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            # Read the stream.
+            - Effect: Allow
+              Action:
+                - dynamodb:DescribeStream
+                - dynamodb:GetRecords
+                - dynamodb:GetShardIterator
+                - dynamodb:ListStreams
+              Resource:
+                - !GetAtt ContentTrackingTable.StreamArn
+                - !Sub "${ContentTrackingTable.StreamArn}/*"
+            # Read/write the per-content vector-state row.
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+              Resource:
+                - !GetAtt ContentTrackingTable.Arn
+            # Embed via Titan. Wildcard region/model mirrors ApiFunction so a
+            # cross-region inference profile or a model swap doesn't need an
+            # IAM change.
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource:
+                - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
+            # Read/write vectors in the index (Query/Get included for the
+            # follow-up retrieval feature so it won't need a policy change).
+            - Effect: Allow
+              Action:
+                - s3vectors:PutVectors
+                - s3vectors:DeleteVectors
+                - s3vectors:GetVectors
+                - s3vectors:ListVectors
+                - s3vectors:QueryVectors
+              Resource:
+                - !GetAtt BlogVectorBucket.VectorBucketArn
+                - !GetAtt ContentVectorIndex.IndexArn
+            # Deliver poison records to the DLQ.
+            - Effect: Allow
+              Action:
+                - sqs:SendMessage
+              Resource:
+                - !GetAtt VectorizeContentDLQ.Arn
 
   # Poison-record sink for the voice-memory stream consumer.
   VoiceMemoryDLQ:
@@ -1509,6 +1631,10 @@ Outputs:
   BlogVectorIndexName:
     Description: S3 vector index name for blog embeddings (--index for the backfill script).
     Value: blog-vectors
+
+  ContentVectorIndexName:
+    Description: S3 vector index name for the generalized Content entity's embeddings.
+    Value: content-vectors
 
   BlogVoiceIndexName:
     Description: S3 vector index name for voice samples (the Voice feature).
