@@ -857,6 +857,92 @@ export interface BlogListResponse {
   nextStartKey: string | null;
 }
 
+// Unified Content catalog (the /content CRUD surface) — the management
+// successor to the Blog entity. Bodies are snake_case on the wire and mirror
+// the API's validation/content.mjs contract.
+export type ContentType = 'blog' | 'social' | 'video';
+export type ContentSource = 'owned' | 'sponsored';
+export type ContentStatus = 'draft' | 'scheduled' | 'published' | 'archived';
+
+// List representation: omits content_markdown so a content list doesn't ship
+// every item's full body.
+export interface ContentSummary {
+  content_id: string;
+  type: ContentType | null;
+  source: ContentSource | null;
+  title: string;
+  slug: string;
+  description: string | null;
+  status: ContentStatus | null;
+  tags: string[];
+  categories: string[];
+  canonical_url: string | null;
+  campaign_id: string | null;
+  links: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+}
+
+// Full representation (single-content reads) — adds the markdown body.
+export interface Content extends ContentSummary {
+  content_markdown: string | null;
+}
+
+export interface ContentListResponse {
+  content: ContentSummary[];
+  nextStartKey: string | null;
+}
+
+// Body for POST /content. type/title/slug/content_markdown are required;
+// source + status default server-side (owned / draft) when omitted.
+export interface CreateContentParams {
+  type: ContentType;
+  source?: ContentSource;
+  title: string;
+  slug: string;
+  description?: string;
+  content_markdown: string;
+  status?: ContentStatus;
+  tags?: string[];
+  categories?: string[];
+  canonical_url?: string;
+  campaign_id?: string;
+}
+
+// Body for PATCH /content/:contentId. All fields optional; an explicit null
+// clears a clearable field (description, canonical_url, tags, categories,
+// campaign_id), mirroring the API's update contract.
+export interface UpdateContentParams {
+  type?: ContentType;
+  source?: ContentSource;
+  title?: string;
+  slug?: string;
+  description?: string | null;
+  content_markdown?: string;
+  status?: ContentStatus;
+  tags?: string[] | null;
+  categories?: string[] | null;
+  canonical_url?: string | null;
+  campaign_id?: string | null;
+}
+
+// Content catalog RAG Q&A (POST /content/ask). The model answers grounded
+// only in the creator's own content; `sources` are the pieces it drew on.
+export type ContentAnswerConfidence = 'high' | 'medium' | 'low';
+
+export interface ContentAnswerSource {
+  content_id: string;
+  title: string | null;
+  slug: string | null;
+  type: ContentType | null;
+}
+
+export interface ContentAnswer {
+  answer: string;
+  confidence: ContentAnswerConfidence;
+  sources: ContentAnswerSource[];
+}
+
 export type CrosspostPlatform = 'dev' | 'medium' | 'hashnode';
 
 export interface CrosspostRun {

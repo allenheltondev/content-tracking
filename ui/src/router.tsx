@@ -16,6 +16,7 @@ import Revenue from './routes/Revenue';
 import Insights from './routes/Insights';
 import Blogs from './routes/Blogs';
 import BlogDetail from './routes/BlogDetail';
+import Content from './routes/Content';
 import Ask from './routes/Ask';
 import Compose from './routes/Compose';
 import Voice from './routes/Voice';
@@ -65,6 +66,7 @@ export const router = createBrowserRouter([
       { path: 'insights', element: <Insights /> },
       { path: 'blogs', element: <Blogs /> },
       { path: 'blogs/:blogId', element: <BlogDetail /> },
+      { path: 'content', element: <Content /> },
       { path: 'ask', element: <Ask /> },
       { path: 'compose', element: <Compose /> },
       { path: 'voice', element: <Voice /> },
