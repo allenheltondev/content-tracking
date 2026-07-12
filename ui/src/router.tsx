@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, redirect } from 'react-router-dom';
 import App from './App';
 import ProtectedRoute from './auth/ProtectedRoute';
 import Home from './routes/Home';
@@ -14,8 +14,6 @@ import VendorNew from './routes/VendorNew';
 import VendorEdit from './routes/VendorEdit';
 import Revenue from './routes/Revenue';
 import Insights from './routes/Insights';
-import Blogs from './routes/Blogs';
-import BlogDetail from './routes/BlogDetail';
 import Content from './routes/Content';
 import ContentDetail from './routes/ContentDetail';
 import Ask from './routes/Ask';
@@ -65,8 +63,12 @@ export const router = createBrowserRouter([
       { path: 'vendors/:vendorId/edit', element: <VendorEdit /> },
       { path: 'revenue', element: <Revenue /> },
       { path: 'insights', element: <Insights /> },
-      { path: 'blogs', element: <Blogs /> },
-      { path: 'blogs/:blogId', element: <BlogDetail /> },
+      // The standalone Blogs catalog is retired — blogs are now part of the
+      // unified Content hub. Redirect legacy links so old bookmarks still land
+      // (a blog's id is its content id, and GET /content/:id falls back to a
+      // legacy blog row, so the target always resolves).
+      { path: 'blogs', loader: () => redirect('/content') },
+      { path: 'blogs/:blogId', loader: ({ params }) => redirect(`/content/${params.blogId}`) },
       { path: 'content', element: <Content /> },
       { path: 'content/:contentId', element: <ContentDetail /> },
       { path: 'ask', element: <Ask /> },

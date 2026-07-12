@@ -1,5 +1,5 @@
 import type { FormEvent, ReactElement } from 'react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useApiFetch } from '../auth/useApiFetch';
 import {
@@ -12,7 +12,8 @@ import {
   updateContent,
 } from '../api/content';
 import { createVoiceSample } from '../api/voice';
-import type { Content, ContentAnswer, ContentStatus } from '../api/types';
+import { CROSSPOST_PLATFORMS, crosspostBlog, getCrosspostStatus } from '../api/blogs';
+import type { Content, ContentAnswer, ContentStatus, CrosspostPlatform, CrosspostStatus } from '../api/types';
 import Markdown from '../components/MarkdownLazy';
 import CampaignDetail from './CampaignDetail';
 
@@ -97,6 +98,10 @@ export default function ContentDetail(): ReactElement {
           </article>
         ) : (
           <p className="text-sm text-muted-foreground">This piece has no stored body.</p>
+        )}
+
+        {content.type === 'blog' && (
+          <CrosspostPanel contentId={content.content_id} apiFetch={apiFetch} />
         )}
 
         <AskPanel contentId={content.content_id} apiFetch={apiFetch} />
@@ -319,6 +324,107 @@ function ActionsRow({
         )}
       </div>
       {error && <p className="form-error">{error}</p>}
+    </div>
+  );
+}
+
+// Cross-post a blog-type piece to dev.to / Medium / Hashnode. Reuses the
+// blog crosspost endpoints (keyed by id; a blog piece's content_id is its
+// blog id), folded in here now that the standalone Blogs page is retired.
+function CrosspostPanel({ contentId, apiFetch }: { contentId: string; apiFetch: ReturnType<typeof useApiFetch> }): ReactElement {
+  const [selected, setSelected] = useState<Set<CrosspostPlatform>>(new Set());
+  const [staggerDays, setStaggerDays] = useState('');
+  const [status, setStatus] = useState<CrosspostStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadStatus = useCallback(async () => {
+    try {
+      setStatus(await getCrosspostStatus(apiFetch, contentId));
+    } catch {
+      // No run yet / not found — leave status null.
+    }
+  }, [apiFetch, contentId]);
+
+  useEffect(() => { void loadStatus(); }, [loadStatus]);
+
+  const toggle = (p: CrosspostPlatform): void => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(p)) next.delete(p); else next.add(p);
+      return next;
+    });
+  };
+
+  const submit = async (e: FormEvent): Promise<void> => {
+    e.preventDefault();
+    if (busy || selected.size === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const days = staggerDays.trim() ? Number(staggerDays) : undefined;
+      await crosspostBlog(apiFetch, contentId, [...selected], days);
+      await loadStatus();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card card-body space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-foreground">Cross-post</h2>
+        <button type="button" className="btn-link text-xs" onClick={() => void loadStatus()}>Refresh status</button>
+      </div>
+
+      <form onSubmit={submit} className="space-y-3">
+        <div className="flex flex-wrap gap-3">
+          {CROSSPOST_PLATFORMS.map((p) => (
+            <label key={p} className="flex items-center gap-1.5 text-sm capitalize">
+              <input type="checkbox" checked={selected.has(p)} onChange={() => toggle(p)} disabled={busy} />
+              {p === 'dev' ? 'DEV' : p}
+            </label>
+          ))}
+          <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            stagger
+            <input
+              type="number" min={0} max={28} className="input w-16 py-1"
+              value={staggerDays} onChange={(e) => setStaggerDays(e.target.value)} placeholder="0" disabled={busy}
+            />
+            days
+          </label>
+          <button type="submit" className="btn-secondary btn-sm" disabled={busy || selected.size === 0}>
+            {busy ? 'Starting…' : 'Cross-post'}
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Requires platform credentials configured in Settings. Staggering spaces the publishes apart.
+        </p>
+      </form>
+
+      {error && <p className="form-error">{error}</p>}
+
+      {status?.platforms && status.platforms.length > 0 && (
+        <div className="space-y-1 border-t border-border pt-3">
+          <h3 className="field-label">Status{status.run ? ` · ${status.run.status}` : ''}</h3>
+          <ul className="space-y-1 text-sm">
+            {status.platforms.map((c) => (
+              <li key={c.platform} className="flex items-center justify-between gap-3">
+                <span className="capitalize text-foreground">{c.platform}</span>
+                <span className="text-muted-foreground">
+                  {c.url ? (
+                    <a href={c.url} target="_blank" rel="noreferrer noopener" className="btn-link">{c.status} ↗</a>
+                  ) : (
+                    c.error ? `error: ${c.error}` : c.status
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

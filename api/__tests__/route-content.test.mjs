@@ -8,6 +8,7 @@ jest.unstable_mockModule("../domain/content.mjs", () => ({
   createContent: jest.fn(),
   deleteContent: jest.fn(),
   detachCampaign: jest.fn(),
+  findContent: jest.fn(),
   getContent: jest.fn(),
   listContentByTenant: jest.fn(),
   updateContent: jest.fn(),
@@ -15,6 +16,12 @@ jest.unstable_mockModule("../domain/content.mjs", () => ({
 jest.unstable_mockModule("../domain/campaign.mjs", () => ({
   createCampaign: jest.fn(),
   findCampaign: jest.fn(),
+}));
+// Legacy Blog reads are merged into the unified content catalog now that the
+// Blogs surface is retired.
+jest.unstable_mockModule("../domain/blog.mjs", () => ({
+  getBlog: jest.fn(),
+  listBlogsByTenant: jest.fn(),
 }));
 // RAG Q&A collaborators (POST /content/ask): embed the question, retrieve
 // chunks, answer with Bedrock. Mocked so the route is exercised in isolation.
@@ -29,10 +36,11 @@ jest.unstable_mockModule("../services/bedrock.mjs", () => ({
 }));
 
 const {
-  attachCampaign, createContent, deleteContent, detachCampaign, getContent,
+  attachCampaign, createContent, deleteContent, detachCampaign, findContent, getContent,
   listContentByTenant, updateContent,
 } = await import("../domain/content.mjs");
 const { createCampaign, findCampaign } = await import("../domain/campaign.mjs");
+const { getBlog, listBlogsByTenant } = await import("../domain/blog.mjs");
 const { embedText } = await import("../services/embeddings.mjs");
 const { queryContentChunks } = await import("../services/content-vectors.mjs");
 const { answerContentQuestion } = await import("../services/bedrock.mjs");
@@ -89,30 +97,70 @@ describe("POST /content", () => {
 });
 
 describe("GET /content", () => {
-  test("lists tenant content with summaries + cursor and passes filters", async () => {
+  test("merges unified content with legacy blogs, content-wins, newest-first", async () => {
     listContentByTenant.mockResolvedValue({
-      items: [{ contentId: "C1", type: "blog", title: "a", slug: "a", createdAt: "t" }],
+      items: [
+        { contentId: "C1", type: "blog", title: "migrated", slug: "c1", createdAt: "2026-02-01" },
+        { contentId: "C2", type: "video", title: "vid", slug: "c2", createdAt: "2026-03-01" },
+      ],
       lastEvaluatedKey: undefined,
     });
-    const res = await routes["GET /content"](ctx({ query: { type: "blog", source: "owned", status: "published" } }));
+    listBlogsByTenant.mockResolvedValue({
+      items: [
+        { blogId: "C1", title: "stale blog", slug: "c1", createdAt: "2026-01-01" }, // shadowed by content C1
+        { blogId: "B9", title: "legacy only", slug: "b9", createdAt: "2026-04-01" },
+      ],
+      lastEvaluatedKey: undefined,
+    });
 
-    expect(listContentByTenant).toHaveBeenCalledWith(SUB, expect.objectContaining({
-      type: "blog", source: "owned", status: "published",
-    }));
+    const res = await routes["GET /content"](ctx());
     const body = JSON.parse(res.body);
-    expect(body.content).toHaveLength(1);
+
+    // B9 (legacy, newest), C2, C1 — the stale blog C1 is shadowed by content C1.
+    expect(body.content.map((c) => c.content_id)).toEqual(["B9", "C2", "C1"]);
+    // Legacy blog reads as type="blog"; content C1 keeps its own title.
+    expect(body.content.find((c) => c.content_id === "B9").type).toBe("blog");
+    expect(body.content.find((c) => c.content_id === "C1").title).toBe("migrated");
     expect(body.content[0]).not.toHaveProperty("content_markdown");
     expect(body.nextStartKey).toBeNull();
+  });
+
+  test("filters the merged set in memory", async () => {
+    listContentByTenant.mockResolvedValue({
+      items: [{ contentId: "C2", type: "video", title: "vid", slug: "c2", createdAt: "2026-03-01" }],
+      lastEvaluatedKey: undefined,
+    });
+    listBlogsByTenant.mockResolvedValue({
+      items: [{ blogId: "B9", title: "legacy", slug: "b9", createdAt: "2026-04-01" }],
+      lastEvaluatedKey: undefined,
+    });
+
+    const res = await routes["GET /content"](ctx({ query: { type: "blog" } }));
+    const body = JSON.parse(res.body);
+    // Only the legacy blog matches type=blog; the video is filtered out.
+    expect(body.content.map((c) => c.content_id)).toEqual(["B9"]);
   });
 });
 
 describe("GET /content/:contentId", () => {
-  test("returns the full content for the tenant", async () => {
-    getContent.mockResolvedValue({ contentId: "C1", type: "blog", title: "Hi", slug: "hi", contentMarkdown: "b", createdAt: "t", updatedAt: "t" });
+  test("returns the unified content when present", async () => {
+    findContent.mockResolvedValue({ contentId: "C1", type: "blog", title: "Hi", slug: "hi", contentMarkdown: "b", createdAt: "t", updatedAt: "t" });
     const res = await routes["GET /content/:contentId"](ctx({ params: { contentId: "C1" } }));
-    expect(getContent).toHaveBeenCalledWith(SUB, "C1");
+    expect(findContent).toHaveBeenCalledWith(SUB, "C1");
+    expect(getBlog).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body).content_markdown).toBe("b");
+  });
+
+  test("falls back to a legacy blog when no content row exists", async () => {
+    findContent.mockResolvedValue(null);
+    getBlog.mockResolvedValue({ blogId: "B9", title: "Legacy", slug: "b9", contentMarkdown: "body", createdAt: "t", updatedAt: "t" });
+    const res = await routes["GET /content/:contentId"](ctx({ params: { contentId: "B9" } }));
+    expect(getBlog).toHaveBeenCalledWith(SUB, "B9");
+    const body = JSON.parse(res.body);
+    expect(body.content_id).toBe("B9");
+    expect(body.type).toBe("blog");
+    expect(body.content_markdown).toBe("body");
   });
 });
 
