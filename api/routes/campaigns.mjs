@@ -11,14 +11,14 @@ import {
   presignBriefUpload,
   putBriefTranscript,
 } from "../services/s3.mjs";
-import { validateCampaignCreate, validateCampaignUpdate } from "../validation/campaign.mjs";
+import { formatCampaign, validateCampaignCreate, validateCampaignUpdate } from "../validation/campaign.mjs";
 import {
   conversationToTranscript,
   validateBriefSubmission,
   validateUploadUrlRequest,
 } from "../validation/brief.mjs";
 import { validateDraftSubmission } from "../validation/draft.mjs";
-import { applyPaidAtDefault, formatPayout } from "../validation/payout.mjs";
+import { applyPaidAtDefault } from "../validation/payout.mjs";
 import {
   createCampaign,
   findCampaign,
@@ -38,23 +38,6 @@ import { formatContentPost } from "../validation/content-post.mjs";
 
 const VALID_STATUSES = new Set(["draft", "active", "monitoring", "completed"]);
 const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
-
-const formatCampaign = (row) => ({
-  campaign_id: row.campaignId,
-  name: row.name,
-  sponsor: row.sponsor ?? null,
-  vendor_id: row.vendorId ?? null,
-  startDate: row.startDate ?? null,
-  endDate: row.endDate ?? null,
-  status: row.status,
-  targetMetrics: row.targetMetrics ?? null,
-  payout: formatPayout(row.payout),
-  deliverable_type: row.deliverableType ?? "blog",
-  blog_url: row.blogUrl ?? null,
-  youtube_url: row.youtubeUrl ?? null,
-  link_tracking_id: row.linkTrackingId ?? null,
-  created_at: row.createdAt,
-});
 
 const formatLink = (row) => ({
   link_id: row.linkId,

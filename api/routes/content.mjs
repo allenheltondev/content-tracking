@@ -1,18 +1,22 @@
 import {
+  attachCampaign,
   createContent,
   deleteContent,
+  detachCampaign,
   getContent,
   listContentByTenant,
   updateContent,
 } from "../domain/content.mjs";
+import { createCampaign, findCampaign } from "../domain/campaign.mjs";
 import { requireTenantId } from "../services/identity.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import { decodeCursor, encodeCursor, parseLimit } from "../services/pagination.mjs";
 import { emptyResponse, jsonResponse } from "../services/http-handler.mjs";
-import { BadRequestError } from "../services/errors.mjs";
+import { BadRequestError, ConflictError, NotFoundError } from "../services/errors.mjs";
 import { embedText } from "../services/embeddings.mjs";
 import { queryContentChunks } from "../services/content-vectors.mjs";
 import { answerContentQuestion } from "../services/bedrock.mjs";
+import { formatCampaign, validateCampaignCreate } from "../validation/campaign.mjs";
 import {
   formatContent,
   formatContentAnswer,
@@ -21,6 +25,15 @@ import {
   validateContentQuestion,
   validateContentUpdate,
 } from "../validation/content.mjs";
+
+const CAMPAIGN_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+function requireCampaignId(value) {
+  if (typeof value !== "string" || !CAMPAIGN_ID_RE.test(value)) {
+    throw new BadRequestError("campaign_id must be 1-64 characters of letters, digits, underscores, or hyphens");
+  }
+  return value;
+}
 
 // Content catalog CRUD. Every route resolves the tenant from the authorizer
 // sub (requireTenantId) and passes it as the first argument to the domain,
@@ -91,17 +104,83 @@ export function registerContentRoutes(app) {
 
   app.patch("/content/:contentId", async ({ event, params }) => {
     const tenantId = requireTenantId(event);
+    const { contentId } = params;
     const fields = validateContentUpdate(parseBody(event));
     if (Object.keys(fields).length === 0) {
       throw new BadRequestError("request body must contain at least one updatable field");
     }
-    const updated = await updateContent(tenantId, params.contentId, fields);
+
+    // campaign_id owns a bidirectional 1:1 link (with a back-pointer on the
+    // campaign row), so it flows through attach/detach rather than the generic
+    // partial update. A null campaign_id clears the sponsorship.
+    if (Object.prototype.hasOwnProperty.call(fields, "campaignId")) {
+      const { campaignId, ...rest } = fields;
+      let current = campaignId === null
+        ? await detachCampaign(tenantId, contentId)
+        : await attachCampaign(tenantId, contentId, campaignId);
+      if (Object.keys(rest).length > 0) {
+        current = await updateContent(tenantId, contentId, rest);
+      }
+      return jsonResponse(200, formatContent(current));
+    }
+
+    const updated = await updateContent(tenantId, contentId, fields);
     return jsonResponse(200, formatContent(updated));
   });
 
   app.delete("/content/:contentId", async ({ event, params }) => {
     const tenantId = requireTenantId(event);
     await deleteContent(tenantId, params.contentId);
+    return emptyResponse(204);
+  });
+
+  // --- Sponsorship: the campaign that hangs off a content piece (1:1) -------
+
+  // The attached campaign, or 404 for an unsponsored piece.
+  app.get("/content/:contentId/campaign", async ({ event, params }) => {
+    const tenantId = requireTenantId(event);
+    const content = await getContent(tenantId, params.contentId);
+    if (!content.campaignId) {
+      throw new NotFoundError("Campaign", `attached to content ${params.contentId}`);
+    }
+    const campaign = await findCampaign(content.campaignId);
+    if (!campaign) {
+      throw new NotFoundError("Campaign", content.campaignId);
+    }
+    return jsonResponse(200, formatCampaign(campaign));
+  });
+
+  // Attach an existing campaign to this content piece.
+  app.put("/content/:contentId/campaign", async ({ event, params }) => {
+    const tenantId = requireTenantId(event);
+    const campaignId = requireCampaignId(parseBody(event).campaign_id);
+    const content = await attachCampaign(tenantId, params.contentId, campaignId);
+    return jsonResponse(200, formatContent(content));
+  });
+
+  // Create a campaign and attach it in one step (create content → sponsor it).
+  app.post("/content/:contentId/campaign", withIdempotency(async ({ event, params }) => {
+    const tenantId = requireTenantId(event);
+    const { contentId } = params;
+
+    // Pre-check the content is unsponsored so a create+attach conflict can't
+    // leave an orphaned campaign behind.
+    const content = await getContent(tenantId, contentId);
+    if (content.campaignId) {
+      throw new ConflictError(`Content ${contentId} already has a campaign attached`);
+    }
+
+    const fields = validateCampaignCreate(parseBody(event));
+    const campaign = await createCampaign(fields);
+    await attachCampaign(tenantId, contentId, campaign.campaignId);
+    return jsonResponse(201, formatCampaign({ ...campaign, contentId }));
+  }));
+
+  // Detach the sponsorship, leaving an unsponsored piece. The campaign itself
+  // survives — it just loses its content back-pointer.
+  app.delete("/content/:contentId/campaign", async ({ event, params }) => {
+    const tenantId = requireTenantId(event);
+    await detachCampaign(tenantId, params.contentId);
     return emptyResponse(204);
   });
 }

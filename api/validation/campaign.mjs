@@ -1,7 +1,32 @@
 import { BadRequestError } from "../services/errors.mjs";
 import { extractYoutubeVideoId } from "../services/youtube.mjs";
-import { validatePayoutPayload } from "./payout.mjs";
+import { formatPayout, validatePayoutPayload } from "./payout.mjs";
 import { VENDOR_ID_RE } from "./vendor.mjs";
+
+// Shapes a stored campaign row into the snake_case API response. Lives here
+// (rather than the route module) so both the campaign routes and the content
+// routes — which expose a campaign as a sponsorship hanging off a content
+// piece — can format campaigns without dragging in the route module's heavy
+// Bedrock/S3 imports. `content_id` is the content piece it hangs off (1:1).
+export function formatCampaign(row) {
+  return {
+    campaign_id: row.campaignId,
+    name: row.name,
+    sponsor: row.sponsor ?? null,
+    vendor_id: row.vendorId ?? null,
+    content_id: row.contentId ?? null,
+    startDate: row.startDate ?? null,
+    endDate: row.endDate ?? null,
+    status: row.status,
+    targetMetrics: row.targetMetrics ?? null,
+    payout: formatPayout(row.payout),
+    deliverable_type: row.deliverableType ?? "blog",
+    blog_url: row.blogUrl ?? null,
+    youtube_url: row.youtubeUrl ?? null,
+    link_tracking_id: row.linkTrackingId ?? null,
+    created_at: row.createdAt,
+  };
+}
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const VALID_STATUSES = new Set(["draft", "active", "monitoring", "completed"]);

@@ -11,6 +11,8 @@ const {
   listContentByTenant,
   updateContent,
   deleteContent,
+  attachCampaign,
+  detachCampaign,
   contentKey,
   publishVariantKey,
   statsKey,
@@ -86,6 +88,81 @@ describe("domain/content", () => {
       expect(item.tenantId).toBe(TENANT);
       expect(item.entity).toBe("Content");
       expect(item.pk).toBe(`TENANT#${TENANT}`);
+    });
+
+    test("attaches a campaign transactionally when campaignId is supplied", async () => {
+      // findCampaign (available), then the TransactWrite.
+      mockSend.mockResolvedValueOnce({ Item: { campaignId: "CMP1", name: "x" } });
+      mockSend.mockResolvedValueOnce({});
+
+      const item = await createContent(TENANT, {
+        title: "Sponsored", type: "blog", slug: "sponsored",
+        canonicalUrl: "https://x/y", contentMarkdown: "# hi", campaignId: "CMP1",
+      });
+
+      expect(item.campaignId).toBe("CMP1");
+      const tx = input(mockSend, 1).TransactItems;
+      expect(tx).toHaveLength(2);
+      // The content root Put and the campaign back-pointer Update.
+      expect(tx[0].Put.Item.sk).toBe(`CONTENT#${item.contentId}`);
+      expect(tx[0].Put.Item.campaignId).toBe("CMP1");
+      expect(tx[1].Update.Key).toEqual({ pk: "CAMPAIGN#CMP1", sk: "METADATA" });
+      expect(tx[1].Update.ExpressionAttributeValues[":contentId"]).toBe(item.contentId);
+      expect(tx[1].Update.ConditionExpression).toMatch(/attribute_not_exists\(#contentId\)/);
+    });
+
+    test("409s when the campaign is already attached to other content", async () => {
+      mockSend.mockResolvedValueOnce({ Item: { campaignId: "CMP1", contentId: "OTHER" } });
+      await expect(createContent(TENANT, {
+        title: "x", type: "blog", slug: "x", canonicalUrl: "https://x/y",
+        contentMarkdown: "b", campaignId: "CMP1",
+      })).rejects.toThrow(/already attached to another content piece/);
+    });
+
+    test("404s when the campaign to attach does not exist", async () => {
+      mockSend.mockResolvedValueOnce({}); // findCampaign miss
+      await expect(createContent(TENANT, {
+        title: "x", type: "blog", slug: "x", canonicalUrl: "https://x/y",
+        contentMarkdown: "b", campaignId: "MISSING",
+      })).rejects.toThrow(/Campaign MISSING not found/);
+    });
+  });
+
+  describe("attachCampaign / detachCampaign", () => {
+    test("attach writes both sides atomically and returns the updated content", async () => {
+      mockSend.mockResolvedValueOnce({ Item: { contentId: "C1" } }); // getContent (exists)
+      mockSend.mockResolvedValueOnce({ Item: { campaignId: "CMP1" } }); // findCampaign (available)
+      mockSend.mockResolvedValueOnce({}); // TransactWrite
+      mockSend.mockResolvedValueOnce({ Item: { contentId: "C1", campaignId: "CMP1" } }); // getContent (read-back)
+
+      const updated = await attachCampaign(TENANT, "C1", "CMP1");
+      expect(updated.campaignId).toBe("CMP1");
+
+      const tx = input(mockSend, 2).TransactItems;
+      expect(tx[0].Update.Key).toEqual(contentKey(TENANT, "C1"));
+      expect(tx[0].Update.ExpressionAttributeValues[":campaignId"]).toBe("CMP1");
+      expect(tx[1].Update.Key).toEqual({ pk: "CAMPAIGN#CMP1", sk: "METADATA" });
+    });
+
+    test("detach clears both sides", async () => {
+      mockSend.mockResolvedValueOnce({ Item: { contentId: "C1", campaignId: "CMP1" } }); // getContent
+      mockSend.mockResolvedValueOnce({}); // TransactWrite
+      mockSend.mockResolvedValueOnce({ Item: { contentId: "C1" } }); // read-back
+
+      const updated = await detachCampaign(TENANT, "C1");
+      expect(updated.campaignId).toBeUndefined();
+
+      const tx = input(mockSend, 1).TransactItems;
+      expect(tx[0].Update.UpdateExpression).toMatch(/REMOVE #campaignId/);
+      expect(tx[1].Update.UpdateExpression).toMatch(/REMOVE #contentId, #tenantId/);
+      expect(tx[1].Update.ConditionExpression).toBe("#contentId = :contentId");
+    });
+
+    test("detach is a no-op for an unsponsored piece", async () => {
+      mockSend.mockResolvedValueOnce({ Item: { contentId: "C1" } }); // getContent, no campaignId
+      await detachCampaign(TENANT, "C1");
+      // Only the single getContent read — no transaction.
+      expect(mockSend).toHaveBeenCalledTimes(1);
     });
   });
 
