@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from 'react';
-import { useEffect } from 'react';
+import { Modal as RscModal } from '@readysetcloud/ui';
 
 interface Props {
   open: boolean;
@@ -8,42 +8,24 @@ interface Props {
   children: ReactNode;
 }
 
-export default function Modal({ open, title, onClose, children }: Props): ReactElement | null {
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
+// Thin wrapper over the shared package Modal (native <dialog>: focus trap,
+// Esc/backdrop close, bottom-sheet on mobile). Keeps the app's `title`
+// convention by rendering a header, so existing call sites don't change.
+export default function Modal({ open, title, onClose, children }: Props): ReactElement {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-16 pb-4 px-4 bg-black/40"
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="card max-w-2xl w-full overflow-hidden">
-        <div className="card-header flex items-center justify-between">
-          <h2 className="text-base font-semibold text-foreground">{title}</h2>
-          <button
-            type="button"
-            className="text-muted-foreground hover:text-foreground text-2xl leading-none px-1"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            ×
-          </button>
-        </div>
-        <div className="card-body">{children}</div>
+    <RscModal open={open} onClose={onClose} aria-label={title} className="w-full max-w-2xl">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-base font-semibold text-foreground">{title}</h2>
+        <button
+          type="button"
+          className="text-muted-foreground hover:text-foreground text-2xl leading-none px-1"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          ×
+        </button>
       </div>
-    </div>
+      {children}
+    </RscModal>
   );
 }

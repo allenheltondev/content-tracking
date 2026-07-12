@@ -88,7 +88,6 @@ jobs:
               "Environment=${{ env.ENVIRONMENT }}" \
               "NewsletterMintApiKey=${{ secrets.NEWSLETTER_MINT_API_KEY }}" \
               "UserPoolId=${{ vars.USER_POOL_ID }}" \
-              "UserPoolClientId=${{ vars.USER_POOL_CLIENT_ID }}" \
               "ExtensionTokenSigningKey=${{ secrets.EXTENSION_TOKEN_SIGNING_KEY }}" \
               "VendorReportsSigningPublicKey='${VR_PUBKEY}'" \
               "VendorReportsSigningPrivateKey='${VR_PRIVKEY}'" \
@@ -153,6 +152,7 @@ jobs:
           }
           {
             echo "api-url=$(read_out ContentTrackingApiBaseUrl)"
+            echo "client-id=$(read_out UserPoolClientId)"
             echo "table-name=$(read_out ContentTrackingTableName)"
             echo "dashboard-bucket=$(read_out DashboardBucketName)"
             echo "dashboard-distribution-id=$(read_out DashboardDistributionId)"
@@ -169,9 +169,12 @@ jobs:
         working-directory: ui
         env:
           VITE_API_BASE_URL: ${{ steps.outputs.outputs.api-url }}
+          # App client id comes from this stack's own UserPoolClient
+          # resource (UserPoolClientId output). The auth core only needs
+          # region + client id, so the shared pool id no longer ships to
+          # the browser.
           VITE_AWS_REGION: ${{ env.AWS_REGION }}
-          VITE_USER_POOL_ID: ${{ vars.USER_POOL_ID }}
-          VITE_USER_POOL_CLIENT_ID: ${{ vars.USER_POOL_CLIENT_ID }}
+          VITE_USER_POOL_CLIENT_ID: ${{ steps.outputs.outputs.client-id }}
           # Streaming Function URL (StreamGenerateUrl output). Optional in the
           # UI — empty falls back to the buffered REST endpoints.
           VITE_STREAM_BASE_URL: ${{ steps.outputs.outputs.stream-url }}

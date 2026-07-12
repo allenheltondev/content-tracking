@@ -22,8 +22,8 @@ export interface RequestOptions {
 
 export type ApiFetch = <T = unknown>(path: string, options?: RequestOptions) => Promise<T>;
 
-// Hook returning an authenticated fetch wrapper. Pulls the access token
-// from Amplify's auth session on every call so token refreshes happen
+// Hook returning an authenticated fetch wrapper. Pulls a fresh id token
+// from the shared auth core on every call so token refreshes happen
 // transparently. The token is sent as the raw `Authorization` header
 // (not `Bearer X`) per the API's Cognito authorizer config.
 export function useApiFetch(): ApiFetch {

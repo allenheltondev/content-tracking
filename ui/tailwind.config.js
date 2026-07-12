@@ -1,47 +1,15 @@
 /** @type {import('tailwindcss').Config} */
-// Color palette and shape tokens lifted from newsletter-service's
-// dashboard-ui so both UIs sit on the same theming substrate. Dark
-// mode is class-based: ThemeProvider toggles `.dark` on <html>.
+// Brand palette, fonts, and shape tokens come from the shared
+// @readysetcloud/ui preset — the single source of truth for the Ready,
+// Set, Cloud design system. Don't redefine colors/fonts here; extend the
+// preset only with app-specific additions.
 export default {
-  content: ['./index.html', './src/**/*.{ts,tsx}'],
-  darkMode: 'class',
-  theme: {
-    extend: {
-      colors: {
-        background: 'rgb(var(--background) / <alpha-value>)',
-        surface: 'rgb(var(--surface) / <alpha-value>)',
-        foreground: 'rgb(var(--foreground) / <alpha-value>)',
-        muted: 'rgb(var(--muted) / <alpha-value>)',
-        'muted-foreground': 'rgb(var(--muted-foreground) / <alpha-value>)',
-        border: 'rgb(var(--border) / <alpha-value>)',
-        ring: 'rgb(var(--ring) / <alpha-value>)',
-        primary: scale('primary'),
-        secondary: scale('secondary'),
-        success: scale('success'),
-        warning: scale('warning'),
-        error: scale('error'),
-      },
-      fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'Consolas', 'Monaco', 'monospace'],
-      },
-      borderRadius: {
-        xl: '0.75rem',
-        '2xl': '1rem',
-      },
-      boxShadow: {
-        soft: '0 2px 15px -3px rgba(0, 0, 0, 0.07), 0 10px 20px -2px rgba(0, 0, 0, 0.04)',
-        medium: '0 4px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-      },
-    },
-  },
-  plugins: [],
+  presets: [require('@readysetcloud/ui/tailwind-preset')],
+  content: [
+    './index.html',
+    './src/**/*.{ts,tsx}',
+    // REQUIRED — the package's components use token utility classes, so
+    // Tailwind must scan the shipped dist to emit them.
+    './node_modules/@readysetcloud/ui/dist/**/*.js',
+  ],
 };
-
-function scale(name) {
-  const scale = {};
-  for (const step of [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]) {
-    scale[step] = `rgb(var(--${name}-${step}) / <alpha-value>)`;
-  }
-  return scale;
-}

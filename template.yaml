@@ -26,13 +26,6 @@ Parameters:
       pool id is derivable from CognitoUserPoolArn but CFN can't split
       an SSM-resolved value at deploy time, so it's passed in directly
       by the deploy workflows.
-  UserPoolClientId:
-    Type: String
-    Description: |
-      Cognito app client id Amplify uses on the dashboard. The Lambda
-      authorizer validates that incoming id tokens were minted for this
-      client (aud claim). Same value the deploy workflow injects into
-      VITE_USER_POOL_CLIENT_ID.
   ExtensionTokenSigningKey:
     Type: String
     NoEcho: true
@@ -250,6 +243,31 @@ Globals:
           - !Sub "https://${DashboardDistribution.DomainName}"
 
 Resources:
+  # Booked's own app client on the shared rsc-core Cognito user pool. Every
+  # Ready, Set, Cloud surface signs into the same pool (RSCUserPool) but
+  # brings its own public web client, so tokens carry a Booked-specific
+  # `aud` and the app owns its own token lifetimes. Mirrors the pattern in
+  # concurrency-bootcamp. Public client (no secret) for browser SRP /
+  # USER_PASSWORD auth via @readysetcloud/ui/auth.
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPoolId
+      ClientName: !Sub "${AWS::StackName}-web"
+      GenerateSecret: false
+      PreventUserExistenceErrors: ENABLED
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: hours
+        IdToken: hours
+        RefreshToken: days
+
   ContentTrackingTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -613,7 +631,7 @@ Resources:
           # passes the id directly rather than deriving it from
           # CognitoUserPoolArn.
           USER_POOL_ID: !Ref UserPoolId
-          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClient
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: 2012-10-17
@@ -1107,7 +1125,7 @@ Resources:
       Environment:
         Variables:
           USER_POOL_ID: !Ref UserPoolId
-          USER_POOL_CLIENT_ID: !Ref UserPoolClientId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClient
       FunctionUrlConfig:
         AuthType: NONE
         InvokeMode: RESPONSE_STREAM
@@ -1618,6 +1636,14 @@ Resources:
           HostedZoneId: !Ref HostedZoneId
 
 Outputs:
+  UserPoolClientId:
+    Description: |
+      Booked's Cognito app client id on the shared rsc-core user pool. The
+      deploy workflow reads this and injects it into the dashboard build as
+      VITE_USER_POOL_CLIENT_ID so @readysetcloud/ui/auth signs users in
+      against this client.
+    Value: !Ref UserPoolClient
+
   ContentTrackingTableName:
     Description: DynamoDB single-table for Booked
     Value: !Ref ContentTrackingTable

@@ -20,20 +20,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Booked</title>
     <script>
-      // Apply theme before React mounts so users with dark mode don't
-      // see a white flash. Mirrors the lookup in ThemeContext.tsx.
+      // Apply the theme before React mounts so dark-mode users don't see a
+      // white flash. The shared @readysetcloud/ui system selects dark mode
+      // via the data-theme attribute; App.tsx seeds AppNav from and writes
+      // back to this same 'booked-theme' key ('light' | 'dark' | 'system').
       (function () {
         try {
           var stored = localStorage.getItem('booked-theme');
-          var theme = stored === 'light' || stored === 'dark'
-            ? stored
-            : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-          if (theme === 'dark') document.documentElement.classList.add('dark');
-          document.documentElement.style.colorScheme = theme;
+          var pref =
+            stored === 'light' || stored === 'dark' || stored === 'system'
+              ? stored
+              : 'system';
+          var dark =
+            pref === 'dark' ||
+            (pref === 'system' &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
         } catch (_) {}
       })();
     </script>
-  </body>
+  </head>
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
