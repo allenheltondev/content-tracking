@@ -4,11 +4,17 @@ process.env.TABLE_NAME = "test-booked";
 
 jest.unstable_mockModule("../services/idempotency.mjs", () => ({ withIdempotency: (fn) => fn }));
 jest.unstable_mockModule("../domain/content.mjs", () => ({
+  attachCampaign: jest.fn(),
   createContent: jest.fn(),
   deleteContent: jest.fn(),
+  detachCampaign: jest.fn(),
   getContent: jest.fn(),
   listContentByTenant: jest.fn(),
   updateContent: jest.fn(),
+}));
+jest.unstable_mockModule("../domain/campaign.mjs", () => ({
+  createCampaign: jest.fn(),
+  findCampaign: jest.fn(),
 }));
 // RAG Q&A collaborators (POST /content/ask): embed the question, retrieve
 // chunks, answer with Bedrock. Mocked so the route is exercised in isolation.
@@ -23,8 +29,10 @@ jest.unstable_mockModule("../services/bedrock.mjs", () => ({
 }));
 
 const {
-  createContent, deleteContent, getContent, listContentByTenant, updateContent,
+  attachCampaign, createContent, deleteContent, detachCampaign, getContent,
+  listContentByTenant, updateContent,
 } = await import("../domain/content.mjs");
+const { createCampaign, findCampaign } = await import("../domain/campaign.mjs");
 const { embedText } = await import("../services/embeddings.mjs");
 const { queryContentChunks } = await import("../services/content-vectors.mjs");
 const { answerContentQuestion } = await import("../services/bedrock.mjs");
@@ -35,6 +43,7 @@ function buildRouteTable() {
   const app = {
     get: (p, h) => { routes[`GET ${p}`] = h; },
     post: (p, h) => { routes[`POST ${p}`] = h; },
+    put: (p, h) => { routes[`PUT ${p}`] = h; },
     patch: (p, h) => { routes[`PATCH ${p}`] = h; },
     delete: (p, h) => { routes[`DELETE ${p}`] = h; },
   };
@@ -119,6 +128,78 @@ describe("PATCH /content/:contentId", () => {
     await expect(routes["PATCH /content/:contentId"](ctx({ params: { contentId: "C1" }, body: {} })))
       .rejects.toThrow(/at least one updatable field/);
     expect(updateContent).not.toHaveBeenCalled();
+  });
+
+  test("routes a campaign_id through attach, not the generic update", async () => {
+    attachCampaign.mockResolvedValue({ contentId: "C1", campaignId: "CMP1", title: "Hi", slug: "hi", createdAt: "t", updatedAt: "t2" });
+    const res = await routes["PATCH /content/:contentId"](ctx({ params: { contentId: "C1" }, body: { campaign_id: "CMP1" } }));
+    expect(attachCampaign).toHaveBeenCalledWith(SUB, "C1", "CMP1");
+    expect(updateContent).not.toHaveBeenCalled();
+    expect(JSON.parse(res.body).campaign_id).toBe("CMP1");
+  });
+
+  test("routes a null campaign_id through detach", async () => {
+    detachCampaign.mockResolvedValue({ contentId: "C1", title: "Hi", slug: "hi", createdAt: "t", updatedAt: "t2" });
+    const res = await routes["PATCH /content/:contentId"](ctx({ params: { contentId: "C1" }, body: { campaign_id: null } }));
+    expect(detachCampaign).toHaveBeenCalledWith(SUB, "C1");
+    expect(JSON.parse(res.body).campaign_id).toBeNull();
+  });
+});
+
+describe("content sponsorship routes", () => {
+  test("GET returns the attached campaign", async () => {
+    getContent.mockResolvedValue({ contentId: "C1", campaignId: "CMP1" });
+    findCampaign.mockResolvedValue({ campaignId: "CMP1", name: "Sponsor push", status: "active", contentId: "C1", createdAt: "t" });
+    const res = await routes["GET /content/:contentId/campaign"](ctx({ params: { contentId: "C1" } }));
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.campaign_id).toBe("CMP1");
+    expect(body.content_id).toBe("C1");
+  });
+
+  test("GET 404s for an unsponsored piece", async () => {
+    getContent.mockResolvedValue({ contentId: "C1" });
+    await expect(routes["GET /content/:contentId/campaign"](ctx({ params: { contentId: "C1" } })))
+      .rejects.toThrow(/not found/);
+    expect(findCampaign).not.toHaveBeenCalled();
+  });
+
+  test("PUT attaches an existing campaign", async () => {
+    attachCampaign.mockResolvedValue({ contentId: "C1", campaignId: "CMP1", title: "Hi", slug: "hi", createdAt: "t", updatedAt: "t2" });
+    const res = await routes["PUT /content/:contentId/campaign"](ctx({ params: { contentId: "C1" }, body: { campaign_id: "CMP1" } }));
+    expect(attachCampaign).toHaveBeenCalledWith(SUB, "C1", "CMP1");
+    expect(JSON.parse(res.body).campaign_id).toBe("CMP1");
+  });
+
+  test("PUT rejects a malformed campaign_id", async () => {
+    await expect(routes["PUT /content/:contentId/campaign"](ctx({ params: { contentId: "C1" }, body: { campaign_id: "bad id!" } })))
+      .rejects.toThrow(/campaign_id must be/);
+    expect(attachCampaign).not.toHaveBeenCalled();
+  });
+
+  test("POST creates a campaign and attaches it", async () => {
+    getContent.mockResolvedValue({ contentId: "C1" });
+    createCampaign.mockResolvedValue({ campaignId: "CMP9", name: "New", status: "active", createdAt: "t" });
+    attachCampaign.mockResolvedValue({ contentId: "C1", campaignId: "CMP9" });
+    const res = await routes["POST /content/:contentId/campaign"](ctx({ params: { contentId: "C1" }, body: { name: "New" } }));
+    expect(res.statusCode).toBe(201);
+    expect(createCampaign).toHaveBeenCalledWith(expect.objectContaining({ name: "New" }));
+    expect(attachCampaign).toHaveBeenCalledWith(SUB, "C1", "CMP9");
+    expect(JSON.parse(res.body).content_id).toBe("C1");
+  });
+
+  test("POST refuses to create when the piece is already sponsored", async () => {
+    getContent.mockResolvedValue({ contentId: "C1", campaignId: "CMP1" });
+    await expect(routes["POST /content/:contentId/campaign"](ctx({ params: { contentId: "C1" }, body: { name: "New" } })))
+      .rejects.toThrow(/already has a campaign/);
+    expect(createCampaign).not.toHaveBeenCalled();
+  });
+
+  test("DELETE detaches the campaign and returns 204", async () => {
+    detachCampaign.mockResolvedValue({ contentId: "C1" });
+    const res = await routes["DELETE /content/:contentId/campaign"](ctx({ params: { contentId: "C1" } }));
+    expect(res.statusCode).toBe(204);
+    expect(detachCampaign).toHaveBeenCalledWith(SUB, "C1");
   });
 });
 

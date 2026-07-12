@@ -34,17 +34,22 @@ function readStoredTheme(): AppTheme {
 // Side-rail nav. `section` groups consecutive items under a heading; the
 // app has enough destinations that a vertical rail reads better than a
 // crowded top bar.
+//
+// Content leads: a creator's central object is a piece of content, so it
+// heads the rail. A campaign is an optional sponsorship you hang off a
+// content piece, so Campaigns/Vendors/Revenue/Insights are grouped under
+// "Sponsorships" below the content-authoring tools. The legacy "Blogs"
+// item is folded into the unified Content hub.
 const NAV: ReadonlyArray<{ label: string; to: string; section: string }> = [
-  { label: 'Campaigns', to: '/campaigns', section: 'Manage' },
-  { label: 'Vendors', to: '/vendors', section: 'Manage' },
-  { label: 'Revenue', to: '/revenue', section: 'Manage' },
-  { label: 'Insights', to: '/insights', section: 'Manage' },
-  { label: 'Blogs', to: '/blogs', section: 'Content' },
   { label: 'Content', to: '/content', section: 'Content' },
   { label: 'Compose', to: '/compose', section: 'Content' },
   { label: 'Voice', to: '/voice', section: 'Content' },
   { label: 'Media kit', to: '/media-kit', section: 'Content' },
-  { label: 'Ask', to: '/ask', section: 'Assistant' },
+  { label: 'Ask', to: '/ask', section: 'Content' },
+  { label: 'Campaigns', to: '/campaigns', section: 'Sponsorships' },
+  { label: 'Vendors', to: '/vendors', section: 'Sponsorships' },
+  { label: 'Revenue', to: '/revenue', section: 'Sponsorships' },
+  { label: 'Insights', to: '/insights', section: 'Sponsorships' },
   { label: 'Settings', to: '/settings', section: 'Account' },
 ];
 

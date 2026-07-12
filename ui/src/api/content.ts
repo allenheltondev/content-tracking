@@ -1,5 +1,6 @@
 import type { ApiFetch } from '../auth/useApiFetch';
 import type {
+  Campaign,
   Content,
   ContentAnswer,
   ContentListResponse,
@@ -53,6 +54,45 @@ export async function updateContent(
 
 export async function deleteContent(apiFetch: ApiFetch, contentId: string): Promise<void> {
   await apiFetch(`/content/${contentId}`, { method: 'DELETE' });
+}
+
+// --- Sponsorship: the campaign that hangs off a content piece (1:1) ----------
+
+// The campaign attached to this piece, or null when it's an unsponsored
+// creation (the API returns 404, which we translate to null).
+export async function getContentCampaign(apiFetch: ApiFetch, contentId: string): Promise<Campaign | null> {
+  try {
+    return await apiFetch<Campaign>(`/content/${contentId}/campaign`);
+  } catch (err) {
+    if ((err as { status?: number }).status === 404) return null;
+    throw err;
+  }
+}
+
+// Attach an existing campaign to a content piece.
+export async function attachContentCampaign(
+  apiFetch: ApiFetch,
+  contentId: string,
+  campaignId: string,
+): Promise<Content> {
+  return apiFetch<Content>(`/content/${contentId}/campaign`, {
+    method: 'PUT',
+    body: { campaign_id: campaignId },
+  });
+}
+
+// Create a new campaign and attach it in one step (create content → sponsor it).
+export async function createContentSponsorship(
+  apiFetch: ApiFetch,
+  contentId: string,
+  params: { name: string },
+): Promise<Campaign> {
+  return apiFetch<Campaign>(`/content/${contentId}/campaign`, { method: 'POST', body: params });
+}
+
+// Detach the sponsorship, leaving an unsponsored piece (the campaign survives).
+export async function detachContentCampaign(apiFetch: ApiFetch, contentId: string): Promise<void> {
+  await apiFetch(`/content/${contentId}/campaign`, { method: 'DELETE' });
 }
 
 // --- RAG Q&A -----------------------------------------------------------------

@@ -26,7 +26,10 @@ import { findVendor } from "./vendor.mjs";
 
 const CAMPAIGNS_PARTITION = "CAMPAIGNS";
 
-function campaignKey(campaignId) {
+// Exported so the content domain can write the campaign's `contentId`
+// back-pointer transactionally when a sponsorship is attached to a piece of
+// content (the campaign hangs off the content piece, 1:1).
+export function campaignKey(campaignId) {
   return { pk: `CAMPAIGN#${campaignId}`, sk: "METADATA" };
 }
 
