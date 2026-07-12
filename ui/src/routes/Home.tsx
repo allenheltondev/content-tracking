@@ -5,12 +5,14 @@ import { useApiFetch } from '../auth/useApiFetch';
 import { listCampaigns } from '../api/campaigns';
 import { listVendors } from '../api/vendors';
 import { getRevenue } from '../api/revenue';
-import type { Campaign, RevenueResponse, Vendor } from '../api/types';
+import { listContent } from '../api/content';
+import type { Campaign, ContentSummary, RevenueResponse, Vendor } from '../api/types';
 import RevenueChart from '../components/RevenueChart';
 
 const CURRENT_YEAR = new Date().getUTCFullYear();
 
 interface DashboardData {
+  content: ContentSummary[];
   campaigns: Campaign[];
   vendorMap: Map<string, Vendor>;
   thisYear: RevenueResponse;
@@ -28,15 +30,18 @@ export default function Home(): ReactElement {
     setData(null);
 
     Promise.all([
+      // Content leads the dashboard; the rest enriches the sponsorship view.
+      listContent(apiFetch, {}).catch(() => ({ content: [] as ContentSummary[], nextStartKey: null })),
       listCampaigns(apiFetch, { limit: 200 }),
       getRevenue(apiFetch, { year: CURRENT_YEAR, grouping: 'month' }),
       // Best-effort: names enrich the lists, last year only drives a delta.
       listVendors(apiFetch, { limit: 500 }).catch(() => ({ vendors: [] as Vendor[] })),
       getRevenue(apiFetch, { year: CURRENT_YEAR - 1 }).catch(() => null),
     ])
-      .then(([campaignsRes, thisYear, vendorsRes, lastYear]) => {
+      .then(([contentRes, campaignsRes, thisYear, vendorsRes, lastYear]) => {
         if (cancelled) return;
         setData({
+          content: contentRes.content,
           campaigns: campaignsRes.campaigns,
           vendorMap: new Map(vendorsRes.vendors.map((v) => [v.vendor_id, v])),
           thisYear,
@@ -84,6 +89,13 @@ export default function Home(): ReactElement {
     [data],
   );
 
+  const recentContent = useMemo(() => {
+    if (!data) return [];
+    return [...data.content]
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, 6);
+  }, [data]);
+
   if (error) {
     return (
       <section className="space-y-4">
@@ -111,6 +123,7 @@ export default function Home(): ReactElement {
       : null;
 
   const noData =
+    data.content.length === 0 &&
     data.campaigns.length === 0 &&
     thisYear.total.amount === 0 &&
     (!lastYear || lastYear.total.amount === 0);
@@ -121,10 +134,11 @@ export default function Home(): ReactElement {
         <DashboardHeader />
         <div className="card card-body text-center py-16 space-y-4">
           <p className="text-muted-foreground">
-            No campaigns yet. Create your first one to start tracking deadlines and revenue.
+            No content yet. Create your first piece — then attach a sponsorship if a brand
+            comes along.
           </p>
-          <Link to="/campaigns" className="btn-primary inline-flex w-auto mx-auto">
-            Create your first campaign
+          <Link to="/content" className="btn-primary inline-flex w-auto mx-auto">
+            Create your first piece
           </Link>
         </div>
       </section>
@@ -181,6 +195,44 @@ export default function Home(): ReactElement {
           }
         />
       </div>
+
+      <PanelCard
+        title="Recent content"
+        action={<Link to="/content" className="btn-link">All content</Link>}
+      >
+        {recentContent.length === 0 ? (
+          <EmptyRow message="No content yet. Create your first piece to get started." />
+        ) : (
+          <ul className="divide-y divide-border">
+            {recentContent.map((c) => (
+              <li key={c.content_id} className="py-3 first:pt-0 last:pb-0">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <Link
+                      to={`/content/${c.content_id}`}
+                      className="text-sm font-medium text-foreground hover:text-primary-600 hover:underline truncate block"
+                    >
+                      {c.title}
+                    </Link>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {[c.type, c.status].filter(Boolean).join(' · ')} · {formatShortDate(c.created_at)}
+                    </p>
+                  </div>
+                  <span
+                    className={`status-pill shrink-0 ${
+                      c.campaign_id
+                        ? 'bg-primary-100 text-primary-700'
+                        : 'bg-secondary-100 text-secondary-700'
+                    }`}
+                  >
+                    {c.campaign_id ? 'Sponsored' : 'Owned'}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </PanelCard>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <PanelCard
@@ -276,11 +328,11 @@ function DashboardHeader(): ReactElement {
       <div className="space-y-1">
         <h1 className="text-3xl font-semibold text-foreground">Dashboard</h1>
         <p className="text-muted-foreground">
-          Deadlines, recent gigs, and how the year is tracking.
+          Your latest content, plus any sponsorships and how the year is tracking.
         </p>
       </div>
-      <Link to="/campaigns" className="btn-primary w-auto">
-        New campaign
+      <Link to="/content" className="btn-primary w-auto">
+        New content
       </Link>
     </header>
   );
