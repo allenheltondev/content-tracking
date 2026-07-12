@@ -146,8 +146,11 @@ Required environment-scoped secrets (set on each environment):
 Required environment-scoped variables (used to build the dashboard at
 deploy time; these are not secrets):
 
-- `USER_POOL_ID` - the `RSCUserPool` id (same one newsletter-service uses).
-- `USER_POOL_CLIENT_ID` - the App Client id for this environment's dashboard.
+- `USER_POOL_ID` - the shared `RSCUserPool` id (same one newsletter-service
+  uses). Passed to SAM as the `UserPoolId` parameter. Booked no longer needs
+  a `USER_POOL_CLIENT_ID` variable — the stack creates its own app client
+  (`UserPoolClient`) on this shared pool and the deploy build reads its id
+  from the `UserPoolClientId` stack output.
 
 The Cognito user pool ARN itself is always read from
 `/readysetcloud/auth/user-pool-arn`.
@@ -248,43 +251,40 @@ them via `--parameter-overrides` in the deploy workflow.
 
 ## Dashboard UI
 
-`ui/` is a Vite + React app that signs users into the shared
-`RSCUserPool` via aws-amplify (USER_PASSWORD_AUTH) and calls this
-stack's API with the resulting access token. Same auth approach
-newsletter-service uses, so an existing newsletter-service account
-signs in here with the same credentials.
+`ui/` is a Vite + React app built on the shared `@readysetcloud/ui`
+design system. It signs users into the shared `RSCUserPool` via
+`@readysetcloud/ui/auth` and calls this stack's API with the resulting
+id token. The same pool backs every Ready, Set, Cloud surface, so an
+existing account (newsletter, bootcamp, etc.) signs in here with the
+same credentials.
 
-### Cognito App Client (one-time)
+### Cognito App Client
 
-Create an App Client in the shared `RSCUserPool`:
-
-- **App type:** Public client (no client secret).
-- **Authentication flows:** Enable `ALLOW_USER_SRP_AUTH` and
-  `ALLOW_USER_PASSWORD_AUTH`. Amplify uses SRP by default; the
-  password flow is the fallback.
-- **Allowed callback / sign-out URLs:** Not used. The dashboard signs
-  users in inline rather than redirecting to the Hosted UI.
-
-Sign-up + email verification are handled in newsletter-service; the
-dashboard doesn't expose those flows. A user signs up there once,
-then logs in here with the same email + password.
+No manual step. The stack creates its own public app client on the
+shared pool — the `UserPoolClient` resource in `template.yaml`
+(`ALLOW_USER_SRP_AUTH` + `ALLOW_USER_PASSWORD_AUTH`, no secret). Its id
+is exported as the `UserPoolClientId` stack output, which the deploy
+workflow injects into the build as `VITE_USER_POOL_CLIENT_ID`. Sign-in,
+sign-up, email confirmation, and password reset are all handled inline
+by the package's prebuilt auth forms.
 
 ### Local dev
 
 ```bash
 cp ui/.env.example ui/.env.local
-# fill in VITE_USER_POOL_ID, VITE_USER_POOL_CLIENT_ID, and
-# VITE_API_BASE_URL
+# fill in VITE_USER_POOL_CLIENT_ID and VITE_API_BASE_URL
+# (VITE_USER_POOL_CLIENT_ID = the UserPoolClientId stack output for the
+#  environment you're pointing at)
 cd ui
 npm install
 npm run dev
 ```
 
 Open <http://localhost:5173>. You'll land on `/signin`. Enter the same
-email + password you use in newsletter-service. The access token lives
-in Amplify's internal storage and is sent on every API call as the raw
-`Authorization` header (not `Bearer X`, per the API's authorizer
-config).
+email + password you use on any Ready, Set, Cloud surface. The session
+lives in localStorage under the shared `rsc:auth` key; a fresh id token
+is pulled on every API call and sent as the raw `Authorization` header
+(not `Bearer X`, per the API's authorizer config).
 
 ### Required env vars
 
@@ -292,8 +292,7 @@ config).
 | --- | --- | --- |
 | `VITE_API_BASE_URL` | `https://api.booked.readysetcloud.io` | Base of the deployed API. |
 | `VITE_AWS_REGION` | `us-east-1` | Region the user pool lives in. |
-| `VITE_USER_POOL_ID` | `us-east-1_XXXXXXXXX` | The shared `RSCUserPool` id. |
-| `VITE_USER_POOL_CLIENT_ID` | `abcd1234efgh5678` | The App Client created above. |
+| `VITE_USER_POOL_CLIENT_ID` | `abcd1234efgh5678` | Booked's app client (the `UserPoolClientId` stack output). |
 
 The required-env check throws at module load time, so missing vars fail
 loudly during dev rather than at the first API call.

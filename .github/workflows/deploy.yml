@@ -105,7 +105,6 @@ jobs:
               "Environment=${{ env.ENVIRONMENT }}" \
               "NewsletterMintApiKey=${{ secrets.NEWSLETTER_MINT_API_KEY }}" \
               "UserPoolId=${{ vars.USER_POOL_ID }}" \
-              "UserPoolClientId=${{ vars.USER_POOL_CLIENT_ID }}" \
               "ExtensionTokenSigningKey=${{ secrets.EXTENSION_TOKEN_SIGNING_KEY }}" \
               "VendorReportsSigningPublicKey='${VR_PUBKEY}'" \
               "VendorReportsSigningPrivateKey='${VR_PRIVKEY}'"
@@ -168,6 +167,7 @@ jobs:
           }
           {
             echo "api-url=$(read_out ContentTrackingApiBaseUrl)"
+            echo "client-id=$(read_out UserPoolClientId)"
             echo "table-name=$(read_out ContentTrackingTableName)"
             echo "dashboard-bucket=$(read_out DashboardBucketName)"
             echo "dashboard-distribution-id=$(read_out DashboardDistributionId)"
@@ -190,13 +190,14 @@ jobs:
           # API URL comes from the stack output so the dashboard always
           # points at the API that was just deployed in the same run.
           VITE_API_BASE_URL: ${{ steps.outputs.outputs.api-url }}
-          # Cognito config lives on the GitHub environment as variables
-          # (App Client ids and User Pool ids aren't secrets but they
-          # are env-specific). Same shape newsletter-service uses --
-          # Amplify reads these directly to call Cognito InitiateAuth.
+          # Cognito config for @readysetcloud/ui/auth. The region is the
+          # deploy region; the app client id comes from this stack's own
+          # UserPoolClient resource (surfaced as the UserPoolClientId
+          # output), so the dashboard always signs into the client that
+          # was just deployed. The shared user pool id no longer needs to
+          # reach the browser — the auth core only needs region + client.
           VITE_AWS_REGION: ${{ env.AWS_REGION }}
-          VITE_USER_POOL_ID: ${{ vars.USER_POOL_ID }}
-          VITE_USER_POOL_CLIENT_ID: ${{ vars.USER_POOL_CLIENT_ID }}
+          VITE_USER_POOL_CLIENT_ID: ${{ steps.outputs.outputs.client-id }}
           # Streaming Function URL (StreamGenerateUrl output). Optional in the
           # UI — empty falls back to the buffered REST endpoints.
           VITE_STREAM_BASE_URL: ${{ steps.outputs.outputs.stream-url }}

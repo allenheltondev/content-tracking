@@ -7,10 +7,13 @@ version = 0.1
 # a fresh signing key with
 # `node scripts/generate-extension-signing-key.mjs`.
 #
-# UserPoolId + UserPoolClientId are also not defined here. They feed
-# the Lambda authorizer's Cognito JWT verification; provide them in
-# samconfig.local.toml or via --parameter-overrides for ad-hoc deploys.
-# CI sources them from GitHub environment vars (vars.USER_POOL_ID, etc.).
+# UserPoolId is also not defined here. It feeds the Lambda authorizer's
+# Cognito JWT verification and the app client the stack creates on the
+# shared pool; provide it in samconfig.local.toml or via
+# --parameter-overrides for ad-hoc deploys. CI sources it from the GitHub
+# environment var vars.USER_POOL_ID. There is no UserPoolClientId
+# parameter anymore — the stack mints its own app client (UserPoolClient)
+# and exports the id as the UserPoolClientId output.
 #
 # CognitoUserPoolArn resolves from SSM `/readysetcloud/auth/user-pool-arn`
 # (published by rsc-core) at deploy time, no override needed.

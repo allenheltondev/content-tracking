@@ -1,10 +1,8 @@
-import { Amplify } from 'aws-amplify';
-import type { ResourcesConfig } from 'aws-amplify';
+import { configureAuth } from '@readysetcloud/ui/auth';
 
 interface RuntimeEnv {
   apiBaseUrl: string;
   awsRegion: string;
-  userPoolId: string;
   userPoolClientId: string;
   // Lambda Function URL for streaming compose/ask. Optional — when unset the
   // UI falls back to the buffered REST endpoints.
@@ -29,30 +27,17 @@ function optional(name: string): string | undefined {
 export const env: RuntimeEnv = {
   apiBaseUrl: required('VITE_API_BASE_URL').replace(/\/$/, ''),
   awsRegion: required('VITE_AWS_REGION'),
-  userPoolId: required('VITE_USER_POOL_ID'),
   userPoolClientId: required('VITE_USER_POOL_CLIENT_ID'),
   streamBaseUrl: optional('VITE_STREAM_BASE_URL'),
 };
 
-// Mirrors newsletter-service's Amplify config so the same `RSCUserPool`
-// users have a consistent sign-in experience across both apps. We don't
-// configure the API category here -- the dashboard's API client builds
-// its own fetch wrapper that pulls the access token directly from the
-// auth session.
-// Amplify v6's ResourcesConfig types the Auth.Cognito field as an
-// intersection of UserPool + IdentityPool configs, which forces
-// identityPoolId even when you're only using a user pool. The
-// `Pick` cast tells TS we're committing to the user-pool-only shape
-// the runtime accepts.
-const amplifyConfig = {
-  Auth: {
-    Cognito: {
-      userPoolId: env.userPoolId,
-      userPoolClientId: env.userPoolClientId,
-      loginWith: { email: true },
-      allowGuestAccess: false,
-    },
-  },
-} as unknown as ResourcesConfig;
-
-Amplify.configure(amplifyConfig);
+// Configure the shared Ready, Set, Cloud auth core. All apps sign into
+// the same rsc-core Cognito user pool; each brings its own app client id.
+// This app's client id comes from the CloudFormation `UserPoolClientId`
+// output (see template.yaml's UserPoolClient resource). The core mirrors
+// the `rsc:auth` session into a parent-domain cookie so sign-in is shared
+// across *.readysetcloud.io surfaces (booked, newsletter, bootcamp).
+configureAuth({
+  region: env.awsRegion,
+  clientId: env.userPoolClientId,
+});
