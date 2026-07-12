@@ -144,24 +144,42 @@ describe("domain/content", () => {
       expect(tx[1].Update.Key).toEqual({ pk: "CAMPAIGN#CMP1", sk: "METADATA" });
     });
 
-    test("detach clears both sides", async () => {
+    test("detach clears the content side, then the campaign back-pointer", async () => {
       mockSend.mockResolvedValueOnce({ Item: { contentId: "C1", campaignId: "CMP1" } }); // getContent
-      mockSend.mockResolvedValueOnce({}); // TransactWrite
+      mockSend.mockResolvedValueOnce({}); // content REMOVE campaignId
+      mockSend.mockResolvedValueOnce({}); // campaign REMOVE contentId
       mockSend.mockResolvedValueOnce({ Item: { contentId: "C1" } }); // read-back
 
       const updated = await detachCampaign(TENANT, "C1");
       expect(updated.campaignId).toBeUndefined();
 
-      const tx = input(mockSend, 1).TransactItems;
-      expect(tx[0].Update.UpdateExpression).toMatch(/REMOVE #campaignId/);
-      expect(tx[1].Update.UpdateExpression).toMatch(/REMOVE #contentId, #tenantId/);
-      expect(tx[1].Update.ConditionExpression).toBe("#contentId = :contentId");
+      // Content side cleared first (guarded only on existence).
+      expect(input(mockSend, 1).Key).toEqual(contentKey(TENANT, "C1"));
+      expect(input(mockSend, 1).UpdateExpression).toMatch(/REMOVE #campaignId/);
+      // Campaign back-pointer cleared, guarded to the linked content.
+      expect(input(mockSend, 2).Key).toEqual({ pk: "CAMPAIGN#CMP1", sk: "METADATA" });
+      expect(input(mockSend, 2).UpdateExpression).toMatch(/REMOVE #contentId, #tenantId/);
+      expect(input(mockSend, 2).ConditionExpression).toBe("#contentId = :contentId");
+    });
+
+    test("detach still succeeds for a legacy link whose campaign has no back-pointer", async () => {
+      // Content created before the back-pointer existed: the campaign row's
+      // guarded clear fails its condition, but detach must still clear the
+      // content side and resolve rather than surfacing a transaction error.
+      mockSend.mockResolvedValueOnce({ Item: { contentId: "C1", campaignId: "CMP1" } }); // getContent
+      mockSend.mockResolvedValueOnce({}); // content REMOVE campaignId
+      mockSend.mockRejectedValueOnce({ name: "ConditionalCheckFailedException" }); // campaign clear no-op
+      mockSend.mockResolvedValueOnce({ Item: { contentId: "C1" } }); // read-back
+
+      const updated = await detachCampaign(TENANT, "C1");
+      expect(updated.campaignId).toBeUndefined();
+      expect(mockSend).toHaveBeenCalledTimes(4);
     });
 
     test("detach is a no-op for an unsponsored piece", async () => {
       mockSend.mockResolvedValueOnce({ Item: { contentId: "C1" } }); // getContent, no campaignId
       await detachCampaign(TENANT, "C1");
-      // Only the single getContent read — no transaction.
+      // Only the single getContent read — nothing to clear.
       expect(mockSend).toHaveBeenCalledTimes(1);
     });
   });

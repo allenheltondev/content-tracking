@@ -367,6 +367,12 @@ export async function attachCampaign(tenantId, contentId, campaignId) {
 // Detaches the campaign from a content piece, leaving an unsponsored piece.
 // The campaign itself survives — it just loses its content back-pointer.
 // Idempotent: a piece with no attached campaign is returned unchanged.
+//
+// The content side is cleared first and unconditionally (beyond existence):
+// clearing the sponsorship is the user-visible action and must succeed even
+// for a legacy link created before the back-pointer existed, where the
+// campaign row carries no `contentId`. The campaign back-pointer is then
+// cleared best-effort (see clearCampaignBackPointer).
 export async function detachCampaign(tenantId, contentId) {
   const content = await getContent(tenantId, contentId);
   const campaignId = content.campaignId;
@@ -374,32 +380,40 @@ export async function detachCampaign(tenantId, contentId) {
     return content;
   }
 
-  await ddb.send(new TransactWriteCommand({
-    TransactItems: [
-      {
-        Update: {
-          TableName: TABLE_NAME,
-          Key: contentKey(tenantId, contentId),
-          UpdateExpression: "REMOVE #campaignId SET #updatedAt = :now",
-          ExpressionAttributeNames: { "#campaignId": "campaignId", "#updatedAt": "updatedAt" },
-          ExpressionAttributeValues: { ":now": new Date().toISOString() },
-          ConditionExpression: "attribute_exists(sk)",
-        },
-      },
-      {
-        Update: {
-          TableName: TABLE_NAME,
-          Key: campaignKey(campaignId),
-          UpdateExpression: "REMOVE #contentId, #tenantId",
-          ExpressionAttributeNames: { "#contentId": "contentId", "#tenantId": "tenantId" },
-          ExpressionAttributeValues: { ":contentId": contentId },
-          ConditionExpression: "#contentId = :contentId",
-        },
-      },
-    ],
+  await ddb.send(new UpdateCommand({
+    TableName: TABLE_NAME,
+    Key: contentKey(tenantId, contentId),
+    UpdateExpression: "REMOVE #campaignId SET #updatedAt = :now",
+    ExpressionAttributeNames: { "#campaignId": "campaignId", "#updatedAt": "updatedAt" },
+    ExpressionAttributeValues: { ":now": new Date().toISOString() },
+    ConditionExpression: "attribute_exists(sk)",
   }));
 
+  await clearCampaignBackPointer(campaignId, contentId);
+
   return getContent(tenantId, contentId);
+}
+
+// Clears a campaign's content back-pointer, guarded so a campaign since
+// re-linked to different content is left alone. A legacy campaign that never
+// had a back-pointer (or one already cleared) simply has nothing to remove and
+// the guard's ConditionalCheckFailed is swallowed — the content side has
+// already been detached, so the operation still succeeds overall.
+async function clearCampaignBackPointer(campaignId, contentId) {
+  try {
+    await ddb.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: campaignKey(campaignId),
+      UpdateExpression: "REMOVE #contentId, #tenantId",
+      ExpressionAttributeNames: { "#contentId": "contentId", "#tenantId": "tenantId" },
+      ExpressionAttributeValues: { ":contentId": contentId },
+      ConditionExpression: "#contentId = :contentId",
+    }));
+  } catch (err) {
+    if (!(err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException")) {
+      throw err;
+    }
+  }
 }
 
 // Deletes the content and all of its child rows (publish variants, stats,
@@ -437,23 +451,10 @@ export async function deleteContent(tenantId, contentId) {
     }));
   }
 
-  // Clear the attached campaign's dangling content back-pointer, if any.
-  // Guarded so a campaign since re-linked to different content is left alone.
+  // Clear the attached campaign's dangling content back-pointer, if any (it
+  // lives in a different partition, so the cascade above doesn't touch it).
   if (root.campaignId) {
-    try {
-      await ddb.send(new UpdateCommand({
-        TableName: TABLE_NAME,
-        Key: campaignKey(root.campaignId),
-        UpdateExpression: "REMOVE #contentId, #tenantId",
-        ExpressionAttributeNames: { "#contentId": "contentId", "#tenantId": "tenantId" },
-        ExpressionAttributeValues: { ":contentId": contentId },
-        ConditionExpression: "#contentId = :contentId",
-      }));
-    } catch (err) {
-      if (!(err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException")) {
-        throw err;
-      }
-    }
+    await clearCampaignBackPointer(root.campaignId, contentId);
   }
 
   return { deleted: keys.length };
