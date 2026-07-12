@@ -216,7 +216,6 @@ function AddContentForm({
   const [tags, setTags] = useState('');
   const [categories, setCategories] = useState('');
   const [canonicalUrl, setCanonicalUrl] = useState('');
-  const [campaignId, setCampaignId] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -241,7 +240,6 @@ function AddContentForm({
         tags: tagList.length > 0 ? tagList : undefined,
         categories: categoryList.length > 0 ? categoryList : undefined,
         canonical_url: canonicalUrl.trim() || undefined,
-        campaign_id: campaignId.trim() || undefined,
       });
       onCreated();
     } catch (err) {
@@ -311,16 +309,13 @@ function AddContentForm({
           <input className="input" value={categories} onChange={(e) => setCategories(e.target.value)} placeholder="engineering" disabled={busy} />
         </label>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block">
-          <span className="field-label">Canonical URL (optional)</span>
-          <input className="input" value={canonicalUrl} onChange={(e) => setCanonicalUrl(e.target.value)} placeholder="https://…" disabled={busy} />
-        </label>
-        <label className="block">
-          <span className="field-label">Campaign ID (optional)</span>
-          <input className="input" value={campaignId} onChange={(e) => setCampaignId(e.target.value)} disabled={busy} />
-        </label>
-      </div>
+      <label className="block">
+        <span className="field-label">Canonical URL (optional)</span>
+        <input className="input" value={canonicalUrl} onChange={(e) => setCanonicalUrl(e.target.value)} placeholder="https://…" disabled={busy} />
+      </label>
+      <p className="text-xs text-muted-foreground">
+        Creating an unsponsored piece. Add a sponsorship (campaign) later from the content’s page.
+      </p>
       {error && <p className="form-error">{error}</p>}
       <button type="submit" className="btn-primary" disabled={busy || !title.trim() || !content.trim()}>
         {busy ? 'Saving…' : 'Save content'}

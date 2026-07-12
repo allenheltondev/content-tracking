@@ -14,6 +14,7 @@ import {
 import { createVoiceSample } from '../api/voice';
 import type { Content, ContentAnswer, ContentStatus } from '../api/types';
 import Markdown from '../components/MarkdownLazy';
+import CampaignDetail from './CampaignDetail';
 
 const CONTENT_STATUSES: ContentStatus[] = ['draft', 'scheduled', 'published', 'archived'];
 
@@ -51,56 +52,65 @@ export default function ContentDetail(): ReactElement {
   if (!content) return <p className="text-muted-foreground">Not found.</p>;
 
   return (
-    <section className="space-y-6 max-w-3xl">
-      <div>
-        <Link to="/content" className="btn-link text-sm">← All content</Link>
+    <section className="space-y-8">
+      {/* The content itself reads best in a narrow column; the embedded
+          sponsorship workspace below gets full width for its tables/charts. */}
+      <div className="max-w-3xl space-y-6">
+        <div>
+          <Link to="/content" className="btn-link text-sm">← All content</Link>
+        </div>
+
+        <header className="space-y-2">
+          <h1 className="text-2xl font-semibold text-foreground">{content.title}</h1>
+          <p className="text-xs text-muted-foreground">
+            {content.slug} · created {fmtDate(content.created_at)}
+            {content.updated_at && content.updated_at !== content.created_at && ` · updated ${fmtDate(content.updated_at)}`}
+          </p>
+          <div className="flex flex-wrap items-center gap-1">
+            {content.type && (
+              <span className="px-2 py-0.5 rounded-full text-xs bg-primary-100 text-primary-700">{content.type}</span>
+            )}
+            {content.status && (
+              <span className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">{content.status}</span>
+            )}
+            {content.source && (
+              <span className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">{content.source}</span>
+            )}
+          </div>
+          {content.canonical_url && (
+            <div className="flex flex-wrap gap-3 text-sm pt-1">
+              <a href={content.canonical_url} target="_blank" rel="noreferrer noopener" className="btn-link">Canonical ↗</a>
+            </div>
+          )}
+        </header>
+
+        <ActionsRow
+          content={content}
+          apiFetch={apiFetch}
+          onChanged={setContent}
+          onDeleted={() => navigate('/content')}
+        />
+
+        {content.content_markdown ? (
+          <article className="card card-body text-sm">
+            <Markdown>{content.content_markdown}</Markdown>
+          </article>
+        ) : (
+          <p className="text-sm text-muted-foreground">This piece has no stored body.</p>
+        )}
+
+        <AskPanel contentId={content.content_id} apiFetch={apiFetch} />
       </div>
 
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold text-foreground">{content.title}</h1>
-        <p className="text-xs text-muted-foreground">
-          {content.slug} · created {fmtDate(content.created_at)}
-          {content.updated_at && content.updated_at !== content.created_at && ` · updated ${fmtDate(content.updated_at)}`}
-        </p>
-        <div className="flex flex-wrap items-center gap-1">
-          {content.type && (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-primary-100 text-primary-700">{content.type}</span>
-          )}
-          {content.status && (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">{content.status}</span>
-          )}
-          {content.source && (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">{content.source}</span>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-3 text-sm pt-1">
-          {content.canonical_url && (
-            <a href={content.canonical_url} target="_blank" rel="noreferrer noopener" className="btn-link">Canonical ↗</a>
-          )}
-          {content.campaign_id && (
-            <Link to={`/campaigns/${content.campaign_id}`} className="btn-link">Sponsorship ↗</Link>
-          )}
-        </div>
-      </header>
-
+      {/* Sponsorship: attach/create/detach, and — when attached — the full
+          campaign workspace hangs off the content piece right here. */}
       <SponsorshipRow content={content} apiFetch={apiFetch} onChanged={setContent} />
 
-      <ActionsRow
-        content={content}
-        apiFetch={apiFetch}
-        onChanged={setContent}
-        onDeleted={() => navigate('/content')}
-      />
-
-      {content.content_markdown ? (
-        <article className="card card-body text-sm">
-          <Markdown>{content.content_markdown}</Markdown>
-        </article>
-      ) : (
-        <p className="text-sm text-muted-foreground">This piece has no stored body.</p>
+      {content.campaign_id && (
+        <div className="border-t border-border pt-6">
+          <CampaignDetail campaignId={content.campaign_id} />
+        </div>
       )}
-
-      <AskPanel contentId={content.content_id} apiFetch={apiFetch} />
     </section>
   );
 }
