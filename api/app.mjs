@@ -20,6 +20,7 @@ import { registerExtensionPairingRoutes } from "./routes/extension-pairings.mjs"
 import { registerBlogRoutes } from "./routes/blogs.mjs";
 import { registerContentRoutes } from "./routes/content.mjs";
 import { registerVoiceRoutes } from "./routes/voice.mjs";
+import { registerFeedRoutes } from "./routes/feeds.mjs";
 import { logger } from "./services/logger.mjs";
 import { jsonResponse } from "./services/http-handler.mjs";
 import { ApiError } from "./services/errors.mjs";
@@ -47,6 +48,7 @@ registerExtensionPairingRoutes(app);
 registerBlogRoutes(app);
 registerContentRoutes(app);
 registerVoiceRoutes(app);
+registerFeedRoutes(app);
 
 app.notFound(({ event }) => {
   const method = event.httpMethod || event?.requestContext?.http?.method;
