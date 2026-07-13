@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApiFetch } from '../auth/useApiFetch';
 import { createContent, listContent } from '../api/content';
+import { parseList, slugify } from '../lib/text';
 import type {
   ContentSource,
   ContentStatus,
@@ -22,19 +23,6 @@ function fmtDate(iso: string | null): string {
   if (!iso) return '';
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
-}
-
-// Server requires kebab-case; offer a sensible default derived from the title.
-function slugify(s: string): string {
-  return s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-}
-
-// Splits a comma-separated input into a trimmed, de-empty'd list of tags.
-function parseList(raw: string): string[] {
-  return raw
-    .split(',')
-    .map((t) => t.trim())
-    .filter((t) => t.length > 0);
 }
 
 export default function Content(): ReactElement {

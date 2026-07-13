@@ -31,16 +31,12 @@ import type {
   UpdateContentParams,
 } from '../api/types';
 import Markdown from '../components/MarkdownLazy';
+import { parseList } from '../lib/text';
 import CampaignDetail from './CampaignDetail';
 
 const CONTENT_STATUSES: ContentStatus[] = ['draft', 'scheduled', 'published', 'archived'];
 const CONTENT_TYPES: ContentType[] = ['blog', 'social', 'video'];
 const CONTENT_SOURCES: ContentSource[] = ['owned', 'sponsored'];
-
-// Splits a comma-separated input into a trimmed, de-empty'd list.
-function parseList(raw: string): string[] {
-  return raw.split(',').map((t) => t.trim()).filter((t) => t.length > 0);
-}
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '';
