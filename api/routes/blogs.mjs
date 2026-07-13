@@ -1,6 +1,5 @@
 import { ulid } from "ulid";
 import {
-  createBlog,
   deleteBlog,
   findBlog,
   getBlog,
@@ -9,7 +8,13 @@ import {
   listBlogsForCampaign,
   updateBlog,
 } from "../domain/blog.mjs";
-import { findContent, listContentByTenant } from "../domain/content.mjs";
+import {
+  createContent,
+  deleteContent,
+  findContent,
+  listContentByTenant,
+  updateContent,
+} from "../domain/content.mjs";
 import { requireTenantId } from "../services/identity.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import { parseLimit } from "../services/pagination.mjs";
@@ -49,11 +54,20 @@ const SECONDS_PER_DAY = 24 * 60 * 60;
 // to type="blog" so it never pulls sponsored/other content.
 
 export function registerBlogRoutes(app) {
+  // Writes now target the unified Content entity (type="blog"), not a legacy
+  // Blog row, so blog creation no longer forks the write path. Reads already
+  // merge Content + un-migrated Blog rows, so this is transparent to GET /blogs
+  // and the response shape is unchanged (asBlogRow aliases contentId→blogId).
   app.post("/blogs", withIdempotency(async ({ event }) => {
     const tenantId = requireTenantId(event);
     const fields = validateBlogCreate(parseBody(event));
-    const item = await createBlog(tenantId, fields);
-    return jsonResponse(201, formatBlog(item));
+    const item = await createContent(tenantId, {
+      ...fields,
+      type: "blog",
+      source: "owned",
+      status: "published",
+    });
+    return jsonResponse(201, formatBlog(asBlogRow(item)));
   }));
 
   // POST /blogs/ask — RAG Q&A over the tenant's blog catalog. Now aliased onto
@@ -152,19 +166,29 @@ export function registerBlogRoutes(app) {
     return jsonResponse(200, formatBlog(blog));
   });
 
+  // Content-first: edit the unified row when it exists, else fall back to the
+  // legacy Blog row for a post that hasn't been migrated yet.
   app.patch("/blogs/:blogId", async ({ event, params }) => {
     const tenantId = requireTenantId(event);
     const fields = validateBlogUpdate(parseBody(event));
     if (Object.keys(fields).length === 0) {
       throw new BadRequestError("request body must contain at least one updatable field");
     }
-    const updated = await updateBlog(tenantId, params.blogId, fields);
-    return jsonResponse(200, formatBlog(updated));
+    const onContent = await findContent(tenantId, params.blogId);
+    const updated = onContent
+      ? await updateContent(tenantId, params.blogId, fields)
+      : await updateBlog(tenantId, params.blogId, fields);
+    return jsonResponse(200, formatBlog(onContent ? asBlogRow(updated) : updated));
   });
 
   app.delete("/blogs/:blogId", async ({ event, params }) => {
     const tenantId = requireTenantId(event);
-    await deleteBlog(tenantId, params.blogId);
+    // Content-first with a legacy fallback, mirroring DELETE /content/:id.
+    if (await findContent(tenantId, params.blogId)) {
+      await deleteContent(tenantId, params.blogId);
+    } else {
+      await deleteBlog(tenantId, params.blogId);
+    }
     return emptyResponse(204);
   });
 
