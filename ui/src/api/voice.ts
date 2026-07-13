@@ -1,5 +1,13 @@
 import type { ApiFetch } from '../auth/useApiFetch';
-import type { VoiceDraft, VoiceFormat, VoiceProfile, VoiceReflection, VoiceSample } from './types';
+import type {
+  VoiceAssessment,
+  VoiceDraft,
+  VoiceFormat,
+  VoiceOverviewEntry,
+  VoiceProfile,
+  VoiceReflection,
+  VoiceSample,
+} from './types';
 
 // Voice feature client. Composing and reflecting call Bedrock (POST); the style
 // learning itself happens server-side off the DynamoDB stream after a sample is
@@ -90,6 +98,33 @@ export async function deleteVoiceSample(apiFetch: ApiFetch, id: string, platform
   await apiFetch(`/voice/samples/${id}`, { method: 'DELETE', query: { platform } });
 }
 
+// Mute (exclude from the voice) or unmute a sample. Muting is reversible and,
+// for auto-captured posts, durable across later edits.
+export async function setVoiceSampleMuted(
+  apiFetch: ApiFetch,
+  id: string,
+  platform: string,
+  muted: boolean,
+): Promise<VoiceSample> {
+  return apiFetch<VoiceSample>(`/voice/samples/${id}`, {
+    method: 'PATCH',
+    query: { platform },
+    body: { muted },
+  });
+}
+
+// Set (or clear with null) the steering note that biases the next reflection.
+export async function setVoiceSteering(
+  apiFetch: ApiFetch,
+  platform: string,
+  note: string | null,
+): Promise<{ profile: VoiceProfile | null }> {
+  return apiFetch<{ profile: VoiceProfile | null }>(`/voice/profiles/${platform}/steering`, {
+    method: 'PUT',
+    body: { note },
+  });
+}
+
 export async function listVoiceProfiles(apiFetch: ApiFetch): Promise<{ profiles: VoiceProfile[] }> {
   return apiFetch<{ profiles: VoiceProfile[] }>('/voice/profiles');
 }
@@ -105,5 +140,21 @@ export async function reflectVoiceProfile(apiFetch: ApiFetch, platform: string):
   return apiFetch<{ profile: VoiceProfile | null }>(`/voice/profiles/${platform}/reflect`, {
     method: 'POST',
     body: {},
+  });
+}
+
+// The flagship read: portrait + corpus transparency for every platform, in one call.
+export async function getVoiceOverview(apiFetch: ApiFetch): Promise<{ platforms: VoiceOverviewEntry[] }> {
+  return apiFetch<{ platforms: VoiceOverviewEntry[] }>('/voice/overview');
+}
+
+// Grade an arbitrary draft against the learned voice (paste-and-score).
+export async function checkVoice(
+  apiFetch: ApiFetch,
+  params: { draft: string; platform: string; format: VoiceFormat },
+): Promise<VoiceAssessment> {
+  return apiFetch<VoiceAssessment>('/voice/check', {
+    method: 'POST',
+    body: { draft: params.draft, platform: params.platform, format: params.format },
   });
 }

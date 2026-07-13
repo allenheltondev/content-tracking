@@ -46,23 +46,28 @@ async function* streamConverseText({ system, userText, temperature = 0.5, maxTok
   }
 }
 
-const COMPOSE_STREAM_SYSTEM = `You are a ghostwriter who writes in one specific person's voice. You are given a structured style profile describing how they write, and a few of their past posts as examples.
+const COMPOSE_STREAM_SYSTEM = `You are a ghostwriter who writes in one specific person's voice. You are given a structured style profile describing how they write, and a few of their past posts as examples, each annotated with its publish date when known.
 
-Write a NEW post on the requested topic for the requested platform that authentically matches their voice — tone, sentence structure, vocabulary, signature phrases, and formatting. Match the format: 'social' = short, punchy, platform-native (no title); 'blog' = long-form markdown that starts with a single '# Title' line followed by the body.
+Write a NEW post on the requested topic for the requested platform that authentically matches their voice — tone, sentence structure, vocabulary, signature phrases, and formatting. Their voice evolves over time: the examples are ordered by a blend of topical relevance and recency, and when examples conflict stylistically, favor the more recently published ones — they are the truest signal of how this person writes NOW. Match the format: 'social' = short, punchy, platform-native (no title); 'blog' = long-form markdown that starts with a single '# Title' line followed by the body.
 
 Emulate the style, do not copy the example posts' content. Output ONLY the post itself — no preamble, no commentary, no surrounding quotes.`;
 
 // Streams a composed post in the user's voice. Mirrors composeVoicePost's
-// inputs; yields text deltas.
+// inputs (samples pre-ranked by relevance + recency); yields text deltas.
 export function streamVoicePost({ topic, platform, format, profile, samples, guidance }) {
   const examples = (samples ?? []).filter((s) => s?.text);
   const exampleBlock = examples.length > 0
-    ? examples.map((s, i) => `[${i + 1}] ${s.text}`).join("\n\n")
+    ? examples.map((s, i) => {
+      const date = typeof s.publishedAt === "string" && s.publishedAt.length > 0
+        ? ` (published ${s.publishedAt.slice(0, 10)})`
+        : "";
+      return `[${i + 1}]${date} ${s.text}`;
+    }).join("\n\n")
     : "(no examples yet)";
 
   const userText = `=== STYLE PROFILE (${platform}) ===\n${
     profile ? JSON.stringify(profile, null, 2) : "(no learned profile yet — infer the voice from the examples below)"
-  }\n\n=== PAST POSTS (examples of their voice; emulate, don't copy) ===\n${exampleBlock}\n\n=== TASK ===\nWrite a ${
+  }\n\n=== PAST POSTS (ordered by relevance + recency; emulate, don't copy) ===\n${exampleBlock}\n\n=== TASK ===\nWrite a ${
     format === "blog" ? "long-form blog post" : "short social post"
   } for ${platform} about:\n${topic}${guidance ? `\n\nAdditional guidance: ${guidance}` : ""}`;
 

@@ -809,17 +809,73 @@ export interface VoiceSample {
   format: string | null;
   source: string | null;
   text: string;
+  // Publish date of the source post — anchors the sample's recency weight.
+  published_at: string | null;
   created_at: string;
+  // Excluded from the voice (kept for reference, reversible).
+  muted: boolean;
+  // Share (0-1) of the current voice this sample carries; null when not computed.
+  influence_share: number | null;
 }
 
 export interface VoiceProfile {
   platform: string;
   profile: Record<string, unknown> | null;
+  // Plain-English portrait of the learned voice, surfaced from profile.portrait.
+  portrait: string | null;
+  // The creator's intent note that biases reflection.
+  steering: string | null;
   samples_since_reflection: number;
   reflection_threshold: number;
+  // Half-life (days) of the publish-date decay weighting samples.
+  recency_half_life_days: number;
   version: number;
   created_at: string | null;
   updated_at: string | null;
+}
+
+// One horizon in the overview's recency breakdown: what share of the current
+// voice comes from posts published within the last `window_days`.
+export interface VoiceInfluenceHorizon {
+  window_days: number;
+  influence_share: number;
+  sample_count: number;
+}
+
+// GET /voice/overview — one platform's portrait + corpus transparency.
+export interface VoiceOverviewEntry {
+  platform: string;
+  portrait: string | null;
+  steering: string | null;
+  version: number;
+  samples_since_reflection: number;
+  reflection_threshold: number;
+  recency_half_life_days: number;
+  updated_at: string | null;
+  corpus: {
+    // Eligible corpus only (what drives the voice); excluded reports held-out rows.
+    total_samples: number;
+    by_source: Record<string, number>;
+    excluded: { muted: number; generated: number };
+    earliest_published: string | null;
+    latest_published: string | null;
+    recent_influence: VoiceInfluenceHorizon[];
+  };
+}
+
+// POST /voice/check — how on-voice a draft is.
+export interface VoiceAssessmentIssue {
+  area: string | null;
+  detail: string;
+  suggestion: string;
+}
+export interface VoiceAssessment {
+  score: number;
+  verdict: 'on_voice' | 'close' | 'off_voice';
+  summary: string;
+  strengths: string[];
+  issues: VoiceAssessmentIssue[];
+  on_voice_rewrite: string | null;
 }
 
 export interface VoiceReflection {
@@ -827,6 +883,10 @@ export interface VoiceReflection {
   platform: string;
   change_summary: string | null;
   sample_window: number | null;
+  half_life_days: number | null;
+  // Snapshot of the profile at this reflection (the "voice over time" history).
+  version: number | null;
+  portrait: string | null;
   model: string | null;
   created_at: string;
 }

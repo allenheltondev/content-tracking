@@ -28,9 +28,20 @@ describe("services/voice-vectors", () => {
     expect(v.metadata).toEqual({ tenantId: "T1", platform: "x", format: "social", text: "hi" });
   });
 
-  test("queryVoiceSamples filters by tenant+platform and maps results", async () => {
+  test("putVoiceSample carries publishedAt in the metadata when known", async () => {
+    mockSend.mockResolvedValue({});
+    await putVoiceSample({
+      tenantId: "T1", platform: "blog", format: "blog", sampleId: "S1",
+      text: "hi", embedding: [0.1], publishedAt: "2026-07-10",
+    });
+    expect(mockSend.mock.calls[0][0].input.vectors[0].metadata).toEqual({
+      tenantId: "T1", platform: "blog", format: "blog", text: "hi", publishedAt: "2026-07-10",
+    });
+  });
+
+  test("queryVoiceSamples filters by tenant+platform and maps results (incl. publishedAt)", async () => {
     mockSend.mockResolvedValue({
-      vectors: [{ key: "T1#x#S1", distance: 0.2, metadata: { text: "body", format: "social" } }],
+      vectors: [{ key: "T1#x#S1", distance: 0.2, metadata: { text: "body", format: "social", publishedAt: "2026-07-10" } }],
     });
     const out = await queryVoiceSamples({ tenantId: "T1", queryEmbedding: [0.1], platform: "x", topK: 3 });
     const cmd = mockSend.mock.calls[0][0].input;
@@ -38,7 +49,7 @@ describe("services/voice-vectors", () => {
     expect(cmd.topK).toBe(3);
     expect(cmd.filter).toEqual({ tenantId: "T1", platform: "x" });
     expect(cmd.returnMetadata).toBe(true);
-    expect(out).toEqual([{ key: "T1#x#S1", distance: 0.2, text: "body", format: "social" }]);
+    expect(out).toEqual([{ key: "T1#x#S1", distance: 0.2, text: "body", format: "social", publishedAt: "2026-07-10" }]);
   });
 
   test("queryVoiceSamples requires tenantId and platform", async () => {

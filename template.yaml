@@ -110,6 +110,16 @@ Parameters:
       How many new voice samples (per platform) accumulate before
       VoiceMemoryFunction automatically re-derives that platform's writing-style
       profile. Lower = the profile adapts faster but spends more on Bedrock.
+  VoiceHalfLifeDays:
+    Type: Number
+    Default: 90
+    MinValue: 1
+    Description: |
+      Half-life (in days) of the exponential publish-date decay that weights
+      voice samples: a sample this many days old carries half the influence of
+      one published today, both in profile reflection and in compose's few-shot
+      example ranking. Lower = the learned voice tracks recent posts more
+      aggressively. See api/services/voice-recency.mjs.
   BaseCustomDomain:
     Type: String
     Default: ""
@@ -192,9 +202,12 @@ Globals:
         CONTENT_VECTOR_INDEX_NAME: content-vectors
         # Voice feature: a second index in the SAME bucket holds per-sample
         # voice embeddings; REFLECTION_THRESHOLD drives the auto-reflection
-        # cadence in VoiceMemoryFunction (and the manual-reflect route).
+        # cadence in VoiceMemoryFunction (and the manual-reflect route), and
+        # VOICE_HALF_LIFE_DAYS drives the publish-date recency decay used by
+        # reflection and compose example ranking.
         VOICE_VECTOR_INDEX_NAME: voice-samples
         REFLECTION_THRESHOLD: !Ref ReflectionThreshold
+        VOICE_HALF_LIFE_DAYS: !Ref VoiceHalfLifeDays
         # Read by api/services/extension-secret.mjs on both the API
         # Lambda (mint) and the authorizer Lambda (verify). Passed in
         # via the deploy workflow from the EXTENSION_TOKEN_SIGNING_KEY
@@ -570,12 +583,14 @@ Resources:
                 - !GetAtt BlogVectorBucket.VectorBucketArn
                 - !GetAtt ContentVectorIndex.IndexArn
                 - !GetAtt BlogVoiceIndex.IndexArn
-            # DELETE /voice/samples removes a sample's vector directly (blog
-            # vectors are only ever deleted by the stream consumer, so this is
-            # scoped to the voice index).
+            # Voice-sample curation writes vectors directly: DELETE and PATCH
+            # muted:true remove a sample's vector, and PATCH muted:false
+            # re-embeds it (PutVectors). Content vectors are only ever written
+            # by the stream consumer, so this is scoped to the voice index.
             - Effect: Allow
               Action:
                 - s3vectors:DeleteVectors
+                - s3vectors:PutVectors
               Resource:
                 - !GetAtt BlogVectorBucket.VectorBucketArn
                 - !GetAtt BlogVoiceIndex.IndexArn
@@ -834,11 +849,13 @@ Resources:
       MessageRetentionPeriod: 1209600 # 14 days
 
   # Second consumer on the SAME table stream (its own event-source mapping +
-  # iterator), filtered to new VoiceSample rows. Embeds each sample into the
-  # voice-samples index, bumps the platform's reflection counter (idempotently),
-  # and re-derives the style profile via Bedrock once the counter crosses
-  # ReflectionThreshold. Timeout is generous because reflection adds a Converse
-  # call on top of the embedding.
+  # iterator), filtered to VoiceSample rows and blog Content roots. Published
+  # blog content is auto-captured as a recency-anchored voice sample; each
+  # sample is embedded into the voice-samples index, bumps the platform's
+  # reflection counter (idempotently), and re-derives the style profile via
+  # Bedrock once the counter crosses ReflectionThreshold — with samples
+  # weighted by publish-date recency (VoiceHalfLifeDays). Timeout is generous
+  # because reflection adds a Converse call on top of the embedding.
   VoiceMemoryFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -863,12 +880,22 @@ Resources:
             BatchSize: 5
             MaximumRetryAttempts: 3
             BisectBatchOnFunctionError: true
-            # Only new voice samples reach the function. Samples are immutable,
-            # so INSERT only — the profile/reflection rows it writes carry other
-            # entity values and never match.
+            # Two entity families reach the function: voice samples (embed +
+            # count + reflect; MODIFYs included so an edited sample re-embeds —
+            # the handler skips text-unchanged MODIFYs like the vectorizedAt
+            # stamp) and blog Content roots (auto-capture of published posts as
+            # voice samples; REMOVE cleans the derived sample up). Content
+            # MODIFYs match on the type in EITHER image: new (capture, incl.
+            # retype INTO blog) or old (cleanup when a blog is retyped away —
+            # the handler sees the old image was eligible and removes its
+            # sample). The profile/reflection rows it writes carry other entity
+            # values and never match.
             FilterCriteria:
               Filters:
-                - Pattern: '{"eventName":["INSERT"],"dynamodb":{"NewImage":{"entity":{"S":["VoiceSample"]}}}}'
+                - Pattern: '{"eventName":["INSERT","MODIFY"],"dynamodb":{"NewImage":{"entity":{"S":["VoiceSample"]}}}}'
+                - Pattern: '{"eventName":["INSERT","MODIFY"],"dynamodb":{"NewImage":{"entity":{"S":["Content"]},"type":{"S":["blog"]}}}}'
+                - Pattern: '{"eventName":["MODIFY"],"dynamodb":{"OldImage":{"entity":{"S":["Content"]},"type":{"S":["blog"]}}}}'
+                - Pattern: '{"eventName":["REMOVE"],"dynamodb":{"OldImage":{"entity":{"S":["Content"]},"type":{"S":["blog"]}}}}'
             DestinationConfig:
               OnFailure:
                 Destination: !GetAtt VoiceMemoryDLQ.Arn
@@ -887,12 +914,15 @@ Resources:
                 - !GetAtt ContentTrackingTable.StreamArn
                 - !Sub "${ContentTrackingTable.StreamArn}/*"
             # Sentinel mark on the sample, counter bump + profile + reflection
-            # rows, and the recent-samples Query that feeds the reflection.
+            # rows, the recent-samples Query that feeds the reflection, the
+            # auto-captured VoiceSample rows derived from blog Content, and
+            # their cleanup when the content is deleted/unpublished.
             - Effect: Allow
               Action:
                 - dynamodb:GetItem
                 - dynamodb:PutItem
                 - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
                 - dynamodb:Query
               Resource:
                 - !GetAtt ContentTrackingTable.Arn

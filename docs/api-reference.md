@@ -848,6 +848,110 @@ as a publish variant; platforms already published are skipped. Returns
 
 ---
 
+## Voice
+
+Per-tenant, per-platform writing-style learning and synthesis. The voice is
+learned from your published posts, weighted toward the most recently published
+work by an exponential publish-date decay (see
+[`docs/voice-recency.md`](voice-recency.md)). Published blog content is captured
+automatically; short-form samples are captured explicitly. `platform` is one of
+`blog`, `x`, `linkedin`, `bluesky`, `instagram`, `threads`, `mastodon`,
+`medium`, `devto`; `format` is `social` or `blog` (`blog` platform pins
+`blog`).
+
+### GET /voice/overview
+
+The flagship read. For every platform the tenant has a profile on: the
+plain-English `portrait`, and corpus transparency. One call powers the voice
+dashboard.
+
+- `200 OK` — `{ platforms: [{ platform, portrait, version, samples_since_reflection, reflection_threshold, recency_half_life_days, updated_at, corpus }] }`.
+- `corpus` = `{ total_samples, by_source: { source: count }, excluded: { muted, generated }, earliest_published, latest_published, recent_influence: [{ window_days, influence_share, sample_count }] }`.
+- Totals, sources, and influence cover only the **eligible** corpus (what drives the voice); muted and generated samples are held out and counted under `excluded`.
+- `recent_influence[n].influence_share` is the fraction (0-1) of the current voice that comes from posts published within `window_days` — the recency weighting made legible.
+
+### POST /voice/compose
+
+Draft a post in the tenant's voice. Body `{ topic, platform, format, guidance? }`.
+Retrieves a recency-ranked set of past posts as few-shot examples plus the
+learned profile. Returns `{ post, title }` (not persisted). A streaming variant
+is served by the compose Function URL.
+
+### POST /voice/check
+
+Grade an arbitrary draft against the learned voice (paste-and-score). Body
+`{ draft, platform, format }`. Runs the same recency-weighted retrieval as
+compose but assesses instead of writing.
+
+- `200 OK` — `{ score, verdict, summary, strengths[], issues: [{ area, detail, suggestion }], on_voice_rewrite }`.
+- `score` is 0-100; `verdict` is `on_voice` (>=80) \| `close` (50-79) \| `off_voice` (<50). Judges style, not topic.
+
+### POST /voice/samples
+
+Capture a writing sample (manual paste, or "save" a generated draft). Body
+`{ text, platform, format, source?, published_at? }`. `published_at` (a
+`YYYY-MM-DD` date or ISO 8601 timestamp) anchors the sample on the recency
+curve; it defaults to capture time. Style learning happens asynchronously off
+the DynamoDB stream. `source: generated` samples are kept for reference but are
+inert — never embedded, retrieved, or reflected (save as `manual` to count a
+draft as your voice). `201 Created` — the [voice sample](#voice-sample).
+
+### GET /voice/samples?platform=
+
+Recent samples for a platform, newest first by recency anchor. Each is
+annotated with `influence_share` — its current share (0-1) of the voice, the
+recency weight it carries in reflection normalized over the eligible corpus.
+Muted and generated samples report 0. `200 OK` — `{ samples: [voice sample] }`.
+
+### PATCH /voice/samples/{id}?platform=
+
+Mute or unmute a sample. Body `{ muted: boolean }`. Muting keeps the row (so
+it's visible and reversible) but drops its vector and excludes it from
+reflection, so it no longer drives the voice — and for an auto-captured post it
+is durable (a later edit won't re-capture a muted sample). Unmuting re-embeds
+it. The profile is re-derived immediately. `200 OK` — the updated
+[voice sample](#voice-sample).
+
+### DELETE /voice/samples/{id}?platform=
+
+Remove a sample row and its vector, then re-derive the profile. For an
+auto-captured post prefer PATCH `muted:true` — delete is not durable (a later
+edit re-captures it), whereas muting sticks. `204 No Content`.
+
+### GET /voice/profiles
+
+Every per-platform profile for the tenant. `200 OK` — `{ profiles: [voice profile] }`.
+
+### GET /voice/profiles/{platform}
+
+One profile plus its reflection history (each reflection snapshots the profile
+version + portrait, so the list reads as "your voice over time"). `200 OK` —
+`{ profile, reflections: [{ reflection_id, change_summary, sample_window, half_life_days, version, portrait, model, created_at }] }`.
+
+### PUT /voice/profiles/{platform}/steering
+
+Set (or clear with `note: null`) the steering note — a short "what I'm going
+for lately" (<=500 chars) that biases the next reflection toward where the
+creator is taking their voice. Re-derives the profile immediately so the steer
+takes effect. `200 OK` — `{ profile }`.
+
+### POST /voice/profiles/{platform}/reflect
+
+Re-derive the profile now from recent samples (the same path the stream runs
+automatically every `ReflectionThreshold` samples). Muted and generated samples
+are excluded — only authored/published work defines the voice; when none remain
+the learned profile is cleared rather than left stale. `200 OK` — `{ profile }`.
+
+A **voice profile** is `{ platform, profile, portrait, steering,
+samples_since_reflection, reflection_threshold, recency_half_life_days, version,
+created_at, updated_at }` where `profile` is the structured style JSON (`tone`,
+`vocabulary`, `signature_phrases`, `dos`, `donts`, `portrait`, …), top-level
+`portrait` is that JSON's plain-English summary, and `steering` is the
+creator's intent note. A **voice sample** is `{ sample_id, platform, format,
+source, text, published_at, created_at, muted, influence_share }`.
+
+---
+
 ## Revenue
 
 ### GET /revenue

@@ -11,6 +11,8 @@ const {
   createVoiceSample,
   listRecentSamples,
   deleteVoiceSampleRow,
+  setVoiceSampleMuted,
+  setVoiceSteering,
   countSampleOnce,
   getVoiceProfile,
   listProfiles,
@@ -57,15 +59,48 @@ describe("domain/voice", () => {
     expect(item.source).toBe("manual");
   });
 
-  test("listRecentSamples queries begins_with newest-first with a limit", async () => {
-    mockSend.mockResolvedValue({ Items: [{ sampleId: "S2" }] });
+  test("createVoiceSample stores publishedAt when given, omits it otherwise", async () => {
+    mockSend.mockResolvedValue({});
+    const dated = await createVoiceSample(TENANT, { text: "hi", platform: "blog", format: "blog", publishedAt: "2026-07-10" });
+    expect(dated.publishedAt).toBe("2026-07-10");
+    const undated = await createVoiceSample(TENANT, { text: "hi", platform: "x", format: "social" });
+    expect(undated).not.toHaveProperty("publishedAt");
+  });
+
+  test("listRecentSamples reads the whole prefix and sorts by the recency anchor", async () => {
+    // Two pages: sk order interleaves deterministic (CONTENT-...) and ULID ids,
+    // so recency must come from publishedAt ?? createdAt, not the Query order.
+    mockSend.mockResolvedValueOnce({
+      Items: [
+        { sampleId: "CONTENT-OLD", publishedAt: "2024-01-01" },
+        { sampleId: "CONTENT-NEW", publishedAt: "2026-07-10" },
+      ],
+      LastEvaluatedKey: { pk: "p", sk: "s" },
+    });
+    mockSend.mockResolvedValueOnce({
+      Items: [{ sampleId: "MANUAL", createdAt: "2026-06-01T00:00:00.000Z" }],
+    });
+
     const out = await listRecentSamples(TENANT, "linkedin", 7);
-    const cmd = input(mockSend);
-    expect(cmd.KeyConditionExpression).toContain("begins_with(sk, :prefix)");
-    expect(cmd.ExpressionAttributeValues[":prefix"]).toBe("VOICE#SAMPLE#linkedin#");
-    expect(cmd.ScanIndexForward).toBe(false);
-    expect(cmd.Limit).toBe(7);
-    expect(out).toEqual([{ sampleId: "S2" }]);
+
+    const first = input(mockSend, 0);
+    expect(first.KeyConditionExpression).toContain("begins_with(sk, :prefix)");
+    expect(first.ExpressionAttributeValues[":prefix"]).toBe("VOICE#SAMPLE#linkedin#");
+    expect(first.Limit).toBeUndefined();
+    expect(input(mockSend, 1).ExclusiveStartKey).toEqual({ pk: "p", sk: "s" });
+    expect(out.map((s) => s.sampleId)).toEqual(["CONTENT-NEW", "MANUAL", "CONTENT-OLD"]);
+  });
+
+  test("listRecentSamples slices to the limit after sorting", async () => {
+    mockSend.mockResolvedValueOnce({
+      Items: [
+        { sampleId: "A", publishedAt: "2024-01-01" },
+        { sampleId: "B", publishedAt: "2026-07-01" },
+        { sampleId: "C", publishedAt: "2025-06-01" },
+      ],
+    });
+    const out = await listRecentSamples(TENANT, "x", 2);
+    expect(out.map((s) => s.sampleId)).toEqual(["B", "C"]);
   });
 
   test("countSampleOnce marks + counts atomically and returns the new count", async () => {
@@ -98,13 +133,51 @@ describe("domain/voice", () => {
     await expect(countSampleOnce(TENANT, "x", "S1")).rejects.toThrow(TransactionCanceledException);
   });
 
-  test("putVoiceProfile resets the counter, sets version, preserves createdAt", async () => {
+  test("putVoiceProfile resets the counter, sets version, preserves createdAt + steering", async () => {
     mockSend.mockResolvedValue({});
-    const item = await putVoiceProfile(TENANT, "x", { profile: { tone: "wry" }, version: 2, createdAt: "t0" });
+    const item = await putVoiceProfile(TENANT, "x", { profile: { tone: "wry" }, version: 2, createdAt: "t0", steering: "be concise" });
     expect(item.samplesSinceReflection).toBe(0);
     expect(item.version).toBe(2);
     expect(item.createdAt).toBe("t0");
+    expect(item.steering).toBe("be concise");
     expect(item.entity).toBe("VoiceProfile");
+    // No steering → the attribute is omitted, not written as undefined.
+    mockSend.mockResolvedValue({});
+    const bare = await putVoiceProfile(TENANT, "x", { profile: {}, version: 1 });
+    expect(bare).not.toHaveProperty("steering");
+  });
+
+  test("setVoiceSampleMuted sets the flag, and clears it via REMOVE", async () => {
+    mockSend.mockResolvedValueOnce({ Attributes: { sampleId: "S1", muted: true } });
+    const muted = await setVoiceSampleMuted(TENANT, "x", "S1", true);
+    expect(muted.muted).toBe(true);
+    expect(input(mockSend, 0).UpdateExpression).toBe("SET muted = :m");
+    expect(input(mockSend, 0).ConditionExpression).toBe("attribute_exists(sk)");
+
+    mockSend.mockResolvedValueOnce({ Attributes: { sampleId: "S1" } });
+    await setVoiceSampleMuted(TENANT, "x", "S1", false);
+    expect(input(mockSend, 1).UpdateExpression).toBe("REMOVE muted");
+    expect(input(mockSend, 1).ExpressionAttributeValues).toBeUndefined();
+  });
+
+  test("setVoiceSampleMuted throws NotFound when the sample is absent", async () => {
+    mockSend.mockRejectedValueOnce(new ConditionalCheckFailedException({ $metadata: {}, message: "no" }));
+    await expect(setVoiceSampleMuted(TENANT, "x", "S9", true)).rejects.toThrow(NotFoundError);
+  });
+
+  test("setVoiceSteering upserts the note on the profile row (and clears with null)", async () => {
+    mockSend.mockResolvedValueOnce({ Attributes: { platform: "x", steering: "be concise" } });
+    const row = await setVoiceSteering(TENANT, "x", "be concise");
+    expect(row.steering).toBe("be concise");
+    const cmd = input(mockSend, 0);
+    expect(cmd.Key).toEqual(voiceProfileKey(TENANT, "x"));
+    expect(cmd.UpdateExpression).toContain("steering = :s");
+    expect(cmd.ExpressionAttributeValues[":s"]).toBe("be concise");
+
+    mockSend.mockResolvedValueOnce({ Attributes: { platform: "x" } });
+    await setVoiceSteering(TENANT, "x", null);
+    expect(input(mockSend, 1).UpdateExpression).toContain("REMOVE steering");
+    expect(input(mockSend, 1).ExpressionAttributeValues).not.toHaveProperty(":s");
   });
 
   test("getVoiceProfile / listProfiles return null|items", async () => {
@@ -123,9 +196,12 @@ describe("domain/voice", () => {
 
   test("createReflection + listReflections", async () => {
     mockSend.mockResolvedValueOnce({});
-    const r = await createReflection(TENANT, "x", { changeSummary: "c", sampleWindow: 5, model: "m" });
+    const r = await createReflection(TENANT, "x", { changeSummary: "c", sampleWindow: 5, model: "m", halfLifeDays: 90, version: 7, portrait: "You write plainly." });
     expect(r.entity).toBe("VoiceReflection");
     expect(r.changeSummary).toBe("c");
+    expect(r.halfLifeDays).toBe(90);
+    expect(r.version).toBe(7);
+    expect(r.portrait).toBe("You write plainly.");
 
     mockSend.mockResolvedValueOnce({ Items: [{ reflectionId: "R1" }] });
     const list = await listReflections(TENANT, "x", 3);
