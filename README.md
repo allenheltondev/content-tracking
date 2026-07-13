@@ -174,6 +174,31 @@ flowchart LR
     CK --> V["Score + verdict +<br/>strengths / issues / rewrite"]
 ```
 
+### 6. Curating and steering the voice
+
+The voice is only as good as the memories behind it, so those memories are
+yours to control — and you can point the evolution where you want it to go.
+
+- **See what drives the voice.** Every sample in `GET /voice/samples` carries an
+  `influence_share` — the recency weight it currently holds ("this post = 18% of
+  your voice"), so you can see exactly which memories dominate.
+
+- **Mute a memory.** `PATCH /voice/samples/{id} { muted }` excludes a sample
+  from the voice while keeping it for reference. Muting a published post is
+  **durable** — a later edit to that post won't quietly bring it back. Curation
+  re-derives the profile immediately, so removal takes effect at once.
+
+- **No self-training.** Reflection ignores AI-generated drafts, so the model can
+  never teach your voice about itself — only work you actually authored defines
+  how you sound.
+
+- **Steer it.** `PUT /voice/profiles/{platform}/steering` stores a short intent
+  note ("more concise, less hedging") that biases the next reflection toward
+  where you're taking your voice — direction, not just observation.
+
+- **Watch it evolve.** Each reflection snapshots the profile version and
+  portrait, so the reflection list reads as a "your voice over time" timeline.
+
 ### Tuning knobs
 
 | Knob | Where | Default | Effect |

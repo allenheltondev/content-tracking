@@ -531,6 +531,20 @@ describe("services/bedrock voice", () => {
       .toHaveProperty("portrait");
   });
 
+  test("reflectVoiceProfile injects the steering note when present", async () => {
+    mockSend.mockResolvedValueOnce(toolResponse("record_voice_profile", { profile: {}, change_summary: "s" }));
+    await reflectVoiceProfile({ platform: "blog", currentProfile: null, samples: [{ text: "post" }], steering: "be more concise" });
+    const userText = mockSend.mock.calls[0][0].input.messages[0].content[0].text;
+    expect(userText).toContain("STEERING THEIR VOICE");
+    expect(userText).toContain("be more concise");
+  });
+
+  test("reflectVoiceProfile omits the steering block when there's no note", async () => {
+    mockSend.mockResolvedValueOnce(toolResponse("record_voice_profile", { profile: {}, change_summary: "s" }));
+    await reflectVoiceProfile({ platform: "blog", currentProfile: null, samples: [{ text: "post" }], steering: null });
+    expect(mockSend.mock.calls[0][0].input.messages[0].content[0].text).not.toContain("STEERING");
+  });
+
   test("assessVoiceMatch forces record_voice_assessment and grounds on profile + dated draft", async () => {
     mockSend.mockResolvedValueOnce(toolResponse("record_voice_assessment", {
       score: 73, verdict: "close", summary: "Close, but a touch formal.",

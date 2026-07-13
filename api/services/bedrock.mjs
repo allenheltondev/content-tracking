@@ -837,15 +837,19 @@ Be specific and grounded in the samples — do not invent traits the samples don
 // Re-derives the style profile from recent samples. `currentProfile` is the
 // prior VoiceProfile.profile JSON (or null); `samples` are recency-weighted
 // VoiceSample rows ([{ text, publishedAt?, weightShare? }], newest-published
-// first, from selectRecencyWeighted). Returns { profile, change_summary }.
-export async function reflectVoiceProfile({ platform, currentProfile, samples }) {
+// first, from selectRecencyWeighted); `steering` is the creator's optional
+// intent note. Returns { profile, change_summary }.
+export async function reflectVoiceProfile({ platform, currentProfile, samples, steering }) {
   const recent = (samples ?? []).filter((s) => s?.text);
+  const steeringBlock = typeof steering === "string" && steering.trim().length > 0
+    ? `\n\n=== WHERE THEY'RE STEERING THEIR VOICE ===\nThe writer says they are currently aiming for: ${steering.trim()}\nHonor this direction where the recent samples are consistent with it or don't strongly contradict it; note in the change_summary how you applied it.`
+    : "";
   const userContent = [{
     text: `=== CURRENT PROFILE (${platform}) ===\n${
       currentProfile ? JSON.stringify(currentProfile, null, 2) : "(none yet — build it from scratch)"
     }\n\n=== RECENT POSTS (newest-published first, recency-weighted) ===\n${
       recent.map((s, i) => `[${i + 1}]${voiceSampleLabel(s)} ${s.text}`).join("\n\n")
-    }\n\nUpdate the profile by calling record_voice_profile.`,
+    }${steeringBlock}\n\nUpdate the profile by calling record_voice_profile.`,
   }];
 
   return invokeToolUse({

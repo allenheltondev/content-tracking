@@ -17,6 +17,7 @@ jest.unstable_mockModule("../domain/voice.mjs", () => ({
   deleteVoiceSampleRow: jest.fn(),
   listRecentSamples: jest.fn(),
   getVoiceProfile: jest.fn(),
+  getVoiceSample: jest.fn(),
   putVoiceProfile: jest.fn(),
   createReflection: jest.fn(),
 }));
@@ -27,7 +28,7 @@ const { reflectVoiceProfile } = await import("../services/bedrock.mjs");
 const { NotFoundError } = await import("../services/errors.mjs");
 const {
   countSampleOnce, createVoiceSample, deleteVoiceSampleRow, listRecentSamples,
-  getVoiceProfile, putVoiceProfile, createReflection,
+  getVoiceProfile, getVoiceSample, putVoiceProfile, createReflection,
 } = await import("../domain/voice.mjs");
 const {
   recordVoiceSample, runReflection,
@@ -53,7 +54,8 @@ beforeEach(() => {
     { text: "b", publishedAt: "2025-01-01" },
   ]);
   getVoiceProfile.mockResolvedValue(null);
-  reflectVoiceProfile.mockResolvedValue({ profile: { tone: "wry" }, change_summary: "built it" });
+  getVoiceSample.mockResolvedValue(null);
+  reflectVoiceProfile.mockResolvedValue({ profile: { tone: "wry", portrait: "You write plainly." }, change_summary: "built it" });
   putVoiceProfile.mockResolvedValue({});
   createReflection.mockResolvedValue({});
 });
@@ -105,16 +107,38 @@ describe("recordVoiceSample", () => {
 });
 
 describe("runReflection", () => {
-  test("bumps version off the prior profile and records the reflection with the half-life", async () => {
-    getVoiceProfile.mockResolvedValue({ profile: { tone: "old" }, version: 4, createdAt: "t0" });
+  test("bumps version off the prior profile and records the reflection with the half-life + snapshot", async () => {
+    getVoiceProfile.mockResolvedValue({ profile: { tone: "old" }, version: 4, createdAt: "t0", steering: "be concise" });
     await runReflection("T1", "x");
     expect(reflectVoiceProfile).toHaveBeenCalledWith(expect.objectContaining({
-      platform: "x", currentProfile: { tone: "old" },
+      platform: "x", currentProfile: { tone: "old" }, steering: "be concise",
     }));
-    expect(putVoiceProfile).toHaveBeenCalledWith("T1", "x", { profile: { tone: "wry" }, version: 5, createdAt: "t0" });
+    expect(putVoiceProfile).toHaveBeenCalledWith("T1", "x", {
+      profile: { tone: "wry", portrait: "You write plainly." }, version: 5, createdAt: "t0", steering: "be concise",
+    });
     expect(createReflection).toHaveBeenCalledWith("T1", "x", expect.objectContaining({
-      sampleWindow: 2, halfLifeDays: 90,
+      sampleWindow: 2, halfLifeDays: 90, version: 5, portrait: "You write plainly.",
     }));
+  });
+
+  test("excludes muted and generated samples from the learned voice", async () => {
+    listRecentSamples.mockResolvedValue([
+      { text: "authored", publishedAt: "2026-07-01", source: "content-auto" },
+      { text: "muted one", publishedAt: "2026-07-02", muted: true, source: "manual" },
+      { text: "ai draft", publishedAt: "2026-07-03", source: "generated" },
+    ]);
+    await runReflection("T1", "x");
+    const { samples } = reflectVoiceProfile.mock.calls[0][0];
+    expect(samples.map((s) => s.text)).toEqual(["authored"]);
+  });
+
+  test("returns null when every candidate is muted or generated", async () => {
+    listRecentSamples.mockResolvedValue([
+      { text: "ai", source: "generated" },
+      { text: "muted", muted: true, source: "manual" },
+    ]);
+    expect(await runReflection("T1", "x")).toBeNull();
+    expect(reflectVoiceProfile).not.toHaveBeenCalled();
   });
 
   test("pulls a wider candidate pool and hands the model recency-weighted samples, newest first", async () => {
@@ -172,6 +196,19 @@ describe("content auto-capture", () => {
     expect(createVoiceSample).toHaveBeenCalledWith("T1", expect.objectContaining({
       publishedAt: "2026-07-11T00:00:00.000Z",
     }));
+  });
+
+  test("does not re-capture a muted sample — muting a post is durable across edits", async () => {
+    getVoiceSample.mockResolvedValue({ sampleId: "CONTENT-C1", muted: true });
+    const res = await captureContentVoiceSample(content);
+    expect(res).toEqual({ skipped: true, reason: "muted" });
+    expect(createVoiceSample).not.toHaveBeenCalled();
+  });
+
+  test("re-captures a previously-captured but un-muted sample", async () => {
+    getVoiceSample.mockResolvedValue({ sampleId: "CONTENT-C1" });
+    await captureContentVoiceSample(content);
+    expect(createVoiceSample).toHaveBeenCalledTimes(1);
   });
 
   test.each([

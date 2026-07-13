@@ -33,6 +33,7 @@ const TOPIC_MAX = 2000;
 const GUIDANCE_MAX = 1000;
 const SAMPLE_TEXT_MAX = 20_000;
 const DRAFT_MAX = 20_000;
+const STEERING_MAX = 500;
 
 function requireObject(body) {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
@@ -97,6 +98,25 @@ export function validateVoiceCheckRequest(body) {
   };
 }
 
+// PATCH /voice/samples/{id} — currently only toggles the muted flag.
+export function validateSampleUpdate(body) {
+  requireObject(body);
+  if (typeof body.muted !== "boolean") {
+    throw new BadRequestError("muted must be a boolean");
+  }
+  return { muted: body.muted };
+}
+
+// PUT /voice/profiles/{platform}/steering — set (or clear with null) the intent
+// note that biases the next reflection.
+export function validateSteeringRequest(body) {
+  requireObject(body);
+  if (body.note === null) {
+    return { note: null };
+  }
+  return { note: validateOptionalString(body.note, "note", STEERING_MAX) };
+}
+
 export function validateSampleCreate(body) {
   requireObject(body);
   const platform = validatePlatform(body.platform);
@@ -131,7 +151,10 @@ export function formatVoiceDraft({ post, title }) {
   return { post, title: title ?? null };
 }
 
-export function formatVoiceSample(row) {
+// `extra.influenceShare` (0-1) is the sample's current share of the voice, when
+// the caller has computed it (the samples list does; single-item responses
+// don't). muted samples report 0.
+export function formatVoiceSample(row, extra = {}) {
   return {
     sample_id: row.sampleId,
     platform: row.platform,
@@ -140,6 +163,10 @@ export function formatVoiceSample(row) {
     text: row.text,
     published_at: row.publishedAt ?? null,
     created_at: row.createdAt,
+    muted: row.muted === true,
+    influence_share: typeof extra.influenceShare === "number"
+      ? Math.round(extra.influenceShare * 100) / 100
+      : null,
   };
 }
 
@@ -151,6 +178,8 @@ export function formatVoiceProfile(row) {
     // The plain-English portrait lives inside the learned profile JSON; surface
     // it at the top level too so clients don't have to reach into `profile`.
     portrait: typeof row.profile?.portrait === "string" ? row.profile.portrait : null,
+    // The creator's intent note that biases reflection.
+    steering: row.steering ?? null,
     samples_since_reflection: row.samplesSinceReflection ?? 0,
     reflection_threshold: REFLECTION_THRESHOLD,
     recency_half_life_days: VOICE_HALF_LIFE_DAYS,
@@ -167,6 +196,7 @@ export function formatVoiceOverviewEntry({ profileRow, summary }) {
   return {
     platform: profileRow.platform,
     portrait: typeof profileRow.profile?.portrait === "string" ? profileRow.profile.portrait : null,
+    steering: profileRow.steering ?? null,
     version: profileRow.version ?? 0,
     samples_since_reflection: profileRow.samplesSinceReflection ?? 0,
     reflection_threshold: REFLECTION_THRESHOLD,
@@ -211,6 +241,10 @@ export function formatVoiceReflection(row) {
     change_summary: row.changeSummary ?? null,
     sample_window: row.sampleWindow ?? null,
     half_life_days: row.halfLifeDays ?? null,
+    // Snapshot of the profile version + portrait at this reflection, so the
+    // reflection list reads as a "your voice over time" history.
+    version: row.version ?? null,
+    portrait: row.portrait ?? null,
     model: row.model ?? null,
     created_at: row.createdAt,
   };

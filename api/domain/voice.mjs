@@ -5,6 +5,7 @@ import {
   PutCommand,
   QueryCommand,
   TransactWriteCommand,
+  UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ulid } from "ulid";
 import { TABLE_NAME, ddb } from "../services/ddb.mjs";
@@ -135,6 +136,57 @@ export async function deleteVoiceSampleRow(tenantId, platform, sampleId) {
   }
 }
 
+// Mutes or unmutes a sample. A muted sample stays in the corpus (so the user
+// can see and reverse it) but is excluded from reflection and has its vector
+// removed by the route, so it no longer drives the learned voice. Auto-capture
+// preserves the muted flag across content edits, so muting a published post is
+// a durable "keep this out of my voice". Returns the updated row.
+export async function setVoiceSampleMuted(tenantId, platform, sampleId, muted) {
+  const expr = muted
+    ? { UpdateExpression: "SET muted = :m", values: { ":m": true } }
+    : { UpdateExpression: "REMOVE muted", values: {} };
+  try {
+    const result = await ddb.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: voiceSampleKey(tenantId, platform, sampleId),
+      UpdateExpression: expr.UpdateExpression,
+      ConditionExpression: "attribute_exists(sk)",
+      ...(Object.keys(expr.values).length > 0 ? { ExpressionAttributeValues: expr.values } : {}),
+      ReturnValues: "ALL_NEW",
+    }));
+    return result.Attributes;
+  } catch (err) {
+    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
+      throw new NotFoundError("VoiceSample", sampleId);
+    }
+    throw err;
+  }
+}
+
+// Sets (or clears, with null) the per-platform steering note — a short "what
+// I'm going for lately" that biases the next reflection. Upserts the profile
+// row so a note can be set before any samples exist, mirroring countSampleOnce's
+// creation of the row. Returns the updated profile row.
+export async function setVoiceSteering(tenantId, platform, note) {
+  const now = new Date().toISOString();
+  const base = "SET entity = if_not_exists(entity, :e), tenantId = if_not_exists(tenantId, :t), "
+    + "platform = if_not_exists(platform, :p), createdAt = if_not_exists(createdAt, :now), updatedAt = :now";
+  const result = await ddb.send(new UpdateCommand({
+    TableName: TABLE_NAME,
+    Key: voiceProfileKey(tenantId, platform),
+    UpdateExpression: note === null ? `${base} REMOVE steering` : `${base}, steering = :s`,
+    ExpressionAttributeValues: {
+      ":e": "VoiceProfile",
+      ":t": tenantId,
+      ":p": platform,
+      ":now": now,
+      ...(note === null ? {} : { ":s": note }),
+    },
+    ReturnValues: "ALL_NEW",
+  }));
+  return result.Attributes;
+}
+
 // Counts a new sample toward the platform's reflection cadence — exactly once,
 // even under the stream's at-least-once delivery. A single transaction marks
 // the sample (conditional on not-yet-marked) AND increments the profile counter
@@ -219,8 +271,10 @@ export async function listProfiles(tenantId) {
 
 // Writes the (re)reflected profile: the full JSON profile, a bumped version,
 // and the counter reset to 0. createdAt is preserved from the prior row when
-// present so the profile keeps its original birth time.
-export async function putVoiceProfile(tenantId, platform, { profile, version, createdAt }) {
+// present so the profile keeps its original birth time. steering (the user's
+// intent note) is preserved too — this Put overwrites the whole row, so the
+// caller passes the current note back in or it would be lost.
+export async function putVoiceProfile(tenantId, platform, { profile, version, createdAt, steering }) {
   const now = new Date().toISOString();
   const item = {
     ...voiceProfileKey(tenantId, platform),
@@ -233,14 +287,19 @@ export async function putVoiceProfile(tenantId, platform, { profile, version, cr
     createdAt: createdAt ?? now,
     updatedAt: now,
   };
+  if (steering) {
+    item.steering = steering;
+  }
   await ddb.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
   return item;
 }
 
 // Records a reflection in the audit trail (one row per profile update).
 // halfLifeDays captures the recency-decay setting the reflection ran with, so
-// profile changes stay explainable after the knob is retuned.
-export async function createReflection(tenantId, platform, { changeSummary, sampleWindow, model, halfLifeDays }) {
+// profile changes stay explainable after the knob is retuned. version and
+// portrait snapshot the resulting profile so the reflection list doubles as a
+// "your voice over time" history without a separate snapshot store.
+export async function createReflection(tenantId, platform, { changeSummary, sampleWindow, model, halfLifeDays, version, portrait }) {
   const id = ulid();
   const now = new Date().toISOString();
   const item = {
@@ -256,6 +315,12 @@ export async function createReflection(tenantId, platform, { changeSummary, samp
   };
   if (halfLifeDays !== undefined && halfLifeDays !== null) {
     item.halfLifeDays = halfLifeDays;
+  }
+  if (version !== undefined && version !== null) {
+    item.version = version;
+  }
+  if (portrait) {
+    item.portrait = portrait;
   }
   await ddb.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
   return item;

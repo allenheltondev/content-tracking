@@ -895,12 +895,25 @@ the DynamoDB stream. `201 Created` — the [voice sample](#voice-sample).
 
 ### GET /voice/samples?platform=
 
-Recent samples for a platform, newest first by recency anchor. `200 OK` —
-`{ samples: [voice sample] }`.
+Recent samples for a platform, newest first by recency anchor. Each is
+annotated with `influence_share` — its current share (0-1) of the voice, the
+recency weight it carries in reflection normalized over the eligible corpus.
+Muted and generated samples report 0. `200 OK` — `{ samples: [voice sample] }`.
+
+### PATCH /voice/samples/{id}?platform=
+
+Mute or unmute a sample. Body `{ muted: boolean }`. Muting keeps the row (so
+it's visible and reversible) but drops its vector and excludes it from
+reflection, so it no longer drives the voice — and for an auto-captured post it
+is durable (a later edit won't re-capture a muted sample). Unmuting re-embeds
+it. The profile is re-derived immediately. `200 OK` — the updated
+[voice sample](#voice-sample).
 
 ### DELETE /voice/samples/{id}?platform=
 
-Remove a sample row and its vector. `204 No Content`.
+Remove a sample row and its vector, then re-derive the profile. For an
+auto-captured post prefer PATCH `muted:true` — delete is not durable (a later
+edit re-captures it), whereas muting sticks. `204 No Content`.
 
 ### GET /voice/profiles
 
@@ -908,20 +921,31 @@ Every per-platform profile for the tenant. `200 OK` — `{ profiles: [voice prof
 
 ### GET /voice/profiles/{platform}
 
-One profile plus its recent reflections (the audit trail of profile updates).
-`200 OK` — `{ profile, reflections: [{ reflection_id, change_summary, sample_window, half_life_days, model, created_at }] }`.
+One profile plus its reflection history (each reflection snapshots the profile
+version + portrait, so the list reads as "your voice over time"). `200 OK` —
+`{ profile, reflections: [{ reflection_id, change_summary, sample_window, half_life_days, version, portrait, model, created_at }] }`.
+
+### PUT /voice/profiles/{platform}/steering
+
+Set (or clear with `note: null`) the steering note — a short "what I'm going
+for lately" (<=500 chars) that biases the next reflection toward where the
+creator is taking their voice. Re-derives the profile immediately so the steer
+takes effect. `200 OK` — `{ profile }`.
 
 ### POST /voice/profiles/{platform}/reflect
 
 Re-derive the profile now from recent samples (the same path the stream runs
-automatically every `ReflectionThreshold` samples). `200 OK` — `{ profile }`.
+automatically every `ReflectionThreshold` samples). Muted and generated samples
+are excluded — only authored/published work defines the voice. `200 OK` —
+`{ profile }`.
 
-A **voice profile** is `{ platform, profile, portrait, samples_since_reflection,
-reflection_threshold, recency_half_life_days, version, created_at, updated_at }`
-where `profile` is the structured style JSON (`tone`, `vocabulary`,
-`signature_phrases`, `dos`, `donts`, `portrait`, …) and top-level `portrait` is
-that JSON's plain-English summary. A **voice sample** is `{ sample_id, platform,
-format, source, text, published_at, created_at }`.
+A **voice profile** is `{ platform, profile, portrait, steering,
+samples_since_reflection, reflection_threshold, recency_half_life_days, version,
+created_at, updated_at }` where `profile` is the structured style JSON (`tone`,
+`vocabulary`, `signature_phrases`, `dos`, `donts`, `portrait`, …), top-level
+`portrait` is that JSON's plain-English summary, and `steering` is the
+creator's intent note. A **voice sample** is `{ sample_id, platform, format,
+source, text, published_at, created_at, muted, influence_share }`.
 
 ---
 

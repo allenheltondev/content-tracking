@@ -583,12 +583,14 @@ Resources:
                 - !GetAtt BlogVectorBucket.VectorBucketArn
                 - !GetAtt ContentVectorIndex.IndexArn
                 - !GetAtt BlogVoiceIndex.IndexArn
-            # DELETE /voice/samples removes a sample's vector directly (blog
-            # vectors are only ever deleted by the stream consumer, so this is
-            # scoped to the voice index).
+            # Voice-sample curation writes vectors directly: DELETE and PATCH
+            # muted:true remove a sample's vector, and PATCH muted:false
+            # re-embeds it (PutVectors). Content vectors are only ever written
+            # by the stream consumer, so this is scoped to the voice index.
             - Effect: Allow
               Action:
                 - s3vectors:DeleteVectors
+                - s3vectors:PutVectors
               Resource:
                 - !GetAtt BlogVectorBucket.VectorBucketArn
                 - !GetAtt BlogVoiceIndex.IndexArn

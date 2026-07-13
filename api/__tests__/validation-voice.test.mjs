@@ -1,6 +1,8 @@
 import {
   validateComposeRequest,
   validateSampleCreate,
+  validateSampleUpdate,
+  validateSteeringRequest,
   validateVoiceCheckRequest,
   validatePlatform,
   formatVoiceDraft,
@@ -74,6 +76,30 @@ describe("validation/voice", () => {
     });
   });
 
+  describe("validateSampleUpdate", () => {
+    test("accepts a boolean muted", () => {
+      expect(validateSampleUpdate({ muted: true })).toEqual({ muted: true });
+      expect(validateSampleUpdate({ muted: false })).toEqual({ muted: false });
+    });
+    test("rejects a non-boolean muted", () => {
+      expect(() => validateSampleUpdate({ muted: "yes" })).toThrow(/muted/);
+      expect(() => validateSampleUpdate({})).toThrow(/muted/);
+    });
+  });
+
+  describe("validateSteeringRequest", () => {
+    test("accepts a note and trims it", () => {
+      expect(validateSteeringRequest({ note: "  be concise  " })).toEqual({ note: "be concise" });
+    });
+    test("accepts null to clear", () => {
+      expect(validateSteeringRequest({ note: null })).toEqual({ note: null });
+    });
+    test("rejects an empty or over-long note", () => {
+      expect(() => validateSteeringRequest({ note: "  " })).toThrow(/note/);
+      expect(() => validateSteeringRequest({ note: "x".repeat(501) })).toThrow(/note/);
+    });
+  });
+
   test("validatePlatform rejects unknown handles", () => {
     expect(validatePlatform("bluesky")).toBe("bluesky");
     expect(() => validatePlatform(undefined)).toThrow(/platform/);
@@ -86,9 +112,14 @@ describe("validation/voice", () => {
     });
     test("formatVoiceSample", () => {
       expect(formatVoiceSample({ sampleId: "S1", platform: "x", format: "social", source: "manual", text: "hi", createdAt: "t0" }))
-        .toEqual({ sample_id: "S1", platform: "x", format: "social", source: "manual", text: "hi", published_at: null, created_at: "t0" });
+        .toEqual({ sample_id: "S1", platform: "x", format: "social", source: "manual", text: "hi", published_at: null, created_at: "t0", muted: false, influence_share: null });
       expect(formatVoiceSample({ sampleId: "S1", platform: "blog", text: "hi", publishedAt: "2026-06-01", createdAt: "t0" }).published_at)
         .toBe("2026-06-01");
+    });
+    test("formatVoiceSample surfaces muted + rounded influence share", () => {
+      const out = formatVoiceSample({ sampleId: "S1", platform: "x", text: "hi", muted: true, createdAt: "t0" }, { influenceShare: 0.4123 });
+      expect(out.muted).toBe(true);
+      expect(out.influence_share).toBe(0.41);
     });
     test("formatVoiceProfile returns null for a missing row", () => {
       expect(formatVoiceProfile(null)).toBeNull();
@@ -139,8 +170,11 @@ describe("validation/voice", () => {
     });
     test("formatVoiceReflection", () => {
       expect(formatVoiceReflection({ reflectionId: "R1", platform: "x", changeSummary: "c", sampleWindow: 5, model: "m", createdAt: "t0" }))
-        .toEqual({ reflection_id: "R1", platform: "x", change_summary: "c", sample_window: 5, half_life_days: null, model: "m", created_at: "t0" });
-      expect(formatVoiceReflection({ reflectionId: "R2", platform: "x", halfLifeDays: 90, createdAt: "t0" }).half_life_days).toBe(90);
+        .toEqual({ reflection_id: "R1", platform: "x", change_summary: "c", sample_window: 5, half_life_days: null, version: null, portrait: null, model: "m", created_at: "t0" });
+      const snap = formatVoiceReflection({ reflectionId: "R2", platform: "x", halfLifeDays: 90, version: 7, portrait: "You write plainly.", createdAt: "t0" });
+      expect(snap.half_life_days).toBe(90);
+      expect(snap.version).toBe(7);
+      expect(snap.portrait).toBe("You write plainly.");
     });
   });
 });

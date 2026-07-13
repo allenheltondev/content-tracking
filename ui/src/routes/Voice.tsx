@@ -10,6 +10,8 @@ import {
   listVoiceSamples,
   platformLabel,
   reflectVoiceProfile,
+  setVoiceSampleMuted,
+  setVoiceSteering,
 } from '../api/voice';
 import type {
   VoiceAssessment,
@@ -138,6 +140,9 @@ function OverviewCard({
             <p className="text-sm text-muted-foreground">
               Portrait pending — refresh once a few posts are in.
             </p>
+          )}
+          {entry.steering && (
+            <p className="text-xs text-muted-foreground">Steering toward: “{entry.steering}”</p>
           )}
         </div>
         <span className="text-muted-foreground text-sm shrink-0">{expanded ? '▲' : '▼'}</span>
@@ -374,6 +379,12 @@ function ProfileDetail({ platform, onChanged }: { platform: string; onChanged: (
             <p className="text-sm text-foreground bg-muted/60 rounded-md p-3">{portrait}</p>
           )}
 
+          <SteeringEditor
+            platform={platform}
+            current={profile?.steering ?? null}
+            onSaved={async () => { await load(); onChanged(); }}
+          />
+
           {threshold > 0 && (
             <div className="space-y-1">
               <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
@@ -407,21 +418,111 @@ function ProfileDetail({ platform, onChanged }: { platform: string; onChanged: (
 
           {reflections.length > 0 && (
             <div className="space-y-2 border-t border-border pt-3">
-              <h3 className="field-label">Recent refreshes</h3>
-              <ul className="space-y-2">
+              <h3 className="field-label">Your voice over time</h3>
+              <ol className="space-y-3">
                 {reflections.map((r) => (
-                  <li key={r.reflection_id} className="text-sm">
-                    <span className="text-foreground">{r.change_summary ?? '—'}</span>
-                    <span className="text-muted-foreground"> · {fmtDate(r.created_at)}</span>
+                  <li key={r.reflection_id} className="text-sm border-l-2 border-border pl-3">
+                    <div className="text-xs text-muted-foreground">
+                      {r.version != null ? `v${r.version}` : 'update'} · {fmtDate(r.created_at)}
+                    </div>
+                    {r.portrait && <p className="text-foreground mt-0.5">{r.portrait}</p>}
+                    {r.change_summary && <p className="text-muted-foreground mt-0.5">{r.change_summary}</p>}
                   </li>
                 ))}
-              </ul>
+              </ol>
             </div>
           )}
 
-          <SamplesList platform={platform} onDeleted={load} />
+          <SamplesList platform={platform} onDeleted={async () => { await load(); onChanged(); }} />
         </>
       )}
+    </div>
+  );
+}
+
+// The steering note: the creator's stated intent, which biases the next
+// reflection. Saving it re-derives the profile server-side immediately.
+function SteeringEditor({
+  platform,
+  current,
+  onSaved,
+}: {
+  platform: string;
+  current: string | null;
+  onSaved: () => Promise<void>;
+}): ReactElement {
+  const apiFetch = useApiFetch();
+  const [editing, setEditing] = useState(false);
+  const [note, setNote] = useState(current ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { setNote(current ?? ''); }, [current]);
+
+  const save = async (value: string | null): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      await setVoiceSteering(apiFetch, platform, value);
+      setEditing(false);
+      await onSaved();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!editing) {
+    return (
+      <div className="rounded-md border border-dashed border-border p-3 space-y-1">
+        <div className="flex items-center justify-between gap-2">
+          <span className="field-label">Steering your voice</span>
+          <button type="button" className="btn-link text-xs" onClick={() => setEditing(true)}>
+            {current ? 'Edit' : 'Add a note'}
+          </button>
+        </div>
+        {current ? (
+          <p className="text-sm text-foreground">“{current}”</p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Tell the model where you're taking your voice (e.g. “more concise, less hedging”). It biases the next refresh.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-border p-3 space-y-2">
+      <span className="field-label">Steering your voice</span>
+      <input
+        className="input"
+        placeholder="e.g. more concise, warmer, fewer bullet lists"
+        value={note}
+        maxLength={500}
+        onChange={(e) => setNote(e.target.value)}
+        disabled={busy}
+      />
+      {error && <p className="form-error">{error}</p>}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          className="btn-primary btn-sm"
+          onClick={() => void save(note.trim() ? note.trim() : null)}
+          disabled={busy}
+        >
+          {busy ? 'Saving…' : 'Save & refresh voice'}
+        </button>
+        <button type="button" className="btn-ghost btn-sm" onClick={() => { setEditing(false); setNote(current ?? ''); }} disabled={busy}>
+          Cancel
+        </button>
+        {current && (
+          <button type="button" className="btn-ghost btn-sm text-error-600" onClick={() => void save(null)} disabled={busy}>
+            Clear
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -496,13 +597,15 @@ const SOURCE_LABEL: Record<string, string> = {
   'content-auto': 'from published content',
 };
 
-// The corpus the voice learns from — curate it by removing off-voice samples.
+// The memories that drive the voice. Each shows its current influence, and can
+// be muted (excluded from the voice, reversibly) or — for pasted samples that
+// won't re-capture — removed outright. Muting a published post is durable.
 function SamplesList({ platform, onDeleted }: { platform: string; onDeleted: () => void }): ReactElement {
   const apiFetch = useApiFetch();
   const [samples, setSamples] = useState<VoiceSample[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -519,8 +622,22 @@ function SamplesList({ platform, onDeleted }: { platform: string; onDeleted: () 
 
   useEffect(() => { void load(); }, [load]);
 
+  const toggleMute = async (s: VoiceSample): Promise<void> => {
+    setBusyId(s.sample_id);
+    setError(null);
+    try {
+      await setVoiceSampleMuted(apiFetch, s.sample_id, platform, !s.muted);
+      await load();
+      onDeleted(); // curation re-derives the profile server-side; refresh the view
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const remove = async (id: string): Promise<void> => {
-    setDeletingId(id);
+    setBusyId(id);
     setError(null);
     try {
       await deleteVoiceSample(apiFetch, id, platform);
@@ -529,13 +646,17 @@ function SamplesList({ platform, onDeleted }: { platform: string; onDeleted: () 
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setDeletingId(null);
+      setBusyId(null);
     }
   };
 
   return (
     <div className="space-y-2 border-t border-border pt-3">
-      <h3 className="field-label">Samples it learns from ({samples.length})</h3>
+      <h3 className="field-label">Memories driving this voice ({samples.length})</h3>
+      <p className="text-xs text-muted-foreground">
+        Each memory's share is how much it shapes your current voice right now (recency-weighted).
+        Mute one to keep it out; muting a published post sticks even if you edit it later.
+      </p>
       {error && <p className="form-error">{error}</p>}
       {loading ? (
         <p className="text-muted-foreground text-sm">Loading…</p>
@@ -543,25 +664,49 @@ function SamplesList({ platform, onDeleted }: { platform: string; onDeleted: () 
         <p className="text-sm text-muted-foreground">No samples yet for this platform.</p>
       ) : (
         <ul className="space-y-2">
-          {samples.map((s) => (
-            <li key={s.sample_id} className="flex items-start justify-between gap-3 rounded-md bg-muted/60 p-2">
-              <div className="min-w-0">
-                <p className="text-sm text-foreground line-clamp-2">{s.text}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {SOURCE_LABEL[s.source ?? ''] ?? s.source ?? 'sample'} · {s.published_at ? `published ${fmtDate(s.published_at)}` : fmtDate(s.created_at)}
-                </p>
-              </div>
-              <button
-                type="button"
-                className="btn-ghost btn-sm shrink-0"
-                onClick={() => void remove(s.sample_id)}
-                disabled={deletingId === s.sample_id}
-                aria-label="Delete sample"
+          {samples.map((s) => {
+            const pct = s.influence_share != null ? Math.round(s.influence_share * 100) : null;
+            const isAuto = s.source === 'content-auto';
+            return (
+              <li
+                key={s.sample_id}
+                className={`flex items-start justify-between gap-3 rounded-md p-2 ${s.muted ? 'bg-muted/30 opacity-60' : 'bg-muted/60'}`}
               >
-                {deletingId === s.sample_id ? '…' : 'Remove'}
-              </button>
-            </li>
-          ))}
+                <div className="min-w-0">
+                  <p className="text-sm text-foreground line-clamp-2">{s.text}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {SOURCE_LABEL[s.source ?? ''] ?? s.source ?? 'sample'}
+                    {' · '}{s.published_at ? `published ${fmtDate(s.published_at)}` : fmtDate(s.created_at)}
+                    {' · '}
+                    {s.muted
+                      ? <span className="text-muted-foreground">muted</span>
+                      : <span className="text-foreground">{pct != null ? `${pct}% of your voice` : 'no influence'}</span>}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    className="btn-ghost btn-sm"
+                    onClick={() => void toggleMute(s)}
+                    disabled={busyId === s.sample_id}
+                  >
+                    {busyId === s.sample_id ? '…' : s.muted ? 'Unmute' : 'Mute'}
+                  </button>
+                  {!isAuto && (
+                    <button
+                      type="button"
+                      className="btn-ghost btn-sm"
+                      onClick={() => void remove(s.sample_id)}
+                      disabled={busyId === s.sample_id}
+                      aria-label="Delete sample"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

@@ -3,13 +3,15 @@ import { withIdempotency } from "../services/idempotency.mjs";
 import { emptyResponse, jsonResponse } from "../services/http-handler.mjs";
 import { BadRequestError } from "../services/errors.mjs";
 import { embedText } from "../services/embeddings.mjs";
-import { queryVoiceSamples, deleteVoiceSample } from "../services/voice-vectors.mjs";
+import { queryVoiceSamples, deleteVoiceSample, putVoiceSample } from "../services/voice-vectors.mjs";
 import { composeVoicePost, assessVoiceMatch } from "../services/bedrock.mjs";
 import { runReflection } from "../services/voice-memory.mjs";
+import { logger } from "../services/logger.mjs";
 import {
   COMPOSE_CANDIDATE_POOL,
   COMPOSE_EXAMPLE_COUNT,
   rankVoiceSamples,
+  selectRecencyWeighted,
   summarizeVoiceCorpus,
 } from "../services/voice-recency.mjs";
 import {
@@ -19,6 +21,8 @@ import {
   listProfiles,
   listReflections,
   listRecentSamples,
+  setVoiceSampleMuted,
+  setVoiceSteering,
 } from "../domain/voice.mjs";
 import {
   formatVoiceAssessment,
@@ -30,6 +34,8 @@ import {
   validateComposeRequest,
   validatePlatform,
   validateSampleCreate,
+  validateSampleUpdate,
+  validateSteeringRequest,
   validateVoiceCheckRequest,
 } from "../validation/voice.mjs";
 
@@ -126,22 +132,60 @@ export function registerVoiceRoutes(app) {
     return jsonResponse(201, formatVoiceSample(item));
   }));
 
-  // GET /voice/samples?platform= — recent samples for a platform (newest first).
+  // GET /voice/samples?platform= — recent samples for a platform (newest
+  // first), each annotated with its current influence share on the voice (the
+  // recency weight it would carry in reflection, normalized over the eligible
+  // corpus). Muted / generated samples report 0 — they don't drive the voice.
   app.get("/voice/samples", async ({ event }) => {
     const tenantId = requireTenantId(event);
     const platform = validatePlatform(event.queryStringParameters?.platform);
     const items = await listRecentSamples(tenantId, platform);
-    return jsonResponse(200, { samples: items.map(formatVoiceSample) });
+
+    const eligible = items.filter((s) => !s.muted && s.source !== "generated");
+    const shareById = new Map(
+      selectRecencyWeighted(eligible).map((s) => [s.sampleId, s.weightShare]),
+    );
+    return jsonResponse(200, {
+      samples: items.map((s) => formatVoiceSample(s, { influenceShare: shareById.get(s.sampleId) ?? 0 })),
+    });
+  });
+
+  // PATCH /voice/samples/{id}?platform= — mute or unmute a sample. Muting keeps
+  // the row (so it's visible and reversible) but drops its vector and excludes
+  // it from reflection, so it no longer drives the voice; unmuting re-embeds it.
+  // The profile is re-derived so the change takes effect immediately.
+  app.patch("/voice/samples/:id", async ({ event, params }) => {
+    const tenantId = requireTenantId(event);
+    const platform = validatePlatform(event.queryStringParameters?.platform);
+    const { muted } = validateSampleUpdate(parseBody(event));
+
+    const updated = await setVoiceSampleMuted(tenantId, platform, params.id, muted);
+    if (muted) {
+      await deleteVoiceSample({ tenantId, platform, sampleId: params.id });
+    } else {
+      // Re-embed from the stored text so an unmuted sample rejoins compose
+      // retrieval. The row is the source of truth for the text + anchor.
+      const embedding = await embedText(updated.text);
+      await putVoiceSample({
+        tenantId, platform, format: updated.format, sampleId: params.id,
+        text: updated.text, embedding, publishedAt: updated.publishedAt ?? updated.createdAt,
+      });
+    }
+    await reflectAfterCuration(tenantId, platform);
+    return jsonResponse(200, formatVoiceSample(updated));
   });
 
   // DELETE /voice/samples/{id}?platform= — remove a sample row and its vector.
   // platform comes from the query because the ULID id alone doesn't locate the
-  // platform-scoped key.
+  // platform-scoped key. For an auto-captured post, prefer PATCH muted:true —
+  // delete is not durable (a later edit re-captures it), whereas muting sticks.
+  // The profile is re-derived so the removal takes effect immediately.
   app.delete("/voice/samples/:id", async ({ event, params }) => {
     const tenantId = requireTenantId(event);
     const platform = validatePlatform(event.queryStringParameters?.platform);
     await deleteVoiceSampleRow(tenantId, platform, params.id);
     await deleteVoiceSample({ tenantId, platform, sampleId: params.id });
+    await reflectAfterCuration(tenantId, platform);
     return emptyResponse(204);
   });
 
@@ -166,6 +210,21 @@ export function registerVoiceRoutes(app) {
     });
   });
 
+  // PUT /voice/profiles/{platform}/steering — set (or clear with note:null) the
+  // creator's intent note ("what I'm going for lately"). It biases the next
+  // reflection, which we run now so the steer takes effect immediately.
+  app.put("/voice/profiles/:platform/steering", async ({ event, params }) => {
+    const tenantId = requireTenantId(event);
+    const platform = validatePlatform(params.platform);
+    const { note } = validateSteeringRequest(parseBody(event));
+
+    await setVoiceSteering(tenantId, platform, note);
+    const reflected = await reflectAfterCuration(tenantId, platform);
+    // Fall back to the freshly-steered row if there was nothing to reflect yet.
+    const profile = reflected ?? await getVoiceProfile(tenantId, platform);
+    return jsonResponse(200, { profile: formatVoiceProfile(profile) });
+  });
+
   // POST /voice/profiles/{platform}/reflect — re-derive the profile now from
   // recent samples (the same path the stream runs automatically every N samples).
   app.post("/voice/profiles/:platform/reflect", withIdempotency(async ({ event, params }) => {
@@ -174,6 +233,20 @@ export function registerVoiceRoutes(app) {
     const updated = await runReflection(tenantId, platform);
     return jsonResponse(200, { profile: formatVoiceProfile(updated) });
   }));
+}
+
+// After a curation action (mute, unmute, delete, steer) re-derives the profile
+// so the change is reflected in the learned voice right away. Best-effort: a
+// reflection failure must not fail the user's action — the manual "Refresh now"
+// path and the next automatic reflection both recover. Returns the updated
+// profile row, or null when nothing could be reflected.
+async function reflectAfterCuration(tenantId, platform) {
+  try {
+    return await runReflection(tenantId, platform);
+  } catch (err) {
+    logger.warn("Post-curation reflection failed (non-fatal)", { platform, error: err?.message });
+    return null;
+  }
 }
 
 function parseBody(event) {

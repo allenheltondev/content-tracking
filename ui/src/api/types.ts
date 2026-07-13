@@ -812,6 +812,10 @@ export interface VoiceSample {
   // Publish date of the source post — anchors the sample's recency weight.
   published_at: string | null;
   created_at: string;
+  // Excluded from the voice (kept for reference, reversible).
+  muted: boolean;
+  // Share (0-1) of the current voice this sample carries; null when not computed.
+  influence_share: number | null;
 }
 
 export interface VoiceProfile {
@@ -819,6 +823,8 @@ export interface VoiceProfile {
   profile: Record<string, unknown> | null;
   // Plain-English portrait of the learned voice, surfaced from profile.portrait.
   portrait: string | null;
+  // The creator's intent note that biases reflection.
+  steering: string | null;
   samples_since_reflection: number;
   reflection_threshold: number;
   // Half-life (days) of the publish-date decay weighting samples.
@@ -840,6 +846,7 @@ export interface VoiceInfluenceHorizon {
 export interface VoiceOverviewEntry {
   platform: string;
   portrait: string | null;
+  steering: string | null;
   version: number;
   samples_since_reflection: number;
   reflection_threshold: number;
@@ -875,6 +882,9 @@ export interface VoiceReflection {
   change_summary: string | null;
   sample_window: number | null;
   half_life_days: number | null;
+  // Snapshot of the profile at this reflection (the "voice over time" history).
+  version: number | null;
+  portrait: string | null;
   model: string | null;
   created_at: string;
 }

@@ -98,6 +98,33 @@ export async function deleteVoiceSample(apiFetch: ApiFetch, id: string, platform
   await apiFetch(`/voice/samples/${id}`, { method: 'DELETE', query: { platform } });
 }
 
+// Mute (exclude from the voice) or unmute a sample. Muting is reversible and,
+// for auto-captured posts, durable across later edits.
+export async function setVoiceSampleMuted(
+  apiFetch: ApiFetch,
+  id: string,
+  platform: string,
+  muted: boolean,
+): Promise<VoiceSample> {
+  return apiFetch<VoiceSample>(`/voice/samples/${id}`, {
+    method: 'PATCH',
+    query: { platform },
+    body: { muted },
+  });
+}
+
+// Set (or clear with null) the steering note that biases the next reflection.
+export async function setVoiceSteering(
+  apiFetch: ApiFetch,
+  platform: string,
+  note: string | null,
+): Promise<{ profile: VoiceProfile | null }> {
+  return apiFetch<{ profile: VoiceProfile | null }>(`/voice/profiles/${platform}/steering`, {
+    method: 'PUT',
+    body: { note },
+  });
+}
+
 export async function listVoiceProfiles(apiFetch: ApiFetch): Promise<{ profiles: VoiceProfile[] }> {
   return apiFetch<{ profiles: VoiceProfile[] }>('/voice/profiles');
 }

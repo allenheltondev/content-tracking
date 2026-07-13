@@ -7,6 +7,7 @@ jest.unstable_mockModule("../services/embeddings.mjs", () => ({ embedText: jest.
 jest.unstable_mockModule("../services/voice-vectors.mjs", () => ({
   queryVoiceSamples: jest.fn(),
   deleteVoiceSample: jest.fn(),
+  putVoiceSample: jest.fn(),
 }));
 jest.unstable_mockModule("../services/bedrock.mjs", () => ({
   composeVoicePost: jest.fn(),
@@ -20,14 +21,17 @@ jest.unstable_mockModule("../domain/voice.mjs", () => ({
   listProfiles: jest.fn(),
   listReflections: jest.fn(),
   listRecentSamples: jest.fn(),
+  setVoiceSampleMuted: jest.fn(),
+  setVoiceSteering: jest.fn(),
 }));
 
 const { embedText } = await import("../services/embeddings.mjs");
-const { queryVoiceSamples, deleteVoiceSample } = await import("../services/voice-vectors.mjs");
+const { queryVoiceSamples, deleteVoiceSample, putVoiceSample } = await import("../services/voice-vectors.mjs");
 const { composeVoicePost, assessVoiceMatch } = await import("../services/bedrock.mjs");
 const { runReflection } = await import("../services/voice-memory.mjs");
 const {
   createVoiceSample, deleteVoiceSampleRow, getVoiceProfile, listProfiles, listReflections, listRecentSamples,
+  setVoiceSampleMuted, setVoiceSteering,
 } = await import("../domain/voice.mjs");
 const { registerVoiceRoutes } = await import("../routes/voice.mjs");
 
@@ -36,6 +40,8 @@ function buildRouteTable() {
   const app = {
     get: (p, h) => { routes[`GET ${p}`] = h; },
     post: (p, h) => { routes[`POST ${p}`] = h; },
+    put: (p, h) => { routes[`PUT ${p}`] = h; },
+    patch: (p, h) => { routes[`PATCH ${p}`] = h; },
     delete: (p, h) => { routes[`DELETE ${p}`] = h; },
   };
   registerVoiceRoutes(app);
@@ -211,21 +217,68 @@ describe("POST /voice/samples", () => {
   });
 });
 
-describe("GET/DELETE /voice/samples", () => {
-  test("GET requires platform and lists recent samples", async () => {
-    listRecentSamples.mockResolvedValue([{ sampleId: "S1", platform: "x", text: "a", createdAt: "t" }]);
+describe("GET/PATCH/DELETE /voice/samples", () => {
+  test("GET annotates each sample with its influence share; muted/generated report 0", async () => {
+    const daysAgo = (n) => new Date(Date.now() - n * 86_400_000).toISOString();
+    listRecentSamples.mockResolvedValue([
+      { sampleId: "FRESH", platform: "x", text: "a", source: "manual", publishedAt: daysAgo(1) },
+      { sampleId: "OLD", platform: "x", text: "b", source: "manual", publishedAt: daysAgo(400) },
+      { sampleId: "MUTED", platform: "x", text: "c", source: "manual", publishedAt: daysAgo(2), muted: true },
+      { sampleId: "GEN", platform: "x", text: "d", source: "generated", publishedAt: daysAgo(1) },
+    ]);
     const res = await routes["GET /voice/samples"](ctx({ query: { platform: "x" } }));
-    expect(listRecentSamples).toHaveBeenCalledWith(SUB, "x");
-    expect(JSON.parse(res.body).samples).toHaveLength(1);
+    const byId = Object.fromEntries(JSON.parse(res.body).samples.map((s) => [s.sample_id, s]));
+    expect(byId.FRESH.influence_share).toBeGreaterThan(byId.OLD.influence_share);
+    expect(byId.MUTED.influence_share).toBe(0);
+    expect(byId.MUTED.muted).toBe(true);
+    expect(byId.GEN.influence_share).toBe(0);
+    // The eligible shares (fresh + old) sum to 1.
+    expect(byId.FRESH.influence_share + byId.OLD.influence_share).toBeCloseTo(1, 2);
   });
 
-  test("DELETE removes the row and the vector", async () => {
+  test("PATCH muted:true drops the vector, mutes the row, and re-derives the profile", async () => {
+    setVoiceSampleMuted.mockResolvedValue({ sampleId: "S1", platform: "x", text: "a", muted: true });
+    const res = await routes["PATCH /voice/samples/:id"](ctx({ params: { id: "S1" }, query: { platform: "x" }, body: { muted: true } }));
+    expect(res.statusCode).toBe(200);
+    expect(setVoiceSampleMuted).toHaveBeenCalledWith(SUB, "x", "S1", true);
+    expect(deleteVoiceSample).toHaveBeenCalledWith({ tenantId: SUB, platform: "x", sampleId: "S1" });
+    expect(putVoiceSample).not.toHaveBeenCalled();
+    expect(runReflection).toHaveBeenCalledWith(SUB, "x");
+    expect(JSON.parse(res.body).muted).toBe(true);
+  });
+
+  test("PATCH muted:false re-embeds the sample and re-derives the profile", async () => {
+    setVoiceSampleMuted.mockResolvedValue({ sampleId: "S1", platform: "x", format: "social", text: "hello", publishedAt: "2026-06-01" });
+    embedText.mockResolvedValue([0.5]);
+    const res = await routes["PATCH /voice/samples/:id"](ctx({ params: { id: "S1" }, query: { platform: "x" }, body: { muted: false } }));
+    expect(res.statusCode).toBe(200);
+    expect(setVoiceSampleMuted).toHaveBeenCalledWith(SUB, "x", "S1", false);
+    expect(embedText).toHaveBeenCalledWith("hello");
+    expect(putVoiceSample).toHaveBeenCalledWith(expect.objectContaining({ sampleId: "S1", embedding: [0.5], publishedAt: "2026-06-01" }));
+    expect(runReflection).toHaveBeenCalledWith(SUB, "x");
+  });
+
+  test("PATCH rejects a non-boolean muted", async () => {
+    await expect(routes["PATCH /voice/samples/:id"](ctx({ params: { id: "S1" }, query: { platform: "x" }, body: { muted: "yes" } })))
+      .rejects.toThrow(/muted/);
+  });
+
+  test("DELETE removes the row and the vector, then re-derives the profile", async () => {
     deleteVoiceSampleRow.mockResolvedValue();
     deleteVoiceSample.mockResolvedValue();
     const res = await routes["DELETE /voice/samples/:id"](ctx({ params: { id: "S1" }, query: { platform: "x" } }));
     expect(res.statusCode).toBe(204);
     expect(deleteVoiceSampleRow).toHaveBeenCalledWith(SUB, "x", "S1");
     expect(deleteVoiceSample).toHaveBeenCalledWith({ tenantId: SUB, platform: "x", sampleId: "S1" });
+    expect(runReflection).toHaveBeenCalledWith(SUB, "x");
+  });
+
+  test("a curation reflection failure does not fail the user's action", async () => {
+    deleteVoiceSampleRow.mockResolvedValue();
+    deleteVoiceSample.mockResolvedValue();
+    runReflection.mockRejectedValue(new Error("bedrock down"));
+    const res = await routes["DELETE /voice/samples/:id"](ctx({ params: { id: "S1" }, query: { platform: "x" } }));
+    expect(res.statusCode).toBe(204);
   });
 });
 
@@ -250,5 +303,32 @@ describe("profiles", () => {
     const res = await routes["POST /voice/profiles/:platform/reflect"](ctx({ params: { platform: "x" } }));
     expect(runReflection).toHaveBeenCalledWith(SUB, "x");
     expect(JSON.parse(res.body).profile.version).toBe(3);
+  });
+
+  test("PUT /voice/profiles/:platform/steering sets the note and re-derives immediately", async () => {
+    setVoiceSteering.mockResolvedValue({ platform: "x", steering: "be concise" });
+    runReflection.mockResolvedValue({ platform: "x", profile: { tone: "tight" }, version: 4, steering: "be concise" });
+    const res = await routes["PUT /voice/profiles/:platform/steering"](ctx({ params: { platform: "x" }, body: { note: "be concise" } }));
+    expect(res.statusCode).toBe(200);
+    expect(setVoiceSteering).toHaveBeenCalledWith(SUB, "x", "be concise");
+    expect(runReflection).toHaveBeenCalledWith(SUB, "x");
+    expect(JSON.parse(res.body).profile.steering).toBe("be concise");
+  });
+
+  test("PUT steering falls back to the steered row when there's nothing to reflect yet", async () => {
+    setVoiceSteering.mockResolvedValue({ platform: "x", steering: "be bold" });
+    runReflection.mockResolvedValue(null); // no samples yet
+    getVoiceProfile.mockResolvedValue({ platform: "x", steering: "be bold" });
+    const res = await routes["PUT /voice/profiles/:platform/steering"](ctx({ params: { platform: "x" }, body: { note: "be bold" } }));
+    expect(JSON.parse(res.body).profile.steering).toBe("be bold");
+    expect(getVoiceProfile).toHaveBeenCalledWith(SUB, "x");
+  });
+
+  test("PUT steering accepts null to clear", async () => {
+    setVoiceSteering.mockResolvedValue({ platform: "x" });
+    runReflection.mockResolvedValue({ platform: "x", profile: {}, version: 5 });
+    const res = await routes["PUT /voice/profiles/:platform/steering"](ctx({ params: { platform: "x" }, body: { note: null } }));
+    expect(res.statusCode).toBe(200);
+    expect(setVoiceSteering).toHaveBeenCalledWith(SUB, "x", null);
   });
 });

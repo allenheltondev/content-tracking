@@ -10,6 +10,7 @@ import {
   createVoiceSample,
   deleteVoiceSampleRow,
   getVoiceProfile,
+  getVoiceSample,
   listRecentSamples,
   putVoiceProfile,
 } from "../domain/voice.mjs";
@@ -87,19 +88,28 @@ export async function recordVoiceSample(sample) {
 // sample's normalized weight share is handed to the model, which is prompted
 // to let higher-weighted samples win stylistic conflicts — this is what makes
 // the profile EVOLVE toward the current voice instead of averaging all time.
+//
+// Two kinds of sample never feed the learned voice:
+//   - muted samples, which the creator has deliberately excluded, and
+//   - generated samples, so the model's own drafts can't teach the voice about
+//     itself (a feedback loop that would erode authenticity over time).
+// Only authored/published work defines the profile.
 export async function runReflection(tenantId, platform) {
   const candidates = await listRecentSamples(tenantId, platform, CANDIDATE_POOL);
-  if (candidates.length === 0) {
-    logger.warn("Reflection skipped: no samples", { platform });
+  const eligible = candidates.filter((c) => !c.muted && c.source !== "generated");
+  if (eligible.length === 0) {
+    logger.warn("Reflection skipped: no eligible samples", { platform, candidates: candidates.length });
     return null;
   }
-  const samples = selectRecencyWeighted(candidates, { limit: WINDOW });
+  const samples = selectRecencyWeighted(eligible, { limit: WINDOW });
 
   const current = await getVoiceProfile(tenantId, platform);
   const { profile, change_summary } = await reflectVoiceProfile({
     platform,
     currentProfile: current?.profile ?? null,
     samples,
+    // The creator's stated intent for where the voice should head.
+    steering: current?.steering ?? null,
   });
 
   const version = (current?.version ?? 0) + 1;
@@ -107,12 +117,15 @@ export async function runReflection(tenantId, platform) {
     profile,
     version,
     createdAt: current?.createdAt,
+    steering: current?.steering ?? null,
   });
   await createReflection(tenantId, platform, {
     changeSummary: change_summary,
     sampleWindow: samples.length,
     model: process.env.BEDROCK_MODEL_ID ?? null,
     halfLifeDays: voiceHalfLifeDays(),
+    version,
+    portrait: typeof profile?.portrait === "string" ? profile.portrait : null,
   });
 
   logger.info("Reflected voice profile", { platform, version, sampleWindow: samples.length });
@@ -151,6 +164,10 @@ export function isVoiceEligibleContent(content) {
 // publishDate when set, else its creation time. Writing the sample row is what
 // triggers the embed/count/reflect pipeline (via the VoiceSample stream
 // filter) — this function itself does no Bedrock work.
+//
+// If the creator has muted this sample, re-capture is skipped entirely: the
+// muted row is left as-is, so muting a published post is a DURABLE exclusion
+// that survives later edits to the post rather than silently coming back.
 export async function captureContentVoiceSample(content) {
   const { tenantId, contentId } = content ?? {};
   if (!tenantId || !contentId) {
@@ -162,6 +179,12 @@ export async function captureContentVoiceSample(content) {
   }
 
   const sampleId = contentVoiceSampleId(contentId);
+  const existing = await getVoiceSample(tenantId, "blog", sampleId);
+  if (existing?.muted) {
+    logger.info("Skipping content voice capture: sample muted", { contentId, sampleId });
+    return { skipped: true, reason: "muted" };
+  }
+
   await createVoiceSample(tenantId, {
     text: buildContentSampleText(content),
     platform: "blog",

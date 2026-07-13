@@ -99,6 +99,42 @@ The learned voice is surfaced for humans, not just fed to the model:
   and an optional on-voice rewrite. It judges style, not topic — an unusual
   topic can still be perfectly on-voice.
 
+## Curating the memories
+
+The voice is only as good as the corpus behind it, so the memories are
+controllable:
+
+- **Influence visibility.** `GET /voice/samples` annotates each sample with
+  `influence_share` — the recency weight it currently carries, normalized over
+  the eligible corpus. So the samples list shows exactly which memories drive
+  the voice ("this post = 18% of your voice").
+
+- **Mute (reversible, durable).** `PATCH /voice/samples/{id} { muted }` keeps
+  the row but drops its vector and excludes it from reflection. Muting a
+  published post is durable: `captureContentVoiceSample` skips re-capture when
+  the existing sample is muted, so a later edit to the post won't silently
+  bring it back. Unmuting re-embeds the sample. Delete remains for hard removal
+  of pasted samples.
+
+- **Immediate effect.** Curation actions (mute, unmute, delete, steer)
+  re-derive the profile right away (best-effort — a reflection failure never
+  fails the user's action), so removing a memory updates the learned voice
+  without waiting for the next automatic reflection.
+
+- **No self-training.** Reflection excludes `source: generated` samples, so the
+  model's own drafts can never teach the voice about themselves — only
+  authored/published work defines the profile.
+
+- **Steering.** `PUT /voice/profiles/{platform}/steering { note }` stores a
+  short intent note ("more concise, less hedging") on the profile. It's
+  injected into the reflection prompt (honored where the recent samples don't
+  contradict it) and preserved across reflects, so the creator can *direct* the
+  voice's evolution, not just observe it.
+
+- **History.** Each reflection snapshots the resulting profile `version` and
+  `portrait`, so the reflection list doubles as a "your voice over time"
+  timeline.
+
 ## Tuning
 
 | Knob | Where | Default | Effect |
