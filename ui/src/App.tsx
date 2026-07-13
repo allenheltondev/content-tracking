@@ -9,6 +9,7 @@ import {
 } from '@readysetcloud/ui';
 import { useAuth } from './auth/useAuth';
 import { navIcons } from './components/NavIcons';
+import ChatWidget from './components/ChatWidget';
 
 // Route the shared navbar's in-app links through react-router so
 // navigation stays client-side (no full-page reload). External links in
@@ -47,7 +48,6 @@ const NAV: ReadonlyArray<{ label: string; to: string; section: string }> = [
   { label: 'My Voice', to: '/voice', section: 'Content' },
   { label: 'Content Radar', to: '/content-radar', section: 'Content' },
   { label: 'Media kit', to: '/media-kit', section: 'Content' },
-  { label: 'Ask', to: '/ask', section: 'Content' },
   { label: 'Campaigns', to: '/campaigns', section: 'Sponsorships' },
   { label: 'Vendors', to: '/vendors', section: 'Sponsorships' },
   { label: 'Revenue', to: '/revenue', section: 'Sponsorships' },
@@ -102,6 +102,9 @@ export default function App(): ReactElement {
       <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-6">
         <Outlet />
       </main>
+      {/* App-wide blog assistant. Lives in the shell so it's reachable from
+          every page and its thread survives client-side navigation. */}
+      <ChatWidget />
     </div>
   );
 }

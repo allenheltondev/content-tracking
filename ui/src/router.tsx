@@ -17,7 +17,6 @@ import Insights from './routes/Insights';
 import Content from './routes/Content';
 import ContentDetail from './routes/ContentDetail';
 import Calendar from './routes/Calendar';
-import Ask from './routes/Ask';
 import Compose from './routes/Compose';
 import Voice from './routes/Voice';
 import ContentRadar from './routes/ContentRadar';
@@ -74,7 +73,10 @@ export const router = createBrowserRouter([
       { path: 'content', element: <Content /> },
       { path: 'content/:contentId', element: <ContentDetail /> },
       { path: 'calendar', element: <Calendar /> },
-      { path: 'ask', element: <Ask /> },
+      // The standalone Ask page is retired in favor of the app-wide chat
+      // widget (mounted in the App shell). Redirect old links to the home
+      // page, where the assistant is one click away.
+      { path: 'ask', loader: () => redirect('/') },
       { path: 'compose', element: <Compose /> },
       { path: 'voice', element: <Voice /> },
       { path: 'content-radar', element: <ContentRadar /> },
