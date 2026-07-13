@@ -41,10 +41,13 @@ export function registerSocialPostRoutes(app) {
   });
 
   // PUT .../analytics — the Chrome extension's write path. Replaces the
-  // post's metrics and stamps `last_fetched` server-side.
+  // post's metrics and stamps `last_fetched` server-side. The extension
+  // authenticates with a pairing token (authSource="extension"), so resolve
+  // the tenant from EITHER auth path — requireTenantId's cognito-only gate
+  // would reject the extension and 401 every captured metric write.
   app.put("/campaigns/:campaignId/social-posts/:postId/analytics", async ({ event, params }) => {
     const { campaignId, postId } = params;
-    const tenantId = requireTenantId(event);
+    const tenantId = resolveTenantId(event);
     await assertCampaignOwned(campaignId, tenantId);
     const fields = validateAnalyticsUpdate(parseBody(event));
     const updated = await updateSocialPostAnalytics(campaignId, postId, fields);

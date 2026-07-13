@@ -160,32 +160,61 @@ export function tenantScopeFilter(tenantId) {
 
 export async function listCampaigns({ limit, exclusiveStartKey, status, tenantId }) {
   const scope = tenantScopeFilter(tenantId);
-  const args = {
-    TableName: TABLE_NAME,
-    IndexName: "GSI1",
-    KeyConditionExpression: "gsi1pk = :pk",
-    FilterExpression: scope.clause,
-    ExpressionAttributeValues: { ":pk": CAMPAIGNS_PARTITION, ...scope.values },
-    ScanIndexForward: false, // newest first
-    Limit: limit,
-    ExclusiveStartKey: exclusiveStartKey,
-  };
-
   // Status filter applied via FilterExpression on the indexed Query, ANDed with
   // the tenant scope. Personal-scale dataset; the cost is a few extra RCUs on
   // filtered-out items. If status cardinality ever becomes a bottleneck we can
   // add a GSI keyed by `STATUS#{status}`.
+  const names = {};
+  let filterExpression = scope.clause;
+  const values = { ":pk": CAMPAIGNS_PARTITION, ...scope.values };
   if (status) {
-    args.FilterExpression = `${scope.clause} AND #status = :status`;
-    args.ExpressionAttributeNames = { "#status": "status" };
-    args.ExpressionAttributeValues[":status"] = status;
+    filterExpression = `${scope.clause} AND #status = :status`;
+    names["#status"] = "status";
+    values[":status"] = status;
   }
 
-  const result = await ddb.send(new QueryCommand(args));
-  return {
-    items: result.Items ?? [],
-    lastEvaluatedKey: result.LastEvaluatedKey,
-  };
+  // DynamoDB applies the FilterExpression AFTER Limit, so a single page can
+  // come back with fewer than `limit` matches — or none — even when more of the
+  // caller's campaigns exist deeper in the partition (the newer rows scanned
+  // first may belong to other tenants). Callers like the Campaigns page don't
+  // chase nextStartKey, so page internally until we've gathered a full `limit`
+  // of matching rows (or exhausted the partition).
+  const items = [];
+  let cursor = exclusiveStartKey;
+  do {
+    const result = await ddb.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      IndexName: "GSI1",
+      KeyConditionExpression: "gsi1pk = :pk",
+      FilterExpression: filterExpression,
+      ...(Object.keys(names).length ? { ExpressionAttributeNames: names } : {}),
+      ExpressionAttributeValues: values,
+      ScanIndexForward: false, // newest first
+      Limit: limit,
+      ExclusiveStartKey: cursor,
+    }));
+    items.push(...(result.Items ?? []));
+    cursor = result.LastEvaluatedKey;
+  } while (cursor && (limit === undefined || items.length < limit));
+
+  // Internal paging can overshoot `limit` on the final page; trim to the
+  // requested size and hand back a cursor positioned at the last kept row so
+  // the next call resumes exactly after it (the boundary item carries the four
+  // GSI1 key attributes an ExclusiveStartKey needs).
+  if (limit !== undefined && items.length > limit) {
+    const page = items.slice(0, limit);
+    const boundary = page[page.length - 1];
+    return { items: page, lastEvaluatedKey: gsi1Cursor(boundary) };
+  }
+
+  return { items, lastEvaluatedKey: cursor };
+}
+
+// Builds an ExclusiveStartKey for the GSI1 "CAMPAIGNS" partition from a row we
+// just returned: a GSI query cursor needs both the table key (pk/sk) and the
+// index key (gsi1pk/gsi1sk).
+function gsi1Cursor(item) {
+  return { pk: item.pk, sk: item.sk, gsi1pk: item.gsi1pk, gsi1sk: item.gsi1sk };
 }
 
 // Campaigns at a given status for a tenant. Pages the GSI1 "CAMPAIGNS"

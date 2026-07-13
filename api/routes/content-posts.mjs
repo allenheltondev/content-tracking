@@ -14,7 +14,7 @@ import {
   updateContentPostAnalytics,
 } from "../domain/content-post.mjs";
 import { assertCampaignOwned } from "../domain/campaign.mjs";
-import { requireTenantId } from "../services/identity.mjs";
+import { requireTenantId, resolveTenantId } from "../services/identity.mjs";
 
 export function registerContentPostRoutes(app) {
   app.post("/campaigns/:campaignId/content-posts", withIdempotency(async ({ event, params }) => {
@@ -40,10 +40,12 @@ export function registerContentPostRoutes(app) {
   });
 
   // PUT .../analytics — the Chrome extension's content-bucket write path.
-  // Replaces the post's metrics and stamps `last_fetched` server-side.
+  // Replaces the post's metrics and stamps `last_fetched` server-side. Like
+  // the social-post analytics write, the extension pairs with an HMAC token
+  // (authSource="extension"), so resolve the tenant from either auth path.
   app.put("/campaigns/:campaignId/content-posts/:postId/analytics", async ({ event, params }) => {
     const { campaignId, postId } = params;
-    const tenantId = requireTenantId(event);
+    const tenantId = resolveTenantId(event);
     await assertCampaignOwned(campaignId, tenantId);
     const fields = validateAnalyticsUpdate(parseBody(event));
     const updated = await updateContentPostAnalytics(campaignId, postId, fields);

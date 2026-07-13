@@ -258,6 +258,35 @@ describe("domain/campaign", () => {
       expect(input.FilterExpression).toContain("tenantId = :tenantId");
       expect(input.ExpressionAttributeValues[":status"]).toBe("active");
     });
+
+    test("pages past a foreign-row-only first page to fill the limit", async () => {
+      // DynamoDB applies the tenant FilterExpression after Limit, so the first
+      // page can come back empty (all newer rows belong to other tenants) with
+      // only a cursor. We must follow that cursor instead of returning nothing.
+      mockSend.mockResolvedValueOnce({ Items: [], LastEvaluatedKey: { pk: "CAMPAIGN#OTHER", sk: "METADATA", gsi1pk: "CAMPAIGNS", gsi1sk: "z" } });
+      mockSend.mockResolvedValueOnce({ Items: [{ campaignId: "C1", tenantId: "t1" }] });
+
+      const { items, lastEvaluatedKey } = await listCampaigns({ limit: 50, tenantId: "t1" });
+      expect(mockSend).toHaveBeenCalledTimes(2);
+      expect(mockSend.mock.calls[1][0].input.ExclusiveStartKey).toEqual({ pk: "CAMPAIGN#OTHER", sk: "METADATA", gsi1pk: "CAMPAIGNS", gsi1sk: "z" });
+      expect(items.map((c) => c.campaignId)).toEqual(["C1"]);
+      expect(lastEvaluatedKey).toBeUndefined();
+    });
+
+    test("trims an overshoot and returns a cursor at the last kept row", async () => {
+      mockSend.mockResolvedValueOnce({
+        Items: [
+          { campaignId: "C1", pk: "CAMPAIGN#C1", sk: "METADATA", gsi1pk: "CAMPAIGNS", gsi1sk: "b" },
+          { campaignId: "C2", pk: "CAMPAIGN#C2", sk: "METADATA", gsi1pk: "CAMPAIGNS", gsi1sk: "a" },
+        ],
+        LastEvaluatedKey: { pk: "CAMPAIGN#C2", sk: "METADATA", gsi1pk: "CAMPAIGNS", gsi1sk: "a" },
+      });
+
+      const { items, lastEvaluatedKey } = await listCampaigns({ limit: 1, tenantId: "t1" });
+      expect(items.map((c) => c.campaignId)).toEqual(["C1"]);
+      // Cursor is the last KEPT row (C1), not DynamoDB's scanned position (C2).
+      expect(lastEvaluatedKey).toEqual({ pk: "CAMPAIGN#C1", sk: "METADATA", gsi1pk: "CAMPAIGNS", gsi1sk: "b" });
+    });
   });
 
   describe("assertCampaignOwned", () => {

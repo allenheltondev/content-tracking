@@ -96,22 +96,44 @@ export async function assertVendorOwned(vendorId, tenantId) {
 }
 
 export async function listVendors({ limit, exclusiveStartKey, tenantId }) {
-  const result = await ddb.send(new QueryCommand({
-    TableName: TABLE_NAME,
-    IndexName: "GSI1",
-    KeyConditionExpression: "gsi1pk = :pk",
-    // Scope to the caller's own vendors plus legacy ones with no owner.
-    FilterExpression: "(attribute_not_exists(tenantId) OR tenantId = :tenantId)",
-    ExpressionAttributeValues: { ":pk": VENDORS_PARTITION, ":tenantId": tenantId },
-    ScanIndexForward: false, // newest first
-    Limit: limit,
-    ExclusiveStartKey: exclusiveStartKey,
-  }));
+  // Same sparse-page hazard as listCampaigns: the tenant FilterExpression is
+  // applied after Limit, so a page can come back short (or empty) while more of
+  // the caller's vendors sit deeper in the partition behind other tenants'
+  // newer rows. Page internally until we've gathered a full `limit` of matches.
+  const items = [];
+  let cursor = exclusiveStartKey;
+  do {
+    const result = await ddb.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      IndexName: "GSI1",
+      KeyConditionExpression: "gsi1pk = :pk",
+      // Scope to the caller's own vendors plus legacy ones with no owner.
+      FilterExpression: "(attribute_not_exists(tenantId) OR tenantId = :tenantId)",
+      ExpressionAttributeValues: { ":pk": VENDORS_PARTITION, ":tenantId": tenantId },
+      ScanIndexForward: false, // newest first
+      Limit: limit,
+      ExclusiveStartKey: cursor,
+    }));
+    items.push(...(result.Items ?? []));
+    cursor = result.LastEvaluatedKey;
+  } while (cursor && (limit === undefined || items.length < limit));
 
-  return {
-    items: result.Items ?? [],
-    lastEvaluatedKey: result.LastEvaluatedKey,
-  };
+  // Trim an overshoot on the final page and resume from the last kept row.
+  if (limit !== undefined && items.length > limit) {
+    const page = items.slice(0, limit);
+    const boundary = page[page.length - 1];
+    return {
+      items: page,
+      lastEvaluatedKey: {
+        pk: boundary.pk,
+        sk: boundary.sk,
+        gsi1pk: boundary.gsi1pk,
+        gsi1sk: boundary.gsi1sk,
+      },
+    };
+  }
+
+  return { items, lastEvaluatedKey: cursor };
 }
 
 export async function updateVendor(vendorId, fields) {

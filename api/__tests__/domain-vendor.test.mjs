@@ -79,6 +79,33 @@ describe("domain/vendor", () => {
       expect(items.length).toBe(2);
       expect(lastEvaluatedKey).toBeUndefined();
     });
+
+    test("pages past a foreign-row-only first page to fill the limit", async () => {
+      // Same post-Limit FilterExpression hazard as listCampaigns: don't return
+      // an empty page when the caller's vendors sit behind other tenants' rows.
+      mockSend.mockResolvedValueOnce({ Items: [], LastEvaluatedKey: { pk: "VENDOR#OTHER", sk: "METADATA", gsi1pk: "VENDORS", gsi1sk: "z" } });
+      mockSend.mockResolvedValueOnce({ Items: [{ vendorId: "V1", tenantId: "t1" }] });
+
+      const { items, lastEvaluatedKey } = await listVendors({ limit: 100, tenantId: "t1" });
+      expect(mockSend).toHaveBeenCalledTimes(2);
+      expect(mockSend.mock.calls[1][0].input.ExclusiveStartKey).toEqual({ pk: "VENDOR#OTHER", sk: "METADATA", gsi1pk: "VENDORS", gsi1sk: "z" });
+      expect(items.map((v) => v.vendorId)).toEqual(["V1"]);
+      expect(lastEvaluatedKey).toBeUndefined();
+    });
+
+    test("trims an overshoot and returns a cursor at the last kept row", async () => {
+      mockSend.mockResolvedValueOnce({
+        Items: [
+          { vendorId: "V1", pk: "VENDOR#V1", sk: "METADATA", gsi1pk: "VENDORS", gsi1sk: "b" },
+          { vendorId: "V2", pk: "VENDOR#V2", sk: "METADATA", gsi1pk: "VENDORS", gsi1sk: "a" },
+        ],
+        LastEvaluatedKey: { pk: "VENDOR#V2", sk: "METADATA", gsi1pk: "VENDORS", gsi1sk: "a" },
+      });
+
+      const { items, lastEvaluatedKey } = await listVendors({ limit: 1, tenantId: "t1" });
+      expect(items.map((v) => v.vendorId)).toEqual(["V1"]);
+      expect(lastEvaluatedKey).toEqual({ pk: "VENDOR#V1", sk: "METADATA", gsi1pk: "VENDORS", gsi1sk: "b" });
+    });
   });
 
   describe("updateVendor", () => {

@@ -165,9 +165,13 @@ describe("domain/content", () => {
       // Content side cleared first (guarded only on existence).
       expect(input(mockSend, 1).Key).toEqual(contentKey(TENANT, "C1"));
       expect(input(mockSend, 1).UpdateExpression).toMatch(/REMOVE #campaignId/);
-      // Campaign back-pointer cleared, guarded to the linked content.
+      // Campaign back-pointer cleared, guarded to the linked content. Only
+      // contentId is removed — tenantId is the ownership stamp and must survive
+      // a detach so the campaign never demotes to an owner-less "legacy" row.
       expect(input(mockSend, 2).Key).toEqual({ pk: "CAMPAIGN#CMP1", sk: "METADATA" });
-      expect(input(mockSend, 2).UpdateExpression).toMatch(/REMOVE #contentId, #tenantId/);
+      expect(input(mockSend, 2).UpdateExpression).toMatch(/REMOVE #contentId/);
+      expect(input(mockSend, 2).UpdateExpression).not.toMatch(/#tenantId/);
+      expect(input(mockSend, 2).ExpressionAttributeNames).not.toHaveProperty("#tenantId");
       expect(input(mockSend, 2).ConditionExpression).toBe("#contentId = :contentId");
     });
 

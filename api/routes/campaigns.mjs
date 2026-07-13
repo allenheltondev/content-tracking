@@ -28,7 +28,7 @@ import {
   updateCampaignFields,
 } from "../domain/campaign.mjs";
 import { requireTenantId } from "../services/identity.mjs";
-import { listVendors } from "../domain/vendor.mjs";
+import { assertVendorOwned, listVendors } from "../domain/vendor.mjs";
 import { getBriefForCampaign, saveBriefForCampaign } from "../domain/brief.mjs";
 import {
   getDraftForCampaign,
@@ -77,6 +77,13 @@ export function registerCampaignRoutes(app) {
     const tenantId = requireTenantId(event);
     const body = parseBody(event);
     const fields = validateCampaignCreate(body);
+    // A vendor link writes a row under the vendor's partition and surfaces in
+    // its /vendors/:id/campaigns list, so confirm the vendor is the caller's
+    // before accepting it — otherwise a guessed id would let a user pollute
+    // another tenant's vendor. 404s a missing/foreign vendor.
+    if (fields.vendorId) {
+      await assertVendorOwned(fields.vendorId, tenantId);
+    }
     const item = await createCampaign({ ...fields, tenantId });
     return jsonResponse(201, formatCampaign(item));
   }));
@@ -144,6 +151,11 @@ export function registerCampaignRoutes(app) {
     await assertCampaignOwned(campaignId, tenantId);
     const body = parseBody(event);
     const fields = validateCampaignUpdate(body);
+    // Re-linking to a vendor has the same cross-tenant exposure as create, so
+    // verify the caller owns any vendor they're pointing the campaign at.
+    if (fields.vendorId) {
+      await assertVendorOwned(fields.vendorId, tenantId);
+    }
     applyPaidAtDefault(fields.payout);
     const updated = await updateCampaignFields(campaignId, fields);
     return jsonResponse(200, formatCampaign(updated));
