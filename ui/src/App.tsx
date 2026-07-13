@@ -42,6 +42,7 @@ function readStoredTheme(): AppTheme {
 // item is folded into the unified Content hub.
 const NAV: ReadonlyArray<{ label: string; to: string; section: string }> = [
   { label: 'Content', to: '/content', section: 'Content' },
+  { label: 'Calendar', to: '/calendar', section: 'Content' },
   { label: 'Compose', to: '/compose', section: 'Content' },
   { label: 'Voice', to: '/voice', section: 'Content' },
   { label: 'Media kit', to: '/media-kit', section: 'Content' },

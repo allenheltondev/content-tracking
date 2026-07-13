@@ -1,9 +1,13 @@
 import type { ApiFetch } from '../auth/useApiFetch';
 import type {
+  AddPublishVariantParams,
   Campaign,
   Content,
+  ContentAnalyticsResponse,
   ContentAnswer,
   ContentListResponse,
+  ContentPublishVariant,
+  ContentStatsSnapshot,
   ContentType,
   CreateContentParams,
   UpdateContentParams,
@@ -93,6 +97,49 @@ export async function createContentSponsorship(
 // Detach the sponsorship, leaving an unsponsored piece (the campaign survives).
 export async function detachContentCampaign(apiFetch: ApiFetch, contentId: string): Promise<void> {
   await apiFetch(`/content/${contentId}/campaign`, { method: 'DELETE' });
+}
+
+// --- Publishing + analytics --------------------------------------------------
+
+export async function getContentAnalytics(apiFetch: ApiFetch, contentId: string): Promise<ContentAnalyticsResponse> {
+  return apiFetch<ContentAnalyticsResponse>(`/content/${contentId}/analytics`);
+}
+
+export async function addPublishVariant(
+  apiFetch: ApiFetch,
+  contentId: string,
+  params: AddPublishVariantParams,
+): Promise<ContentPublishVariant> {
+  return apiFetch<ContentPublishVariant>(`/content/${contentId}/publish`, { method: 'POST', body: params });
+}
+
+export async function recordContentStats(
+  apiFetch: ApiFetch,
+  contentId: string,
+  platform: string,
+  metrics: Record<string, number>,
+): Promise<ContentStatsSnapshot> {
+  return apiFetch<ContentStatsSnapshot>(`/content/${contentId}/stats/${encodeURIComponent(platform)}`, {
+    method: 'PUT',
+    body: { metrics },
+  });
+}
+
+export interface CrosspostContentResult {
+  platform: string;
+  status: 'succeeded' | 'failed' | 'skipped';
+  url?: string;
+  error?: string;
+}
+
+// Cross-post a content piece (dev/medium/hashnode) off the Content row, so
+// content-native pieces can publish. Records each success as a publish variant.
+export async function crosspostContent(
+  apiFetch: ApiFetch,
+  contentId: string,
+  platforms: string[],
+): Promise<{ content_id: string; results: CrosspostContentResult[] }> {
+  return apiFetch(`/content/${contentId}/crosspost`, { method: 'POST', body: { platforms } });
 }
 
 // --- RAG Q&A -----------------------------------------------------------------

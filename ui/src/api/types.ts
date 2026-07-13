@@ -878,6 +878,7 @@ export interface ContentSummary {
   categories: string[];
   canonical_url: string | null;
   campaign_id: string | null;
+  publish_date: string | null;
   links: Record<string, string>;
   created_at: string;
   updated_at: string;
@@ -914,11 +915,12 @@ export interface CreateContentParams {
   categories?: string[];
   canonical_url?: string;
   campaign_id?: string;
+  publish_date?: string;
 }
 
 // Body for PATCH /content/:contentId. All fields optional; an explicit null
 // clears a clearable field (description, canonical_url, tags, categories,
-// campaign_id), mirroring the API's update contract.
+// campaign_id, publish_date), mirroring the API's update contract.
 export interface UpdateContentParams {
   type?: ContentType;
   source?: ContentSource;
@@ -926,6 +928,7 @@ export interface UpdateContentParams {
   slug?: string;
   description?: string | null;
   content_markdown?: string;
+  publish_date?: string | null;
   status?: ContentStatus;
   tags?: string[] | null;
   categories?: string[] | null;
@@ -948,6 +951,36 @@ export interface ContentAnswer {
   answer: string;
   confidence: ContentAnswerConfidence;
   sources: ContentAnswerSource[];
+}
+
+// Content publishing + analytics: where a piece was published and its
+// per-platform daily metric snapshots.
+export interface ContentPublishVariant {
+  platform: string;
+  url: string | null;
+  published_at: string | null;
+  notes: string | null;
+  updated_at: string | null;
+}
+
+export interface ContentStatsSnapshot {
+  platform: string;
+  date: string;
+  metrics: Record<string, number>;
+  captured_at: string | null;
+}
+
+export interface ContentAnalyticsResponse {
+  content_id: string;
+  publish_variants: ContentPublishVariant[];
+  stats: { platform: string; snapshots: ContentStatsSnapshot[] }[];
+}
+
+export interface AddPublishVariantParams {
+  platform: string;
+  url?: string;
+  published_at?: string;
+  notes?: string;
 }
 
 export type CrosspostPlatform = 'dev' | 'medium' | 'hashnode';

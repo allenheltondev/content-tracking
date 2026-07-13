@@ -22,6 +22,7 @@ export const CONTENT_STATUSES = ["draft", "scheduled", "published", "archived"];
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const CAMPAIGN_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function requireObject(body) {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
@@ -136,6 +137,14 @@ function applyOptionalFields(out, body, { update }) {
   clearable("tags", "tags", (v) => validateTagArray(v, "tags"));
   clearable("categories", "categories", (v) => validateTagArray(v, "categories"));
   clearable("campaign_id", "campaignId", validateCampaignId);
+  // The date a piece is (or was) published — the anchor for the content
+  // calendar. Optional and independent of `status`.
+  clearable("publish_date", "publishDate", (v) => {
+    if (typeof v !== "string" || !ISO_DATE_RE.test(v) || isNaN(Date.parse(v))) {
+      throw new BadRequestError("publish_date must be a YYYY-MM-DD date");
+    }
+    return v;
+  });
 }
 
 export function validateContentCreate(body) {
@@ -189,6 +198,7 @@ export function formatContent(row) {
     canonical_url: row.canonicalUrl ?? null,
     content_markdown: row.contentMarkdown ?? null,
     campaign_id: row.campaignId ?? null,
+    publish_date: row.publishDate ?? null,
     links: row.links ?? {},
     created_at: row.createdAt,
     updated_at: row.updatedAt,

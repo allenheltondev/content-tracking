@@ -752,6 +752,102 @@ Return the most recently generated recommendation set for the content post.
 
 ---
 
+## Content
+
+Content is the app's central object: a piece a creator makes (a blog post,
+social post, or video), sponsored or not. Everything is tenant-scoped under the
+signed-in creator's partition. The catalog is unified — the retired Blogs
+surface's legacy `Blog`-only rows are merged into these reads, and a campaign
+(sponsorship) optionally hangs off a piece 1:1.
+
+All routes require Cognito authentication and resolve the tenant from the token.
+
+### GET /content
+
+List the creator's content, newest first. Merges unified content with any
+legacy blog-only rows (content wins on id collision). Because it merges two
+sources, it is unpaginated (`nextStartKey` is always `null`); pass `?limit=` to
+trim. `?type=`, `?source=`, and `?status=` filter the merged set.
+
+- `200 OK` — `{ "content": [ContentSummary...], "nextStartKey": null }`.
+
+### POST /content
+
+Create a piece of content.
+
+**Request body:**
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `type` | enum | yes | `blog` \| `social` \| `video` |
+| `title` | string | yes | <=300 chars |
+| `slug` | string | yes | kebab-case, <=200 chars |
+| `content_markdown` | string | yes | the body, <=300000 chars |
+| `source` | enum | no | `owned` \| `sponsored` (default `owned`) |
+| `status` | enum | no | `draft` \| `scheduled` \| `published` \| `archived` (default `draft`) |
+| `description` | string | no | <=1000 chars |
+| `tags`, `categories` | string[] | no | <=30 entries |
+| `canonical_url` | string | no | http(s) |
+| `publish_date` | string | no | `YYYY-MM-DD`; the calendar anchor |
+| `campaign_id` | string | no | attach a sponsorship at creation (must exist, 1:1) |
+
+- `201 Created` — [Content](#content-object). `409 Conflict` if the campaign is
+  already attached elsewhere; `404` if it doesn't exist.
+
+### GET /content/{contentId}
+
+Get a single piece. Falls back to a legacy blog row when no content row exists.
+Adds two backing flags: `content_backed` (a real content row exists — so status
+edits, sponsorship, and the primary delete apply) and `blog_backed` (a legacy
+blog row exists — so cross-post, which reads the blog entity, works).
+
+- `200 OK` — [Content](#content-object) plus `content_backed` / `blog_backed`.
+
+### PATCH /content/{contentId}
+
+Update editable fields (`title`, `slug`, `type`, `source`, `status`,
+`description`, `content_markdown`, `tags`, `categories`, `canonical_url`,
+`publish_date`). A `null` clears a clearable field. `campaign_id` is routed
+through attach/detach (a `null` detaches) rather than a plain write.
+
+### DELETE /content/{contentId}
+
+Delete a piece and its children. Falls back to deleting a legacy blog row when
+there is no content row. `204 No Content`.
+
+### POST /content/ask
+
+RAG Q&A grounded in the creator's content catalog. Body `{ question, top_k?,
+content_id?, type? }`; returns `{ answer, confidence, sources[] }`.
+
+### Sponsorship (campaign hanging off a piece)
+
+A piece owns at most one campaign (1:1, optional).
+
+- `GET /content/{contentId}/campaign` — the attached [Campaign](#campaign-object), or `404`.
+- `PUT /content/{contentId}/campaign` — attach an existing campaign; body `{ campaign_id }`. `409` if either side is already linked.
+- `POST /content/{contentId}/campaign` — create a campaign and attach it in one step (body is a [CreateCampaignRequest](#createcampaignrequest)). `409` if the piece is already sponsored.
+- `DELETE /content/{contentId}/campaign` — detach; the campaign survives. `204`.
+
+### Publishing & analytics
+
+Content-level distribution and performance, independent of any campaign.
+
+- `POST /content/{contentId}/publish` — record where a piece went live; body `{ platform, url?, published_at?, notes? }` (`platform` is a free-form slug). One row per platform.
+- `GET /content/{contentId}/publish` — the publish variants.
+- `PUT /content/{contentId}/stats/{platform}` — record a metric snapshot for the current UTC day; body `{ metrics: { name: number, ... }, captured_at? }`.
+- `GET /content/{contentId}/analytics` — `{ publish_variants[], stats: [{ platform, snapshots[] }] }`.
+
+### POST /content/{contentId}/crosspost
+
+Cross-post a content piece to dev.to / Medium / Hashnode, publishing
+synchronously off the content row (so content-native pieces can cross-post).
+Body `{ platforms: ["dev"|"medium"|"hashnode", ...] }`. Each success is recorded
+as a publish variant; platforms already published are skipped. Returns
+`{ content_id, results: [{ platform, status, url?, error? }] }`.
+
+---
+
 ## Revenue
 
 ### GET /revenue

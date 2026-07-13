@@ -3,21 +3,40 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useApiFetch } from '../auth/useApiFetch';
 import {
+  addPublishVariant,
   askContent,
   attachContentCampaign,
   createContentSponsorship,
+  crosspostContent,
   deleteContent,
   detachContentCampaign,
   getContent,
+  getContentAnalytics,
+  recordContentStats,
   updateContent,
 } from '../api/content';
+import type { CrosspostContentResult } from '../api/content';
 import { createVoiceSample } from '../api/voice';
 import { CROSSPOST_PLATFORMS, crosspostBlog, getCrosspostStatus } from '../api/blogs';
-import type { Content, ContentAnswer, ContentStatus, CrosspostPlatform, CrosspostStatus } from '../api/types';
+import KeyValueEditor, { type Pair } from '../components/KeyValueEditor';
+import type {
+  Content,
+  ContentAnalyticsResponse,
+  ContentAnswer,
+  ContentSource,
+  ContentStatus,
+  ContentType,
+  CrosspostPlatform,
+  CrosspostStatus,
+  UpdateContentParams,
+} from '../api/types';
 import Markdown from '../components/MarkdownLazy';
+import { parseList } from '../lib/text';
 import CampaignDetail from './CampaignDetail';
 
 const CONTENT_STATUSES: ContentStatus[] = ['draft', 'scheduled', 'published', 'archived'];
+const CONTENT_TYPES: ContentType[] = ['blog', 'social', 'video'];
+const CONTENT_SOURCES: ContentSource[] = ['owned', 'sponsored'];
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '';
@@ -37,6 +56,7 @@ export default function ContentDetail(): ReactElement {
   const [content, setContent] = useState<Content | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -58,6 +78,16 @@ export default function ContentDetail(): ReactElement {
   const contentBacked = content.content_backed !== false;
   const blogBacked = Boolean(content.blog_backed);
 
+  // Mutation responses (PATCH, attach/detach) come from formatContent and don't
+  // carry the backing flags that only GET /content/:id adds, so preserve them
+  // from the current state — a metadata edit never changes what backs a piece.
+  const applyContent = (c: Content): void =>
+    setContent((prev) => ({
+      ...c,
+      content_backed: c.content_backed ?? prev?.content_backed,
+      blog_backed: c.blog_backed ?? prev?.blog_backed,
+    }));
+
   return (
     <section className="space-y-8">
       {/* The content itself reads best in a narrow column; the embedded
@@ -67,58 +97,89 @@ export default function ContentDetail(): ReactElement {
           <Link to="/content" className="btn-link text-sm">← All content</Link>
         </div>
 
-        <header className="space-y-2">
-          <h1 className="text-2xl font-semibold text-foreground">{content.title}</h1>
-          <p className="text-xs text-muted-foreground">
-            {content.slug} · created {fmtDate(content.created_at)}
-            {content.updated_at && content.updated_at !== content.created_at && ` · updated ${fmtDate(content.updated_at)}`}
-          </p>
-          <div className="flex flex-wrap items-center gap-1">
-            {content.type && (
-              <span className="px-2 py-0.5 rounded-full text-xs bg-primary-100 text-primary-700">{content.type}</span>
-            )}
-            {content.status && (
-              <span className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">{content.status}</span>
-            )}
-            {content.source && (
-              <span className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">{content.source}</span>
-            )}
-          </div>
-          {content.canonical_url && (
-            <div className="flex flex-wrap gap-3 text-sm pt-1">
-              <a href={content.canonical_url} target="_blank" rel="noreferrer noopener" className="btn-link">Canonical ↗</a>
-            </div>
-          )}
-        </header>
-
-        <ActionsRow
-          content={content}
-          apiFetch={apiFetch}
-          canEditStatus={contentBacked}
-          onChanged={setContent}
-          onDeleted={() => navigate('/content')}
-        />
-
-        {content.content_markdown ? (
-          <article className="card card-body text-sm">
-            <Markdown>{content.content_markdown}</Markdown>
-          </article>
+        {editing ? (
+          <EditContentForm
+            content={content}
+            apiFetch={apiFetch}
+            onSaved={(c) => { applyContent(c); setEditing(false); }}
+            onCancel={() => setEditing(false)}
+          />
         ) : (
-          <p className="text-sm text-muted-foreground">This piece has no stored body.</p>
-        )}
+          <>
+            <header className="space-y-2">
+              <h1 className="text-2xl font-semibold text-foreground">{content.title}</h1>
+              <p className="text-xs text-muted-foreground">
+                {content.slug} · created {fmtDate(content.created_at)}
+                {content.updated_at && content.updated_at !== content.created_at && ` · updated ${fmtDate(content.updated_at)}`}
+              </p>
+              {content.description && (
+                <p className="text-sm text-muted-foreground">{content.description}</p>
+              )}
+              <div className="flex flex-wrap items-center gap-1">
+                {content.type && (
+                  <span className="px-2 py-0.5 rounded-full text-xs bg-primary-100 text-primary-700">{content.type}</span>
+                )}
+                {content.status && (
+                  <span className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">{content.status}</span>
+                )}
+                {content.source && (
+                  <span className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">{content.source}</span>
+                )}
+                {content.tags.map((t) => (
+                  <span key={t} className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">{t}</span>
+                ))}
+              </div>
+              {content.canonical_url && (
+                <div className="flex flex-wrap gap-3 text-sm pt-1">
+                  <a href={content.canonical_url} target="_blank" rel="noreferrer noopener" className="btn-link">Canonical ↗</a>
+                </div>
+              )}
+            </header>
 
-        {blogBacked && (
-          <CrosspostPanel contentId={content.content_id} apiFetch={apiFetch} />
-        )}
+            <ActionsRow
+              content={content}
+              apiFetch={apiFetch}
+              canEditStatus={contentBacked}
+              canEdit={contentBacked}
+              onEdit={() => setEditing(true)}
+              onChanged={applyContent}
+              onDeleted={() => navigate('/content')}
+            />
 
-        <AskPanel contentId={content.content_id} apiFetch={apiFetch} />
+            {content.content_markdown ? (
+              <article className="card card-body text-sm">
+                <Markdown>{content.content_markdown}</Markdown>
+              </article>
+            ) : (
+              <p className="text-sm text-muted-foreground">This piece has no stored body.</p>
+            )}
+
+            {/* Any piece backed by a Blog row (legacy-only or migrated) uses
+                the durable /blogs crosspost path, whose dedupe accounts for the
+                existing blog crosspost history — so an article already published
+                there isn't offered for a duplicate repost. Only a content-native
+                blog piece (no Blog row) uses the synchronous content path. */}
+            {blogBacked && (
+              <CrosspostPanel contentId={content.content_id} apiFetch={apiFetch} />
+            )}
+            {!blogBacked && contentBacked && content.type === 'blog' && (
+              <ContentCrosspostPanel contentId={content.content_id} apiFetch={apiFetch} />
+            )}
+
+            {contentBacked && (
+              <ContentAnalyticsSection contentId={content.content_id} apiFetch={apiFetch} />
+            )}
+
+            <AskPanel contentId={content.content_id} apiFetch={apiFetch} />
+          </>
+        )}
       </div>
 
       {/* Sponsorship: attach/create/detach, and — when attached — the full
           campaign workspace hangs off the content piece right here. Hidden for
           legacy Blog-only rows, whose /content mutation routes don't apply. */}
       {contentBacked && (
-        <SponsorshipRow content={content} apiFetch={apiFetch} onChanged={setContent} />
+        <SponsorshipRow content={content} apiFetch={apiFetch} onChanged={applyContent} />
       )}
 
       {contentBacked && content.campaign_id && (
@@ -127,6 +188,118 @@ export default function ContentDetail(): ReactElement {
         </div>
       )}
     </section>
+  );
+}
+
+// Edit a piece of content's metadata and body. Reuses PATCH /content; only
+// changed fields are sent, and cleared description/canonical are sent as null.
+function EditContentForm({
+  content, apiFetch, onSaved, onCancel,
+}: {
+  content: Content;
+  apiFetch: ReturnType<typeof useApiFetch>;
+  onSaved: (c: Content) => void;
+  onCancel: () => void;
+}): ReactElement {
+  const [title, setTitle] = useState(content.title);
+  const [slug, setSlug] = useState(content.slug);
+  const [type, setType] = useState<ContentType>((content.type ?? 'blog') as ContentType);
+  const [source, setSource] = useState<ContentSource>((content.source ?? 'owned') as ContentSource);
+  const [description, setDescription] = useState(content.description ?? '');
+  const [canonicalUrl, setCanonicalUrl] = useState(content.canonical_url ?? '');
+  const [tags, setTags] = useState(content.tags.join(', '));
+  const [categories, setCategories] = useState(content.categories.join(', '));
+  const [publishDate, setPublishDate] = useState(content.publish_date ?? '');
+  const [markdown, setMarkdown] = useState(content.content_markdown ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: FormEvent): Promise<void> => {
+    e.preventDefault();
+    if (busy || title.trim().length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const params: UpdateContentParams = {
+        title: title.trim(),
+        slug: slug.trim(),
+        type,
+        source,
+        description: description.trim() ? description.trim() : null,
+        canonical_url: canonicalUrl.trim() ? canonicalUrl.trim() : null,
+        publish_date: publishDate.trim() ? publishDate.trim() : null,
+        tags: parseList(tags),
+        categories: parseList(categories),
+        ...(markdown.trim() ? { content_markdown: markdown } : {}),
+      };
+      onSaved(await updateContent(apiFetch, content.content_id, params));
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="card card-body space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-foreground">Edit content</h2>
+        <button type="button" className="btn-ghost btn-sm" onClick={onCancel} disabled={busy}>Cancel</button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="field-label">Type</span>
+          <select className="input" value={type} onChange={(e) => setType(e.target.value as ContentType)} disabled={busy}>
+            {CONTENT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className="field-label">Source</span>
+          <select className="input" value={source} onChange={(e) => setSource(e.target.value as ContentSource)} disabled={busy}>
+            {CONTENT_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
+      </div>
+      <label className="block">
+        <span className="field-label">Title</span>
+        <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} disabled={busy} />
+      </label>
+      <label className="block">
+        <span className="field-label">Slug</span>
+        <input className="input" value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="kebab-case" disabled={busy} />
+      </label>
+      <label className="block">
+        <span className="field-label">Description</span>
+        <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} disabled={busy} />
+      </label>
+      <label className="block">
+        <span className="field-label">Content (markdown)</span>
+        <textarea className="input" rows={10} value={markdown} onChange={(e) => setMarkdown(e.target.value)} disabled={busy} />
+      </label>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="field-label">Tags (comma-separated)</span>
+          <input className="input" value={tags} onChange={(e) => setTags(e.target.value)} disabled={busy} />
+        </label>
+        <label className="block">
+          <span className="field-label">Categories (comma-separated)</span>
+          <input className="input" value={categories} onChange={(e) => setCategories(e.target.value)} disabled={busy} />
+        </label>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="field-label">Canonical URL</span>
+          <input className="input" value={canonicalUrl} onChange={(e) => setCanonicalUrl(e.target.value)} placeholder="https://…" disabled={busy} />
+        </label>
+        <label className="block">
+          <span className="field-label">Publish date</span>
+          <input type="date" className="input" value={publishDate} onChange={(e) => setPublishDate(e.target.value)} disabled={busy} />
+        </label>
+      </div>
+      {error && <p className="form-error">{error}</p>}
+      <button type="submit" className="btn-primary" disabled={busy || !title.trim()}>
+        {busy ? 'Saving…' : 'Save changes'}
+      </button>
+    </form>
   );
 }
 
@@ -248,11 +421,13 @@ function SponsorshipRow({
 }
 
 function ActionsRow({
-  content, apiFetch, canEditStatus, onChanged, onDeleted,
+  content, apiFetch, canEditStatus, canEdit, onEdit, onChanged, onDeleted,
 }: {
   content: Content;
   apiFetch: ReturnType<typeof useApiFetch>;
   canEditStatus: boolean;
+  canEdit: boolean;
+  onEdit: () => void;
   onChanged: (c: Content) => void;
   onDeleted: () => void;
 }): ReactElement {
@@ -320,6 +495,9 @@ function ActionsRow({
             </select>
           </label>
         )}
+        {canEdit && (
+          <button type="button" className="btn-secondary btn-sm" onClick={onEdit}>Edit</button>
+        )}
         <button type="button" className="btn-secondary btn-sm" onClick={() => void saveToVoice()} disabled={saveState !== 'idle'}>
           {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved to voice ✓' : 'Save to voice'}
         </button>
@@ -337,6 +515,82 @@ function ActionsRow({
         )}
       </div>
       {error && <p className="form-error">{error}</p>}
+    </div>
+  );
+}
+
+// Cross-post a content-backed piece off the Content row (publishes immediately;
+// each success is recorded as a publish variant and shows up in Analytics).
+// Works for content-native pieces that have no Blog row.
+function ContentCrosspostPanel({ contentId, apiFetch }: { contentId: string; apiFetch: ReturnType<typeof useApiFetch> }): ReactElement {
+  const [selected, setSelected] = useState<Set<CrosspostPlatform>>(new Set());
+  const [results, setResults] = useState<CrosspostContentResult[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const toggle = (p: CrosspostPlatform): void => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(p)) next.delete(p); else next.add(p);
+      return next;
+    });
+  };
+
+  const submit = async (e: FormEvent): Promise<void> => {
+    e.preventDefault();
+    if (busy || selected.size === 0) return;
+    setBusy(true);
+    setError(null);
+    setResults(null);
+    try {
+      const res = await crosspostContent(apiFetch, contentId, [...selected]);
+      setResults(res.results);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card card-body space-y-3">
+      <h2 className="text-lg font-semibold text-foreground">Cross-post</h2>
+      <form onSubmit={submit} className="space-y-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {CROSSPOST_PLATFORMS.map((p) => (
+            <label key={p} className="flex items-center gap-1.5 text-sm capitalize">
+              <input type="checkbox" checked={selected.has(p)} onChange={() => toggle(p)} disabled={busy} />
+              {p === 'dev' ? 'DEV' : p}
+            </label>
+          ))}
+          <button type="submit" className="btn-secondary btn-sm" disabled={busy || selected.size === 0}>
+            {busy ? 'Publishing…' : 'Cross-post now'}
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Publishes immediately using the platform credentials in Settings. Platforms already
+          published are skipped.
+        </p>
+      </form>
+
+      {error && <p className="form-error">{error}</p>}
+
+      {results && (
+        <ul className="space-y-1 text-sm border-t border-border pt-3">
+          {results.map((r) => (
+            <li key={r.platform} className="flex items-center justify-between gap-3">
+              <span className="capitalize text-foreground">{r.platform}</span>
+              <span className="text-muted-foreground">
+                {r.url ? (
+                  <a href={r.url} target="_blank" rel="noreferrer noopener" className="btn-link">{r.status} ↗</a>
+                ) : (
+                  r.error ? `failed: ${r.error}` : r.status
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -438,6 +692,197 @@ function CrosspostPanel({ contentId, apiFetch }: { contentId: string; apiFetch: 
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+// Where a piece is published and how it's performing. Reads GET
+// /content/:id/analytics; lets the creator record distribution (a publish
+// variant) and log per-platform metric snapshots — content-level analytics
+// independent of any campaign.
+function ContentAnalyticsSection({ contentId, apiFetch }: { contentId: string; apiFetch: ReturnType<typeof useApiFetch> }): ReactElement {
+  const [data, setData] = useState<ContentAnalyticsResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [recording, setRecording] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setData(await getContentAnalytics(apiFetch, contentId));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }, [apiFetch, contentId]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const latest = (platform: string): Record<string, number> | null => {
+    const series = data?.stats.find((s) => s.platform === platform)?.snapshots ?? [];
+    return series.length ? series[series.length - 1].metrics : null;
+  };
+
+  const platforms = data
+    ? [...new Set([...data.publish_variants.map((v) => v.platform), ...data.stats.map((s) => s.platform)])].sort()
+    : [];
+
+  return (
+    <div className="card card-body space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-foreground">Analytics</h2>
+        <button type="button" className="btn-link text-xs" onClick={() => setAdding((v) => !v)}>
+          {adding ? 'Close' : '+ Publish location'}
+        </button>
+      </div>
+
+      {adding && (
+        <AddPublishForm
+          apiFetch={apiFetch}
+          contentId={contentId}
+          onAdded={() => { setAdding(false); void load(); }}
+        />
+      )}
+
+      {error && <p className="form-error">{error}</p>}
+
+      {data && platforms.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          No publish locations yet. Add where this piece went live to start tracking performance.
+        </p>
+      )}
+
+      {platforms.map((platform) => {
+        const variant = data?.publish_variants.find((v) => v.platform === platform);
+        const metrics = latest(platform);
+        return (
+          <div key={platform} className="border-t border-border pt-3 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <span className="font-medium text-foreground capitalize">{platform}</span>
+                {variant?.url && (
+                  <a href={variant.url} target="_blank" rel="noreferrer noopener" className="btn-link text-sm ml-2">open ↗</a>
+                )}
+              </div>
+              <button type="button" className="btn-link text-xs" onClick={() => setRecording(recording === platform ? null : platform)}>
+                {recording === platform ? 'Close' : 'Record metrics'}
+              </button>
+            </div>
+            {metrics ? (
+              <div className="flex flex-wrap gap-3 text-sm">
+                {Object.entries(metrics).map(([k, v]) => (
+                  <span key={k} className="text-muted-foreground">
+                    <span className="font-semibold text-foreground tabular-nums">{v.toLocaleString()}</span> {k}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No metrics recorded yet.</p>
+            )}
+            {recording === platform && (
+              <RecordStatsForm
+                apiFetch={apiFetch}
+                contentId={contentId}
+                platform={platform}
+                onRecorded={() => { setRecording(null); void load(); }}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AddPublishForm({
+  apiFetch, contentId, onAdded,
+}: {
+  apiFetch: ReturnType<typeof useApiFetch>;
+  contentId: string;
+  onAdded: () => void;
+}): ReactElement {
+  const [platform, setPlatform] = useState('');
+  const [url, setUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: FormEvent): Promise<void> => {
+    e.preventDefault();
+    if (busy || !platform.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await addPublishVariant(apiFetch, contentId, {
+        platform: platform.trim(),
+        ...(url.trim() ? { url: url.trim() } : {}),
+      });
+      onAdded();
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
+      <label className="flex-1 min-w-32">
+        <span className="field-label">Platform</span>
+        <input className="input" value={platform} onChange={(e) => setPlatform(e.target.value)} placeholder="devto, medium, youtube…" disabled={busy} />
+      </label>
+      <label className="flex-[2] min-w-48">
+        <span className="field-label">URL (optional)</span>
+        <input className="input" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" disabled={busy} />
+      </label>
+      <button type="submit" className="btn-primary btn-sm" disabled={busy || !platform.trim()}>
+        {busy ? 'Adding…' : 'Add'}
+      </button>
+      {error && <p className="form-error w-full">{error}</p>}
+    </form>
+  );
+}
+
+function RecordStatsForm({
+  apiFetch, contentId, platform, onRecorded,
+}: {
+  apiFetch: ReturnType<typeof useApiFetch>;
+  contentId: string;
+  platform: string;
+  onRecorded: () => void;
+}): ReactElement {
+  const [pairs, setPairs] = useState<Pair[]>([{ key: 'views', value: '' }]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      const metrics: Record<string, number> = {};
+      for (const { key, value } of pairs) {
+        const k = key.trim();
+        if (!k) continue;
+        const n = Number(value);
+        if (!Number.isFinite(n) || n < 0) {
+          throw new Error(`"${k}" must be a non-negative number`);
+        }
+        metrics[k] = n;
+      }
+      if (Object.keys(metrics).length === 0) {
+        throw new Error('Add at least one metric');
+      }
+      await recordContentStats(apiFetch, contentId, platform, metrics);
+      onRecorded();
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2 rounded-md bg-muted/50 p-3">
+      <KeyValueEditor pairs={pairs} onChange={setPairs} keyPlaceholder="metric (views)" valuePlaceholder="count" />
+      {error && <p className="form-error">{error}</p>}
+      <button type="button" className="btn-secondary btn-sm" onClick={() => void submit()} disabled={busy}>
+        {busy ? 'Recording…' : 'Record today'}
+      </button>
     </div>
   );
 }

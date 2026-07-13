@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApiFetch } from '../auth/useApiFetch';
 import { createContent, listContent } from '../api/content';
+import { parseList, slugify } from '../lib/text';
 import type {
   ContentSource,
   ContentStatus,
@@ -22,19 +23,6 @@ function fmtDate(iso: string | null): string {
   if (!iso) return '';
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
-}
-
-// Server requires kebab-case; offer a sensible default derived from the title.
-function slugify(s: string): string {
-  return s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-}
-
-// Splits a comma-separated input into a trimmed, de-empty'd list of tags.
-function parseList(raw: string): string[] {
-  return raw
-    .split(',')
-    .map((t) => t.trim())
-    .filter((t) => t.length > 0);
 }
 
 export default function Content(): ReactElement {
@@ -216,6 +204,7 @@ function AddContentForm({
   const [tags, setTags] = useState('');
   const [categories, setCategories] = useState('');
   const [canonicalUrl, setCanonicalUrl] = useState('');
+  const [publishDate, setPublishDate] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -240,6 +229,7 @@ function AddContentForm({
         tags: tagList.length > 0 ? tagList : undefined,
         categories: categoryList.length > 0 ? categoryList : undefined,
         canonical_url: canonicalUrl.trim() || undefined,
+        publish_date: publishDate.trim() || undefined,
       });
       onCreated();
     } catch (err) {
@@ -309,10 +299,16 @@ function AddContentForm({
           <input className="input" value={categories} onChange={(e) => setCategories(e.target.value)} placeholder="engineering" disabled={busy} />
         </label>
       </div>
-      <label className="block">
-        <span className="field-label">Canonical URL (optional)</span>
-        <input className="input" value={canonicalUrl} onChange={(e) => setCanonicalUrl(e.target.value)} placeholder="https://…" disabled={busy} />
-      </label>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="field-label">Canonical URL (optional)</span>
+          <input className="input" value={canonicalUrl} onChange={(e) => setCanonicalUrl(e.target.value)} placeholder="https://…" disabled={busy} />
+        </label>
+        <label className="block">
+          <span className="field-label">Publish date (optional)</span>
+          <input type="date" className="input" value={publishDate} onChange={(e) => setPublishDate(e.target.value)} disabled={busy} />
+        </label>
+      </div>
       <p className="text-xs text-muted-foreground">
         Creating an unsponsored piece. Add a sponsorship (campaign) later from the content’s page.
       </p>
