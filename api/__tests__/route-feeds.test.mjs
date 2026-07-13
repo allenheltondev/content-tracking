@@ -178,6 +178,10 @@ describe("routes/feeds", () => {
       const body = JSON.parse(res.body);
       expect(body.angles[0].title).toBe("Why agents fail");
       expect(body.sources).toHaveLength(1);
+      // The feed items the agent read come back too, so an angle's [n]
+      // citations resolve to the real backing article.
+      expect(body.items).toHaveLength(1);
+      expect(body.items[0].title).toBe("AI news");
     });
 
     test("restricts to feed_ids and excludes muted sources", async () => {

@@ -137,8 +137,13 @@ export function registerFeedRoutes(app) {
       guidance,
     });
 
+    // Return the feed items the agent read alongside the angles, so each
+    // angle's `sources: [n]` citations resolve to the real article the idea is
+    // backed by (title + link). The item order matches the numbering the agent
+    // saw, so [n] maps to items[n-1].
     return jsonResponse(200, {
       ...formatContentIdeas(ideas),
+      items: items.map(formatFeedItem),
       sources: results.map(formatFeedResult),
     });
   });

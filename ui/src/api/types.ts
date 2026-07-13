@@ -1127,6 +1127,9 @@ export interface ContentIdeas {
   summary: string | null;
   themes: ContentTheme[];
   angles: ContentAngle[];
+  // The feed items the agent read, in the order it numbered them. An angle's
+  // `sources: [n]` cite items[n - 1] — the real article backing the idea.
+  items: FeedItem[];
   sources: FeedSourceResult[];
 }
 

@@ -1005,8 +1005,8 @@ optional) `{ platform?, guidance?, feed_ids?, limit? }`: `platform` (a
 40). Calls Bedrock; nothing is persisted (regenerating is a fresh read, like
 `/voice/compose`). `400` when the radar has no sources to read.
 
-- `200 OK` — `{ summary, themes: [{ theme, momentum, why_it_fits }], angles: [{ title, angle, format, rationale, on_voice_note, sources }], sources: [feed source result] }`.
-- `momentum` is `surging` \| `steady` \| `emerging` \| `fading`. Each angle's `sources` are the `[n]` feed-item numbers it draws on.
+- `200 OK` — `{ summary, themes: [{ theme, momentum, why_it_fits }], angles: [{ title, angle, format, rationale, on_voice_note, sources }], items: [feed item], sources: [feed source result] }`.
+- `momentum` is `surging` \| `steady` \| `emerging` \| `fading`. Each angle's `sources` are the `[n]` feed-item numbers it draws on — 1-indexed into the returned `items`, so every idea resolves to the real article backing it.
 
 <a id="feed-source"></a>A **feed source** is `{ feed_id, url, title, muted,
 last_fetched_at, last_status, last_item_count, last_error, created_at,
