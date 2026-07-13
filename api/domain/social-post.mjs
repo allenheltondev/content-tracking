@@ -198,8 +198,8 @@ export async function deleteSocialPost(campaignId, postId) {
 // bounded concurrency. Personal-scale data sets, so we consume every page.
 const FANOUT_CONCURRENCY = 10;
 
-export async function listActiveCampaignSocialPosts() {
-  const campaigns = await listActiveCampaigns();
+export async function listActiveCampaignSocialPosts(tenantId) {
+  const campaigns = await listActiveCampaigns(tenantId);
   const results = await runInBatches(
     campaigns.map((campaign) => async () => {
       const posts = await listSocialPosts(campaign.campaignId);
@@ -215,8 +215,8 @@ export async function listActiveCampaignSocialPosts() {
 // status is "monitoring". Returns posts and links pre-joined to their
 // campaign so the extension has the campaign name for display without a
 // second round trip.
-export async function listMonitoringWorkingSet() {
-  const campaigns = await listCampaignsByStatus("monitoring");
+export async function listMonitoringWorkingSet(tenantId) {
+  const campaigns = await listCampaignsByStatus("monitoring", tenantId);
   const results = await runInBatches(
     campaigns.map((campaign) => async () => {
       const [posts, links] = await Promise.all([

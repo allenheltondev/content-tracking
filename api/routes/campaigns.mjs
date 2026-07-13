@@ -20,12 +20,14 @@ import {
 import { validateDraftSubmission } from "../validation/draft.mjs";
 import { applyPaidAtDefault } from "../validation/payout.mjs";
 import {
+  assertCampaignOwned,
   createCampaign,
   findCampaign,
   getCampaignWithLinks,
   listCampaigns,
   updateCampaignFields,
 } from "../domain/campaign.mjs";
+import { requireTenantId } from "../services/identity.mjs";
 import { listVendors } from "../domain/vendor.mjs";
 import { getBriefForCampaign, saveBriefForCampaign } from "../domain/brief.mjs";
 import {
@@ -72,13 +74,15 @@ const formatDraft = (row) => ({
 
 export function registerCampaignRoutes(app) {
   app.post("/campaigns", withIdempotency(async ({ event }) => {
+    const tenantId = requireTenantId(event);
     const body = parseBody(event);
     const fields = validateCampaignCreate(body);
-    const item = await createCampaign(fields);
+    const item = await createCampaign({ ...fields, tenantId });
     return jsonResponse(201, formatCampaign(item));
   }));
 
   app.get("/campaigns", async ({ event }) => {
+    const tenantId = requireTenantId(event);
     const qs = event.queryStringParameters ?? {};
     const limit = parseLimit(qs.limit);
     const exclusiveStartKey = decodeCursor(qs.startKey);
@@ -101,6 +105,7 @@ export function registerCampaignRoutes(app) {
       limit,
       exclusiveStartKey,
       status,
+      tenantId,
     });
 
     return jsonResponse(200, {
@@ -109,8 +114,10 @@ export function registerCampaignRoutes(app) {
     });
   });
 
-  app.get("/campaigns/:campaignId", async ({ params }) => {
+  app.get("/campaigns/:campaignId", async ({ event, params }) => {
     const { campaignId } = params;
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     const { metadata, links, socialPosts, contentPosts, brief, draft } = await getCampaignWithLinks(campaignId);
     const briefDownloadUrl = brief?.s3Key ? await presignBriefDownload(brief.s3Key) : null;
     return jsonResponse(200, {
@@ -133,6 +140,8 @@ export function registerCampaignRoutes(app) {
   // calls this when the user accepts a brief's suggested updates.
   app.patch("/campaigns/:campaignId", async ({ event, params }) => {
     const { campaignId } = params;
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     const body = parseBody(event);
     const fields = validateCampaignUpdate(body);
     applyPaidAtDefault(fields.payout);
@@ -147,6 +156,8 @@ export function registerCampaignRoutes(app) {
   // calls POST /campaigns/:campaignId/brief with source_type=pdf.
   app.post("/campaigns/:campaignId/brief/upload-url", async ({ event, params }) => {
     const { campaignId } = params;
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     requireUlid(campaignId, "campaignId");
     validateUploadUrlRequest(parseBody(event, { optional: true }));
     const { url, key, expiresAt } = await presignBriefUpload({
@@ -172,6 +183,8 @@ export function registerCampaignRoutes(app) {
   // returns them so the UI can offer the suggestions for the user to apply.
   app.post("/campaigns/:campaignId/brief", withIdempotency(async ({ event, params }) => {
     const { campaignId } = params;
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     requireUlid(campaignId, "campaignId");
     const submission = validateBriefSubmission(parseBody(event));
 
@@ -204,7 +217,7 @@ export function registerCampaignRoutes(app) {
     // missing campaign just means the prompt has less context.
     const [existingCampaign, vendorList] = await Promise.all([
       findCampaign(campaignId),
-      listVendors({}),
+      listVendors({ tenantId }),
     ]);
     bedrockInput.existingCampaign = existingCampaign;
     bedrockInput.vendors = (vendorList.items ?? []).map((v) => ({
@@ -247,6 +260,8 @@ export function registerCampaignRoutes(app) {
   // separately via POST /campaigns/:campaignId/draft/review.
   app.post("/campaigns/:campaignId/draft", withIdempotency(async ({ event, params }) => {
     const { campaignId } = params;
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     requireUlid(campaignId, "campaignId");
     const { url, docId } = validateDraftSubmission(parseBody(event));
     const draft = await saveDraftForCampaign({ campaignId, url, docId });
@@ -254,8 +269,10 @@ export function registerCampaignRoutes(app) {
   }));
 
   // GET /campaigns/:campaignId/draft
-  app.get("/campaigns/:campaignId/draft", async ({ params }) => {
+  app.get("/campaigns/:campaignId/draft", async ({ event, params }) => {
     const { campaignId } = params;
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     requireUlid(campaignId, "campaignId");
     const draft = await getDraftForCampaign(campaignId);
     if (!draft) {
@@ -270,8 +287,10 @@ export function registerCampaignRoutes(app) {
   // against the campaign's brief, then stores the feedback on the draft
   // and returns it. Requires both a saved draft (with a Google Docs link)
   // and an attached brief.
-  app.post("/campaigns/:campaignId/draft/review", withIdempotency(async ({ params }) => {
+  app.post("/campaigns/:campaignId/draft/review", withIdempotency(async ({ event, params }) => {
     const { campaignId } = params;
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     requireUlid(campaignId, "campaignId");
 
     const draft = await getDraftForCampaign(campaignId);

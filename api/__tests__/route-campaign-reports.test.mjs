@@ -31,6 +31,13 @@ jest.unstable_mockModule("../domain/vendor-report-record.mjs", () => ({
 jest.unstable_mockModule("../services/newsletter-service.mjs", () => ({
   mintShortLink: jest.fn(),
 }));
+// The route now resolves the caller's tenant and verifies campaign ownership
+// before doing any work. Mock the ownership guard so the report logic is still
+// exercised in isolation; identity.requireTenantId runs for real off the
+// synthetic requestContext.authorizer below.
+jest.unstable_mockModule("../domain/campaign.mjs", () => ({
+  assertCampaignOwned: jest.fn().mockResolvedValue({}),
+}));
 
 const { buildCampaignReportSnapshot } = await import("../domain/campaign-report.mjs");
 const { renderCampaignReportHtml } = await import("../services/campaign-report-renderer.mjs");
@@ -41,6 +48,7 @@ const { saveCampaignReportRecord, listCampaignReportRecords } = await import(
 );
 const { reportObjectExpiresAtMs } = await import("../domain/vendor-report-record.mjs");
 const { mintShortLink } = await import("../services/newsletter-service.mjs");
+const { assertCampaignOwned } = await import("../domain/campaign.mjs");
 const { NotFoundError } = await import("../services/errors.mjs");
 const { registerCampaignReportRoutes } = await import("../routes/campaign-reports.mjs");
 
@@ -61,6 +69,10 @@ const postReport = routes["POST /campaigns/:campaignId/report"];
 const getReports = routes["GET /campaigns/:campaignId/reports"];
 
 const CAMPAIGN_ID = "01HV0AABBCCDDEEFFGGHHJJKKM";
+
+// requireTenantId reads the tenant off the Lambda authorizer context; every
+// synthetic event carries a signed-in dashboard caller.
+const AUTH_CTX = { requestContext: { authorizer: { authSource: "cognito", sub: "user-1" } } };
 
 function makeSnapshot(overrides = {}) {
   return {
@@ -112,7 +124,10 @@ describe("routes/campaign-reports", () => {
       mintShortLink.mockResolvedValue({ short_url: "https://bkd.to/r1" });
       saveCampaignReportRecord.mockResolvedValue({});
 
-      const res = await postReport({ event: { body: null }, params: { campaignId: CAMPAIGN_ID } });
+      const res = await postReport({ event: { ...AUTH_CTX, body: null }, params: { campaignId: CAMPAIGN_ID } });
+
+      // Ownership guard runs first, scoped to the caller's resolved tenant.
+      expect(assertCampaignOwned).toHaveBeenCalledWith(CAMPAIGN_ID, "user-1");
 
       // reportId assigned onto the snapshot before render + persistence.
       expect(snapshot.report.id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
@@ -174,7 +189,7 @@ describe("routes/campaign-reports", () => {
       mintShortLink.mockRejectedValue(new Error("upstream boom"));
       saveCampaignReportRecord.mockResolvedValue({});
 
-      const res = await postReport({ event: { body: null }, params: { campaignId: CAMPAIGN_ID } });
+      const res = await postReport({ event: { ...AUTH_CTX, body: null }, params: { campaignId: CAMPAIGN_ID } });
 
       // Mint failure must not break report generation — the long URL still
       // works and the response simply reports shortUrl: null.
@@ -196,7 +211,7 @@ describe("routes/campaign-reports", () => {
 
       // Even an unparseable body must not error — it is ignored entirely.
       await postReport({
-        event: { body: "{not json", queryStringParameters: { year: "2024" } },
+        event: { ...AUTH_CTX, body: "{not json", queryStringParameters: { year: "2024" } },
         params: { campaignId: CAMPAIGN_ID },
       });
 
@@ -205,7 +220,7 @@ describe("routes/campaign-reports", () => {
 
     test("400 on invalid campaignId", async () => {
       await expect(
-        postReport({ event: { body: null }, params: { campaignId: "bad id!" } }),
+        postReport({ event: { ...AUTH_CTX, body: null }, params: { campaignId: "bad id!" } }),
       ).rejects.toThrow(/campaignId must be/);
       expect(buildCampaignReportSnapshot).not.toHaveBeenCalled();
     });
@@ -213,7 +228,7 @@ describe("routes/campaign-reports", () => {
     test("propagates NotFoundError from the snapshot builder", async () => {
       buildCampaignReportSnapshot.mockRejectedValue(new NotFoundError("Campaign", "ghost"));
       await expect(
-        postReport({ event: { body: null }, params: { campaignId: "ghost" } }),
+        postReport({ event: { ...AUTH_CTX, body: null }, params: { campaignId: "ghost" } }),
       ).rejects.toThrow(/Campaign ghost not found/);
       expect(putCampaignReportHtml).not.toHaveBeenCalled();
       expect(saveCampaignReportRecord).not.toHaveBeenCalled();
@@ -245,7 +260,7 @@ describe("routes/campaign-reports", () => {
         .mockReturnValueOnce({ url: "https://cdn/r2?fresh", expiresAt: "ignored" })
         .mockReturnValueOnce({ url: "https://cdn/r1?fresh", expiresAt: "ignored" });
 
-      const res = await getReports({ params: { campaignId: CAMPAIGN_ID } });
+      const res = await getReports({ event: AUTH_CTX, params: { campaignId: CAMPAIGN_ID } });
 
       expect(listCampaignReportRecords).toHaveBeenCalledWith(CAMPAIGN_ID);
       expect(signReportUrl).toHaveBeenNthCalledWith(
@@ -300,7 +315,7 @@ describe("routes/campaign-reports", () => {
       );
       signReportUrl.mockReturnValue({ url: "https://cdn/live?fresh", expiresAt: "ignored" });
 
-      const res = await getReports({ params: { campaignId: CAMPAIGN_ID } });
+      const res = await getReports({ event: AUTH_CTX, params: { campaignId: CAMPAIGN_ID } });
 
       // Only the live report is returned, and we never sign the stale key.
       expect(signReportUrl).toHaveBeenCalledTimes(1);
@@ -314,14 +329,14 @@ describe("routes/campaign-reports", () => {
 
     test("returns an empty list when the campaign has no reports", async () => {
       listCampaignReportRecords.mockResolvedValue([]);
-      const res = await getReports({ params: { campaignId: CAMPAIGN_ID } });
+      const res = await getReports({ event: AUTH_CTX, params: { campaignId: CAMPAIGN_ID } });
       expect(res.statusCode).toBe(200);
       expect(JSON.parse(res.body)).toEqual({ campaign_id: CAMPAIGN_ID, reports: [] });
       expect(signReportUrl).not.toHaveBeenCalled();
     });
 
     test("400 on invalid campaignId", async () => {
-      await expect(getReports({ params: { campaignId: "bad id!" } })).rejects.toThrow(/campaignId must be/);
+      await expect(getReports({ event: AUTH_CTX, params: { campaignId: "bad id!" } })).rejects.toThrow(/campaignId must be/);
       expect(listCampaignReportRecords).not.toHaveBeenCalled();
     });
   });

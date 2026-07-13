@@ -83,12 +83,26 @@ export async function findVendor(vendorId) {
   return result.Item ?? null;
 }
 
-export async function listVendors({ limit, exclusiveStartKey }) {
+// Ownership guard for the vendor surface, mirroring assertCampaignOwned:
+// vendors are stamped with the creator's tenantId, by-id routes verify it, and
+// a mismatch (or absence) is a 404. Legacy vendors with no tenantId are
+// grandfathered (existence-only).
+export async function assertVendorOwned(vendorId, tenantId) {
+  const vendor = await findVendor(vendorId);
+  if (!vendor || (vendor.tenantId && vendor.tenantId !== tenantId)) {
+    throw new NotFoundError("Vendor", vendorId);
+  }
+  return vendor;
+}
+
+export async function listVendors({ limit, exclusiveStartKey, tenantId }) {
   const result = await ddb.send(new QueryCommand({
     TableName: TABLE_NAME,
     IndexName: "GSI1",
     KeyConditionExpression: "gsi1pk = :pk",
-    ExpressionAttributeValues: { ":pk": VENDORS_PARTITION },
+    // Scope to the caller's own vendors plus legacy ones with no owner.
+    FilterExpression: "(attribute_not_exists(tenantId) OR tenantId = :tenantId)",
+    ExpressionAttributeValues: { ":pk": VENDORS_PARTITION, ":tenantId": tenantId },
     ScanIndexForward: false, // newest first
     Limit: limit,
     ExclusiveStartKey: exclusiveStartKey,
@@ -173,18 +187,11 @@ export async function deleteVendor(vendorId) {
   }
 }
 
-export async function listCampaignsForVendor(vendorId) {
-  // Confirm the vendor exists first — returning empty for a missing vendor
-  // would conflate "no campaigns yet" with "no such vendor". Project just
-  // the key to keep the read cheap.
-  const vendor = await ddb.send(new GetCommand({
-    TableName: TABLE_NAME,
-    Key: vendorKey(vendorId),
-    ProjectionExpression: "pk",
-  }));
-  if (!vendor.Item) {
-    throw new NotFoundError("Vendor", vendorId);
-  }
+export async function listCampaignsForVendor(vendorId, tenantId) {
+  // Confirm the vendor exists AND is owned by the caller first — returning
+  // empty for a missing/foreign vendor would conflate "no campaigns yet" with
+  // "not yours". assertVendorOwned 404s on either.
+  await assertVendorOwned(vendorId, tenantId);
 
   const result = await ddb.send(new QueryCommand({
     TableName: TABLE_NAME,

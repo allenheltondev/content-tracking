@@ -15,10 +15,10 @@ import { logger } from "../services/logger.mjs";
 
 const ASSET_TTL_DEFAULT_SECONDS = 90 * 24 * 60 * 60;
 
-export async function buildMediaKitSnapshot({ assetUrlTtlSeconds = ASSET_TTL_DEFAULT_SECONDS } = {}) {
+export async function buildMediaKitSnapshot({ assetUrlTtlSeconds = ASSET_TTL_DEFAULT_SECONDS, tenantId } = {}) {
   const [profile, campaigns] = await Promise.all([
     getProfileSettings(),
-    listAllCampaigns(),
+    listAllCampaigns(tenantId),
   ]);
   const p = profile ?? {};
 
@@ -151,13 +151,14 @@ function signAsset(key, ttlSeconds) {
 // Drains the paginated campaign list into a flat array. The media kit needs
 // every campaign regardless of status, so it can't use the status-scoped
 // helpers. Personal-scale data set, so fully consuming the pages is fine.
-async function listAllCampaigns() {
+async function listAllCampaigns(tenantId) {
   const all = [];
   let exclusiveStartKey;
   do {
     const { items, lastEvaluatedKey } = await listCampaigns({
       limit: 500,
       exclusiveStartKey,
+      tenantId,
     });
     for (const item of items) all.push(item);
     exclusiveStartKey = lastEvaluatedKey;

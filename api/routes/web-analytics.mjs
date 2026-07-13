@@ -1,7 +1,8 @@
 import { BadRequestError } from "../services/errors.mjs";
 import { jsonResponse } from "../services/http-handler.mjs";
 import { logger } from "../services/logger.mjs";
-import { findCampaign } from "../domain/campaign.mjs";
+import { findCampaign, assertCampaignOwned } from "../domain/campaign.mjs";
+import { requireTenantId } from "../services/identity.mjs";
 import { getProfileSettings } from "../domain/profile.mjs";
 import { readCruxApiKey, readGa4ServiceAccount } from "../services/ga-secrets.mjs";
 import { fetchPageMetrics } from "../services/google-analytics.mjs";
@@ -23,6 +24,8 @@ const DEFAULT_RANGE_DAYS = 28;
 export function registerWebAnalyticsRoutes(app) {
   app.get("/campaigns/:campaignId/web-analytics", async ({ event, params }) => {
     const { campaignId } = params;
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     const campaign = await findCampaign(campaignId);
     if (!campaign) {
       return jsonResponse(404, { message: `Campaign ${campaignId} not found` });

@@ -83,6 +83,7 @@ export async function createCampaign(fields) {
           entity: "CampaignByVendor",
           campaignId,
           vendorId: fields.vendorId,
+          ...(fields.tenantId ? { tenantId: fields.tenantId } : {}),
           name: metadata.name,
           status: metadata.status,
           startDate: metadata.startDate,
@@ -132,23 +133,50 @@ export async function findCampaign(campaignId) {
   return result.Item ?? null;
 }
 
-export async function listCampaigns({ limit, exclusiveStartKey, status }) {
+// Ownership guard for the campaign surface. Campaigns are stamped with the
+// creator's `tenantId` at creation; every by-id route resolves the caller's
+// tenant and calls this before touching the campaign or its children, so a
+// caller can't reach another tenant's campaign. Returns 404 (not 403) on a
+// mismatch so existence isn't leaked. Legacy campaigns created before scoping
+// carry no `tenantId` and are grandfathered (existence-only) — the app's
+// no-backfill stance. Returns the campaign so callers can reuse it.
+export async function assertCampaignOwned(campaignId, tenantId) {
+  const campaign = await findCampaign(campaignId);
+  if (!campaign || (campaign.tenantId && campaign.tenantId !== tenantId)) {
+    throw new NotFoundError("Campaign", campaignId);
+  }
+  return campaign;
+}
+
+// A FilterExpression fragment scoping a "list all" GSI query to the caller:
+// their own campaigns plus legacy ones with no owner. Returns the clause and
+// the values to merge into the query.
+export function tenantScopeFilter(tenantId) {
+  return {
+    clause: "(attribute_not_exists(tenantId) OR tenantId = :tenantId)",
+    values: { ":tenantId": tenantId },
+  };
+}
+
+export async function listCampaigns({ limit, exclusiveStartKey, status, tenantId }) {
+  const scope = tenantScopeFilter(tenantId);
   const args = {
     TableName: TABLE_NAME,
     IndexName: "GSI1",
     KeyConditionExpression: "gsi1pk = :pk",
-    ExpressionAttributeValues: { ":pk": CAMPAIGNS_PARTITION },
+    FilterExpression: scope.clause,
+    ExpressionAttributeValues: { ":pk": CAMPAIGNS_PARTITION, ...scope.values },
     ScanIndexForward: false, // newest first
     Limit: limit,
     ExclusiveStartKey: exclusiveStartKey,
   };
 
-  // Status filter applied via FilterExpression on the indexed Query.
-  // Personal-scale dataset; the cost is a few extra RCUs on filtered-out
-  // items. If status cardinality ever becomes a bottleneck we can add
-  // a GSI keyed by `STATUS#{status}`.
+  // Status filter applied via FilterExpression on the indexed Query, ANDed with
+  // the tenant scope. Personal-scale dataset; the cost is a few extra RCUs on
+  // filtered-out items. If status cardinality ever becomes a bottleneck we can
+  // add a GSI keyed by `STATUS#{status}`.
   if (status) {
-    args.FilterExpression = "#status = :status";
+    args.FilterExpression = `${scope.clause} AND #status = :status`;
     args.ExpressionAttributeNames = { "#status": "status" };
     args.ExpressionAttributeValues[":status"] = status;
   }
@@ -160,9 +188,11 @@ export async function listCampaigns({ limit, exclusiveStartKey, status }) {
   };
 }
 
-// Campaigns at a given status. Pages the GSI1 "CAMPAIGNS" partition with a
-// status filter; the data set is personal-scale so we fully consume it.
-export async function listCampaignsByStatus(status) {
+// Campaigns at a given status for a tenant. Pages the GSI1 "CAMPAIGNS"
+// partition with a status + tenant filter; the data set is personal-scale so
+// we fully consume it.
+export async function listCampaignsByStatus(status, tenantId) {
+  const scope = tenantScopeFilter(tenantId);
   const items = [];
   let exclusiveStartKey;
   do {
@@ -170,11 +200,12 @@ export async function listCampaignsByStatus(status) {
       TableName: TABLE_NAME,
       IndexName: "GSI1",
       KeyConditionExpression: "gsi1pk = :pk",
-      FilterExpression: "#status = :status",
+      FilterExpression: `#status = :status AND ${scope.clause}`,
       ExpressionAttributeNames: { "#status": "status" },
       ExpressionAttributeValues: {
         ":pk": CAMPAIGNS_PARTITION,
         ":status": status,
+        ...scope.values,
       },
       ExclusiveStartKey: exclusiveStartKey,
     }));
@@ -185,14 +216,15 @@ export async function listCampaignsByStatus(status) {
 }
 
 // Back-compat shim — older call sites still ask for "active" campaigns.
-export function listActiveCampaigns() {
-  return listCampaignsByStatus("active");
+export function listActiveCampaigns(tenantId) {
+  return listCampaignsByStatus("active", tenantId);
 }
 
-// Used by the /revenue rollup. Queries all campaigns whose createdAt
+// Used by the /revenue rollup. Queries a tenant's campaigns whose createdAt
 // falls in [startDate, endDate]. Pages internally — for personal scale
 // the result set is small enough to fully consume.
-export async function queryCampaignsByDateRange({ startDate, endDate }) {
+export async function queryCampaignsByDateRange({ startDate, endDate, tenantId }) {
+  const scope = tenantScopeFilter(tenantId);
   const items = [];
   let exclusiveStartKey;
   do {
@@ -200,6 +232,7 @@ export async function queryCampaignsByDateRange({ startDate, endDate }) {
       TableName: TABLE_NAME,
       IndexName: "GSI1",
       KeyConditionExpression: "gsi1pk = :pk AND gsi1sk BETWEEN :start AND :end",
+      FilterExpression: scope.clause,
       ExpressionAttributeValues: {
         ":pk": CAMPAIGNS_PARTITION,
         // gsi1sk format: "{createdAt}#{campaignId}". The "#~" upper bound
@@ -207,6 +240,7 @@ export async function queryCampaignsByDateRange({ startDate, endDate }) {
         // every Crockford base32 character used in ULIDs.
         ":start": `${startDate}T00:00:00.000Z#`,
         ":end": `${endDate}T23:59:59.999Z#~`,
+        ...scope.values,
       },
       ExclusiveStartKey: exclusiveStartKey,
     }));

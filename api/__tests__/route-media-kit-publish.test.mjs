@@ -23,6 +23,9 @@ jest.unstable_mockModule("../services/public-media-kit-store.mjs", () => ({
   writePublicMediaKitSeoFiles: jest.fn(),
   removePublicMediaKitSeoFiles: jest.fn(),
 }));
+jest.unstable_mockModule("../services/identity.mjs", () => ({
+  requireTenantId: jest.fn(() => "user-1"),
+}));
 
 const {
   getProfileSettings,

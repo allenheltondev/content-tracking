@@ -1,4 +1,5 @@
 import { jsonResponse } from "../services/http-handler.mjs";
+import { resolveTenantId } from "../services/identity.mjs";
 import { listMonitoringWorkingSet } from "../domain/social-post.mjs";
 import { listMonitoringContentPosts } from "../domain/content-post.mjs";
 import { formatSocialPost } from "../validation/social-post.mjs";
@@ -25,10 +26,11 @@ export function registerMonitoringRoutes(app) {
   // so the extension can render the campaign name without a second round
   // trip. Social and content posts run as parallel queries because the
   // two are written / consumed independently.
-  app.get("/monitoring/working-set", async () => {
+  app.get("/monitoring/working-set", async ({ event }) => {
+    const tenantId = resolveTenantId(event);
     const [{ socialPosts, crossPostLinks }, contentPosts] = await Promise.all([
-      listMonitoringWorkingSet(),
-      listMonitoringContentPosts(),
+      listMonitoringWorkingSet(tenantId),
+      listMonitoringContentPosts(tenantId),
     ]);
     return jsonResponse(200, {
       social_posts: socialPosts.map(({ campaign, post }) => ({

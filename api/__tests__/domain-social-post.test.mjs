@@ -175,8 +175,8 @@ describe("domain/social-post", () => {
       ]);
       mockSend.mockResolvedValueOnce({ Items: [{ postId: "P1", campaignId: "C1" }] });
 
-      const out = await listMonitoringWorkingSet();
-      expect(campaignDomain.listCampaignsByStatus).toHaveBeenCalledWith("monitoring");
+      const out = await listMonitoringWorkingSet("t1");
+      expect(campaignDomain.listCampaignsByStatus).toHaveBeenCalledWith("monitoring", "t1");
       expect(out.socialPosts).toHaveLength(1);
       expect(out.socialPosts[0].post.postId).toBe("P1");
       expect(out.crossPostLinks).toHaveLength(1);

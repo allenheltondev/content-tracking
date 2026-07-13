@@ -22,6 +22,12 @@ jest.unstable_mockModule("../domain/vendor-report-record.mjs", () => ({
   listReportRecords: jest.fn(),
   reportObjectExpiresAtMs: jest.fn(),
 }));
+jest.unstable_mockModule("../domain/vendor.mjs", () => ({
+  assertVendorOwned: jest.fn().mockResolvedValue(undefined),
+}));
+jest.unstable_mockModule("../services/identity.mjs", () => ({
+  requireTenantId: jest.fn(() => "user-1"),
+}));
 
 const { buildVendorReportSnapshot } = await import("../domain/vendor-report.mjs");
 const { renderVendorReportHtml } = await import("../services/report-renderer.mjs");
@@ -156,6 +162,7 @@ describe("routes/vendor-reports", () => {
         vendorId: "acme",
         startDate: `${year}-01-01`,
         endDate: `${year}-12-31`,
+        tenantId: "user-1",
       });
     });
 
@@ -175,6 +182,7 @@ describe("routes/vendor-reports", () => {
         vendorId: "acme",
         startDate: "2024-01-01",
         endDate: "2024-12-31",
+        tenantId: "user-1",
       });
     });
 
@@ -194,6 +202,7 @@ describe("routes/vendor-reports", () => {
         vendorId: "acme",
         startDate: "2026-03-01",
         endDate: "2026-03-31",
+        tenantId: "user-1",
       });
     });
 
@@ -213,6 +222,7 @@ describe("routes/vendor-reports", () => {
         vendorId: "acme",
         startDate: "2023-01-01",
         endDate: "2023-12-31",
+        tenantId: "user-1",
       });
     });
 

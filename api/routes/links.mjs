@@ -2,6 +2,8 @@ import { BadRequestError } from "../services/errors.mjs";
 import { emptyResponse, jsonResponse } from "../services/http-handler.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import { createLink, deleteLink, updateLink } from "../domain/link.mjs";
+import { assertCampaignOwned } from "../domain/campaign.mjs";
+import { requireTenantId } from "../services/identity.mjs";
 
 const VALID_ROLES = new Set(["main", "cross_post", "social_promo"]);
 
@@ -32,6 +34,8 @@ const formatLink = (row) => ({
 export function registerLinkRoutes(app) {
   app.post("/campaigns/:campaignId/links", withIdempotency(async ({ event, params }) => {
     const { campaignId } = params;
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     const body = parseBody(event);
     const fields = validateCreate(body);
     const item = await createLink(campaignId, fields);
@@ -40,6 +44,8 @@ export function registerLinkRoutes(app) {
 
   app.put("/campaigns/:campaignId/links/:linkId", async ({ event, params }) => {
     const { campaignId, linkId } = params;
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     const body = parseBody(event);
 
     if (typeof body !== "object" || body === null || Array.isArray(body)) {
@@ -65,8 +71,10 @@ export function registerLinkRoutes(app) {
     return jsonResponse(200, formatLink(updated));
   });
 
-  app.delete("/campaigns/:campaignId/links/:linkId", async ({ params }) => {
+  app.delete("/campaigns/:campaignId/links/:linkId", async ({ event, params }) => {
     const { campaignId, linkId } = params;
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     await deleteLink(campaignId, linkId);
     return emptyResponse(204);
   });
