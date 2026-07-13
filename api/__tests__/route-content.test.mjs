@@ -20,6 +20,8 @@ jest.unstable_mockModule("../domain/campaign.mjs", () => ({
 // Legacy Blog reads are merged into the unified content catalog now that the
 // Blogs surface is retired.
 jest.unstable_mockModule("../domain/blog.mjs", () => ({
+  deleteBlog: jest.fn(),
+  findBlog: jest.fn(),
   getBlog: jest.fn(),
   listBlogsByTenant: jest.fn(),
 }));
@@ -40,7 +42,7 @@ const {
   listContentByTenant, updateContent,
 } = await import("../domain/content.mjs");
 const { createCampaign, findCampaign } = await import("../domain/campaign.mjs");
-const { getBlog, listBlogsByTenant } = await import("../domain/blog.mjs");
+const { deleteBlog, findBlog, getBlog, listBlogsByTenant } = await import("../domain/blog.mjs");
 const { embedText } = await import("../services/embeddings.mjs");
 const { queryContentChunks } = await import("../services/content-vectors.mjs");
 const { answerContentQuestion } = await import("../services/bedrock.mjs");
@@ -143,13 +145,25 @@ describe("GET /content", () => {
 });
 
 describe("GET /content/:contentId", () => {
-  test("returns the unified content when present", async () => {
+  test("returns unified content, flagged content_backed with blog backing detected", async () => {
     findContent.mockResolvedValue({ contentId: "C1", type: "blog", title: "Hi", slug: "hi", contentMarkdown: "b", createdAt: "t", updatedAt: "t" });
+    findBlog.mockResolvedValue({ blogId: "C1" }); // a Blog row also exists (migrated)
     const res = await routes["GET /content/:contentId"](ctx({ params: { contentId: "C1" } }));
     expect(findContent).toHaveBeenCalledWith(SUB, "C1");
     expect(getBlog).not.toHaveBeenCalled();
-    expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body).content_markdown).toBe("b");
+    const body = JSON.parse(res.body);
+    expect(body.content_markdown).toBe("b");
+    expect(body.content_backed).toBe(true);
+    expect(body.blog_backed).toBe(true);
+  });
+
+  test("content-native piece with no Blog row is not blog_backed", async () => {
+    findContent.mockResolvedValue({ contentId: "C2", type: "blog", title: "Native", slug: "c2", createdAt: "t", updatedAt: "t" });
+    findBlog.mockResolvedValue(null);
+    const res = await routes["GET /content/:contentId"](ctx({ params: { contentId: "C2" } }));
+    const body = JSON.parse(res.body);
+    expect(body.content_backed).toBe(true);
+    expect(body.blog_backed).toBe(false);
   });
 
   test("falls back to a legacy blog when no content row exists", async () => {
@@ -161,6 +175,8 @@ describe("GET /content/:contentId", () => {
     expect(body.content_id).toBe("B9");
     expect(body.type).toBe("blog");
     expect(body.content_markdown).toBe("body");
+    expect(body.content_backed).toBe(false);
+    expect(body.blog_backed).toBe(true);
   });
 });
 
@@ -252,11 +268,22 @@ describe("content sponsorship routes", () => {
 });
 
 describe("DELETE /content/:contentId", () => {
-  test("deletes the content and returns 204", async () => {
+  test("deletes a real content row and returns 204", async () => {
+    findContent.mockResolvedValue({ contentId: "C1" });
     deleteContent.mockResolvedValue({ deleted: 1 });
     const res = await routes["DELETE /content/:contentId"](ctx({ params: { contentId: "C1" } }));
     expect(res.statusCode).toBe(204);
     expect(deleteContent).toHaveBeenCalledWith(SUB, "C1");
+    expect(deleteBlog).not.toHaveBeenCalled();
+  });
+
+  test("falls back to deleting a legacy blog row", async () => {
+    findContent.mockResolvedValue(null);
+    deleteBlog.mockResolvedValue({ deleted: 1 });
+    const res = await routes["DELETE /content/:contentId"](ctx({ params: { contentId: "B9" } }));
+    expect(res.statusCode).toBe(204);
+    expect(deleteBlog).toHaveBeenCalledWith(SUB, "B9");
+    expect(deleteContent).not.toHaveBeenCalled();
   });
 });
 

@@ -8,7 +8,7 @@ import {
   listContentByTenant,
   updateContent,
 } from "../domain/content.mjs";
-import { getBlog, listBlogsByTenant } from "../domain/blog.mjs";
+import { deleteBlog, findBlog, getBlog, listBlogsByTenant } from "../domain/blog.mjs";
 import { createCampaign, findCampaign } from "../domain/campaign.mjs";
 import { requireTenantId } from "../services/identity.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
@@ -126,12 +126,20 @@ export function registerContentRoutes(app) {
     const tenantId = requireTenantId(event);
     // Content is authoritative; fall back to a legacy Blog row so a blog that
     // was never migrated still resolves from the unified content detail page.
+    //
+    // The response carries two backing flags so the UI can gate controls that
+    // don't apply to every piece:
+    //   content_backed — a real Content row exists, so Content-only mutations
+    //     (status edit, sponsorship, and the primary DELETE path) work.
+    //   blog_backed — a legacy Blog row exists, so cross-post (which reads the
+    //     Blog entity) works. Content-native pieces have no Blog row.
     const content = await findContent(tenantId, params.contentId);
     if (content) {
-      return jsonResponse(200, formatContent(content));
+      const blogBacked = Boolean(await findBlog(tenantId, params.contentId));
+      return jsonResponse(200, { ...formatContent(content), content_backed: true, blog_backed: blogBacked });
     }
     const blog = await getBlog(tenantId, params.contentId);
-    return jsonResponse(200, formatContent(asContentRow(blog)));
+    return jsonResponse(200, { ...formatContent(asContentRow(blog)), content_backed: false, blog_backed: true });
   });
 
   app.patch("/content/:contentId", async ({ event, params }) => {
@@ -162,7 +170,13 @@ export function registerContentRoutes(app) {
 
   app.delete("/content/:contentId", async ({ event, params }) => {
     const tenantId = requireTenantId(event);
-    await deleteContent(tenantId, params.contentId);
+    // Fall back to the legacy Blog delete for an un-migrated blog surfaced in
+    // the unified catalog (it has no Content row, so deleteContent would 404).
+    if (await findContent(tenantId, params.contentId)) {
+      await deleteContent(tenantId, params.contentId);
+    } else {
+      await deleteBlog(tenantId, params.contentId);
+    }
     return emptyResponse(204);
   });
 

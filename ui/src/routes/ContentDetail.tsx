@@ -52,6 +52,12 @@ export default function ContentDetail(): ReactElement {
   if (error) return <p className="form-error">Could not load content: {error}</p>;
   if (!content) return <p className="text-muted-foreground">Not found.</p>;
 
+  // A legacy Blog-only row surfaced in the unified catalog has no Content row,
+  // so Content-only controls (status, sponsorship) don't apply. Cross-post
+  // reads the Blog entity, so it's only offered when a Blog row backs the piece.
+  const contentBacked = content.content_backed !== false;
+  const blogBacked = Boolean(content.blog_backed);
+
   return (
     <section className="space-y-8">
       {/* The content itself reads best in a narrow column; the embedded
@@ -88,6 +94,7 @@ export default function ContentDetail(): ReactElement {
         <ActionsRow
           content={content}
           apiFetch={apiFetch}
+          canEditStatus={contentBacked}
           onChanged={setContent}
           onDeleted={() => navigate('/content')}
         />
@@ -100,7 +107,7 @@ export default function ContentDetail(): ReactElement {
           <p className="text-sm text-muted-foreground">This piece has no stored body.</p>
         )}
 
-        {content.type === 'blog' && (
+        {blogBacked && (
           <CrosspostPanel contentId={content.content_id} apiFetch={apiFetch} />
         )}
 
@@ -108,10 +115,13 @@ export default function ContentDetail(): ReactElement {
       </div>
 
       {/* Sponsorship: attach/create/detach, and — when attached — the full
-          campaign workspace hangs off the content piece right here. */}
-      <SponsorshipRow content={content} apiFetch={apiFetch} onChanged={setContent} />
+          campaign workspace hangs off the content piece right here. Hidden for
+          legacy Blog-only rows, whose /content mutation routes don't apply. */}
+      {contentBacked && (
+        <SponsorshipRow content={content} apiFetch={apiFetch} onChanged={setContent} />
+      )}
 
-      {content.campaign_id && (
+      {contentBacked && content.campaign_id && (
         <div className="border-t border-border pt-6">
           <CampaignDetail campaignId={content.campaign_id} />
         </div>
@@ -238,10 +248,11 @@ function SponsorshipRow({
 }
 
 function ActionsRow({
-  content, apiFetch, onChanged, onDeleted,
+  content, apiFetch, canEditStatus, onChanged, onDeleted,
 }: {
   content: Content;
   apiFetch: ReturnType<typeof useApiFetch>;
+  canEditStatus: boolean;
   onChanged: (c: Content) => void;
   onDeleted: () => void;
 }): ReactElement {
@@ -294,19 +305,21 @@ function ActionsRow({
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          Status
-          <select
-            className="input w-auto py-1"
-            value={content.status ?? 'draft'}
-            onChange={(e) => void changeStatus(e.target.value as ContentStatus)}
-            disabled={statusBusy}
-          >
-            {CONTENT_STATUSES.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-        </label>
+        {canEditStatus && (
+          <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            Status
+            <select
+              className="input w-auto py-1"
+              value={content.status ?? 'draft'}
+              onChange={(e) => void changeStatus(e.target.value as ContentStatus)}
+              disabled={statusBusy}
+            >
+              {CONTENT_STATUSES.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <button type="button" className="btn-secondary btn-sm" onClick={() => void saveToVoice()} disabled={saveState !== 'idle'}>
           {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved to voice ✓' : 'Save to voice'}
         </button>
