@@ -1060,3 +1060,103 @@ export interface CrosspostStatus {
   run: CrosspostRun | null;
   platforms: CrosspostCopy[];
 }
+
+// --- Content Radar: customizable RSS feeds → AI content angles -------------
+
+// A feed source the creator has added to their radar, with best-effort health
+// (last_status / last_error) so broken feeds can be flagged in the UI.
+export interface FeedSource {
+  feed_id: string;
+  url: string;
+  title: string | null;
+  muted: boolean;
+  last_fetched_at: string | null;
+  last_status: 'ok' | 'error' | null;
+  last_item_count: number | null;
+  last_error: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+// One item in the live aggregated feed (never persisted).
+export interface FeedItem {
+  title: string | null;
+  link: string | null;
+  summary: string | null;
+  author: string | null;
+  published_at: string | null;
+  feed_id: string | null;
+  feed_title: string | null;
+  source_url: string | null;
+}
+
+// Per-source fetch outcome returned alongside the aggregate, so the UI can show
+// which sources contributed and which failed.
+export interface FeedSourceResult {
+  feed_id: string;
+  url: string;
+  ok: boolean;
+  item_count: number;
+  feed_title: string | null;
+  error: string | null;
+}
+
+export interface FeedAggregate {
+  items: FeedItem[];
+  sources: FeedSourceResult[];
+}
+
+export interface ContentTheme {
+  theme: string;
+  momentum: 'surging' | 'steady' | 'emerging' | 'fading' | null;
+  why_it_fits: string | null;
+}
+
+export interface ContentAngle {
+  title: string;
+  angle: string;
+  format: string | null;
+  rationale: string | null;
+  on_voice_note: string | null;
+  sources: number[];
+}
+
+// The content-angles agent output: a read on what's being talked about, the
+// themes with momentum, and concrete angles in the creator's voice.
+export interface ContentIdeas {
+  summary: string | null;
+  themes: ContentTheme[];
+  angles: ContentAngle[];
+  // The feed items the agent read, in the order it numbered them. An angle's
+  // `sources: [n]` cite items[n - 1] — the real article backing the idea.
+  items: FeedItem[];
+  sources: FeedSourceResult[];
+}
+
+export interface GenerateContentIdeasParams {
+  platform?: string;
+  guidance?: string;
+  feed_ids?: string[];
+  limit?: number;
+}
+
+// The creator's stated radar intent, blended into idea generation on top of the
+// auto-derived recent-title topics.
+export interface ContentRadarPreferences {
+  interests: string[];
+  avoid: string[];
+  default_platform: string | null;
+  default_guidance: string | null;
+  audience: string | null;
+  updated_at: string | null;
+}
+
+// PUT body — partial: only provided keys are written. Topic lists clear with
+// [], scalars with null.
+export interface UpdateRadarPreferencesParams {
+  interests?: string[];
+  avoid?: string[];
+  default_platform?: string | null;
+  default_guidance?: string | null;
+  audience?: string | null;
+}

@@ -20,6 +20,7 @@ import Calendar from './routes/Calendar';
 import Ask from './routes/Ask';
 import Compose from './routes/Compose';
 import Voice from './routes/Voice';
+import ContentRadar from './routes/ContentRadar';
 import MediaKit from './routes/MediaKit';
 import Profile from './routes/Profile';
 import Settings from './routes/Settings';
@@ -76,6 +77,7 @@ export const router = createBrowserRouter([
       { path: 'ask', element: <Ask /> },
       { path: 'compose', element: <Compose /> },
       { path: 'voice', element: <Voice /> },
+      { path: 'content-radar', element: <ContentRadar /> },
       { path: 'media-kit', element: <MediaKit /> },
       { path: 'profile', element: <Profile /> },
       { path: 'settings', element: <Settings /> },

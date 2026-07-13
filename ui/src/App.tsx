@@ -45,6 +45,7 @@ const NAV: ReadonlyArray<{ label: string; to: string; section: string }> = [
   { label: 'Calendar', to: '/calendar', section: 'Content' },
   { label: 'Compose', to: '/compose', section: 'Content' },
   { label: 'Voice', to: '/voice', section: 'Content' },
+  { label: 'Content Radar', to: '/content-radar', section: 'Content' },
   { label: 'Media kit', to: '/media-kit', section: 'Content' },
   { label: 'Ask', to: '/ask', section: 'Content' },
   { label: 'Campaigns', to: '/campaigns', section: 'Sponsorships' },

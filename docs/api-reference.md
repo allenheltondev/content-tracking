@@ -952,6 +952,88 @@ source, text, published_at, created_at, muted, influence_share }`.
 
 ---
 
+## Content Radar
+
+A customizable RSS/Atom feed the creator curates, plus an AI agent that reads
+what those feeds are publishing and proposes content angles in the creator's own
+voice. The creator manages a list of feed **sources**; the aggregate feed and
+the idea generator both fetch those sources **live** (nothing is stored), so the
+radar can't go stale. Idea generation grounds the agent in three signals: what
+the feeds are publishing now, the creator's learned [voice](#voice) portraits,
+and the topics they already build on (their recent content titles). See
+[`docs/content-radar.md`](content-radar.md).
+
+### POST /content-radar/feeds
+
+Add a feed source. Body `{ url, title? }`. `url` must be a public http(s) feed
+URL (internal/loopback/metadata targets are rejected — the server fetches it);
+`title` overrides the feed's own title in the aggregate. `201 Created` — the
+[feed source](#feed-source).
+
+### GET /content-radar/feeds
+
+The creator's feed sources, newest first, each with best-effort health.
+`200 OK` — `{ feeds: [feed source] }`.
+
+### PATCH /content-radar/feeds/{feedId}
+
+Rename and/or mute a source. Body `{ title?, muted? }` (at least one; `title:
+null` clears the label). A muted source is excluded from the aggregate feed and
+idea generation but kept in the list. `200 OK` — the updated
+[feed source](#feed-source). `404` when the source doesn't exist.
+
+### DELETE /content-radar/feeds/{feedId}
+
+Remove a source. `204 No Content`. `404` when it doesn't exist.
+
+### GET /content-radar/preferences
+
+The creator's stated radar intent, which steers idea generation on top of the
+auto-derived recent-title topics. `200 OK` — `{ interests: [string], avoid:
+[string], default_platform, default_guidance, audience, updated_at }`. Defaults
+to empty lists / nulls when nothing's been set.
+
+### PUT /content-radar/preferences
+
+Set the radar preferences (partial — only the keys you send are written). Body
+`{ interests?, avoid?, default_platform?, default_guidance?, audience? }`.
+`interests` / `avoid` are topic lists (≤30 entries, each ≤120 chars; send `[]`
+to clear); `default_platform` is a [voice platform](#voice) or null;
+`default_guidance` (≤1000) and `audience` (≤500) are free text or null. `200
+OK` — the updated preferences.
+
+### GET /content-radar/feed
+
+The live aggregated feed across all active (non-muted) sources: one merged,
+de-duplicated, newest-first item stream. Query `?limit=` caps items (default and
+max 60). Each source is fetched concurrently and failures are isolated — a
+broken feed contributes nothing and is reported under `sources`.
+
+- `200 OK` — `{ items: [feed item], sources: [{ feed_id, url, ok, item_count, feed_title, error }] }`.
+- A **feed item** is `{ title, link, summary, author, published_at, feed_id, feed_title, source_url }`.
+
+### POST /content-radar/ideas
+
+Read the live feed and propose content angles in the creator's voice. Body (all
+optional) `{ platform?, guidance?, feed_ids?, limit? }`: `platform` (a
+[voice platform](#voice)) pins the target format, `guidance` steers the agent,
+`feed_ids` restricts to specific sources, `limit` caps items read (1-60, default
+40). The saved [preferences](#put-content-radarpreferences) always contribute —
+`interests` / `avoid` / `audience` steer angle selection, and
+`default_platform` / `default_guidance` fill in when the request omits them
+(request values win). Calls Bedrock; nothing is persisted (regenerating is a
+fresh read, like `/voice/compose`). `400` when the radar has no sources to read.
+
+- `200 OK` — `{ summary, themes: [{ theme, momentum, why_it_fits }], angles: [{ title, angle, format, rationale, on_voice_note, sources }], items: [feed item], sources: [feed source result] }`.
+- `momentum` is `surging` \| `steady` \| `emerging` \| `fading`. Each angle's `sources` are the `[n]` feed-item numbers it draws on — 1-indexed into the returned `items`, so every idea resolves to the real article backing it.
+
+<a id="feed-source"></a>A **feed source** is `{ feed_id, url, title, muted,
+last_fetched_at, last_status, last_item_count, last_error, created_at,
+updated_at }`. `last_status` is `ok` \| `error` \| `null`, stamped best-effort
+after each aggregation fetch so broken feeds can be flagged.
+
+---
+
 ## Revenue
 
 ### GET /revenue

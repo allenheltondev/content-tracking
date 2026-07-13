@@ -77,6 +77,14 @@ export const navIcons: Record<string, ReactElement> = {
       <line x1="12" y1="19" x2="12" y2="23" />
     </Icon>
   ),
+  '/content-radar': (
+    <Icon>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="5" />
+      <circle cx="12" cy="12" r="1" />
+      <line x1="12" y1="12" x2="19" y2="5" />
+    </Icon>
+  ),
   '/media-kit': (
     <Icon>
       <rect x="3" y="3" width="18" height="18" rx="2" />

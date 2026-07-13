@@ -220,6 +220,45 @@ To backfill the voice from an existing catalog (with real publish dates), run
 [`scripts/seed-voice-from-content.mjs`](scripts/seed-voice-from-content.mjs)
 once per environment — dry-run by default, `--apply` to write.
 
+## Content Radar: customizable RSS feeds → content angles in your voice
+
+Now that the stack learns a creator's **voice** and the **topics** they build
+on, Content Radar points that knowledge outward. The creator curates a
+customizable RSS/Atom feed — they add feed URLs to their radar — and an AI agent
+reads what those feeds are publishing to propose content angles that follow the
+creator's own style. Full design in
+[`docs/content-radar.md`](docs/content-radar.md).
+
+```mermaid
+flowchart LR
+    A["Add RSS/Atom feeds<br/>POST /content-radar/feeds"] --> S[(Feed sources<br/>per-tenant)]
+    S --> AGG["Fetch live · parse · dedupe<br/>newest-first"]
+    AGG --> FEED["GET /content-radar/feed<br/>the merged feed"]
+    AGG --> IDEAS["POST /content-radar/ideas"]
+    V["Your voice portraits"] --> IDEAS
+    T["Topics you build on<br/>(recent titles)"] --> IDEAS
+    IDEAS --> OUT["Themes + angles in your<br/>voice, citing the feeds"]
+```
+
+- **Curate.** `POST/GET/PATCH/DELETE /content-radar/feeds` manage the source
+  list (rename or mute a source). Sources are tenant-partitioned, exactly like
+  voice and blog data.
+- **Read live.** `GET /content-radar/feed` fetches every active source
+  concurrently and returns one merged, de-duplicated, newest-first stream.
+  Nothing is stored, so the feed can't go stale; a broken source is isolated and
+  reported rather than sinking the read. Feed URLs are SSRF-guarded and fetches
+  are bounded.
+- **Steer it.** `GET`/`PUT /content-radar/preferences` persist the creator's
+  stated intent — topics to lean **into**, topics to **avoid**, an audience/goal
+  note, and a default platform + guidance. These outrank the auto-derived
+  topics, so the radar tracks where you're *going*, not just where you've been.
+- **Get angles.** `POST /content-radar/ideas` grounds a Bedrock agent in what
+  the feeds are publishing now, your learned voice portraits, the topics you
+  already cover, and your stated preferences — and returns themes with momentum
+  plus concrete content angles written in your voice, each citing the feed items
+  it builds on. Nothing is persisted; regenerating is a fresh read (like
+  `/voice/compose`).
+
 ## Resources created
 
 The SAM stack provisions:
@@ -298,3 +337,7 @@ public, and it deliberately omits rate-card pricing.
 - [`docs/voice-recency.md`](docs/voice-recency.md) - the recency-weighted
   voice model: why exponential publish-date decay, where the weighting
   applies, and how to tune it.
+- [`docs/content-radar.md`](docs/content-radar.md) - the customizable RSS
+  feed and the content-angles agent: what's persisted vs. read live, the
+  dependency-free feed parser, and how idea generation is grounded in your
+  voice and topics.
