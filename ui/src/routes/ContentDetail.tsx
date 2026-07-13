@@ -17,7 +17,7 @@ import {
 } from '../api/content';
 import type { CrosspostContentResult } from '../api/content';
 import { createVoiceSample } from '../api/voice';
-import { CROSSPOST_PLATFORMS, crosspostBlog, getCrosspostStatus } from '../api/blogs';
+import { CROSSPOST_PLATFORMS } from '../api/blogs';
 import KeyValueEditor, { type Pair } from '../components/KeyValueEditor';
 import type {
   Content,
@@ -27,7 +27,6 @@ import type {
   ContentStatus,
   ContentType,
   CrosspostPlatform,
-  CrosspostStatus,
   UpdateContentParams,
 } from '../api/types';
 import Markdown from '../components/MarkdownLazy';
@@ -72,22 +71,6 @@ export default function ContentDetail(): ReactElement {
   if (error) return <p className="form-error">Could not load content: {error}</p>;
   if (!content) return <p className="text-muted-foreground">Not found.</p>;
 
-  // A legacy Blog-only row surfaced in the unified catalog has no Content row,
-  // so Content-only controls (status, sponsorship) don't apply. Cross-post
-  // reads the Blog entity, so it's only offered when a Blog row backs the piece.
-  const contentBacked = content.content_backed !== false;
-  const blogBacked = Boolean(content.blog_backed);
-
-  // Mutation responses (PATCH, attach/detach) come from formatContent and don't
-  // carry the backing flags that only GET /content/:id adds, so preserve them
-  // from the current state — a metadata edit never changes what backs a piece.
-  const applyContent = (c: Content): void =>
-    setContent((prev) => ({
-      ...c,
-      content_backed: c.content_backed ?? prev?.content_backed,
-      blog_backed: c.blog_backed ?? prev?.blog_backed,
-    }));
-
   return (
     <section className="space-y-8">
       {/* The content itself reads best in a narrow column; the embedded
@@ -101,7 +84,7 @@ export default function ContentDetail(): ReactElement {
           <EditContentForm
             content={content}
             apiFetch={apiFetch}
-            onSaved={(c) => { applyContent(c); setEditing(false); }}
+            onSaved={(c) => { setContent(c); setEditing(false); }}
             onCancel={() => setEditing(false)}
           />
         ) : (
@@ -139,10 +122,8 @@ export default function ContentDetail(): ReactElement {
             <ActionsRow
               content={content}
               apiFetch={apiFetch}
-              canEditStatus={contentBacked}
-              canEdit={contentBacked}
               onEdit={() => setEditing(true)}
-              onChanged={applyContent}
+              onChanged={setContent}
               onDeleted={() => navigate('/content')}
             />
 
@@ -154,21 +135,11 @@ export default function ContentDetail(): ReactElement {
               <p className="text-sm text-muted-foreground">This piece has no stored body.</p>
             )}
 
-            {/* Any piece backed by a Blog row (legacy-only or migrated) uses
-                the durable /blogs crosspost path, whose dedupe accounts for the
-                existing blog crosspost history — so an article already published
-                there isn't offered for a duplicate repost. Only a content-native
-                blog piece (no Blog row) uses the synchronous content path. */}
-            {blogBacked && (
-              <CrosspostPanel contentId={content.content_id} apiFetch={apiFetch} />
-            )}
-            {!blogBacked && contentBacked && content.type === 'blog' && (
+            {content.type === 'blog' && (
               <ContentCrosspostPanel contentId={content.content_id} apiFetch={apiFetch} />
             )}
 
-            {contentBacked && (
-              <ContentAnalyticsSection contentId={content.content_id} apiFetch={apiFetch} />
-            )}
+            <ContentAnalyticsSection contentId={content.content_id} apiFetch={apiFetch} />
 
             <AskPanel contentId={content.content_id} apiFetch={apiFetch} />
           </>
@@ -176,13 +147,10 @@ export default function ContentDetail(): ReactElement {
       </div>
 
       {/* Sponsorship: attach/create/detach, and — when attached — the full
-          campaign workspace hangs off the content piece right here. Hidden for
-          legacy Blog-only rows, whose /content mutation routes don't apply. */}
-      {contentBacked && (
-        <SponsorshipRow content={content} apiFetch={apiFetch} onChanged={applyContent} />
-      )}
+          campaign workspace hangs off the content piece right here. */}
+      <SponsorshipRow content={content} apiFetch={apiFetch} onChanged={setContent} />
 
-      {contentBacked && content.campaign_id && (
+      {content.campaign_id && (
         <div className="border-t border-border pt-6">
           <CampaignDetail campaignId={content.campaign_id} />
         </div>
@@ -421,12 +389,10 @@ function SponsorshipRow({
 }
 
 function ActionsRow({
-  content, apiFetch, canEditStatus, canEdit, onEdit, onChanged, onDeleted,
+  content, apiFetch, onEdit, onChanged, onDeleted,
 }: {
   content: Content;
   apiFetch: ReturnType<typeof useApiFetch>;
-  canEditStatus: boolean;
-  canEdit: boolean;
   onEdit: () => void;
   onChanged: (c: Content) => void;
   onDeleted: () => void;
@@ -480,24 +446,20 @@ function ActionsRow({
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        {canEditStatus && (
-          <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-            Status
-            <select
-              className="input w-auto py-1"
-              value={content.status ?? 'draft'}
-              onChange={(e) => void changeStatus(e.target.value as ContentStatus)}
-              disabled={statusBusy}
-            >
-              {CONTENT_STATUSES.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </label>
-        )}
-        {canEdit && (
-          <button type="button" className="btn-secondary btn-sm" onClick={onEdit}>Edit</button>
-        )}
+        <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          Status
+          <select
+            className="input w-auto py-1"
+            value={content.status ?? 'draft'}
+            onChange={(e) => void changeStatus(e.target.value as ContentStatus)}
+            disabled={statusBusy}
+          >
+            {CONTENT_STATUSES.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </label>
+        <button type="button" className="btn-secondary btn-sm" onClick={onEdit}>Edit</button>
         <button type="button" className="btn-secondary btn-sm" onClick={() => void saveToVoice()} disabled={saveState !== 'idle'}>
           {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved to voice ✓' : 'Save to voice'}
         </button>
@@ -595,106 +557,6 @@ function ContentCrosspostPanel({ contentId, apiFetch }: { contentId: string; api
   );
 }
 
-// Cross-post a blog-type piece to dev.to / Medium / Hashnode. Reuses the
-// blog crosspost endpoints (keyed by id; a blog piece's content_id is its
-// blog id), folded in here now that the standalone Blogs page is retired.
-function CrosspostPanel({ contentId, apiFetch }: { contentId: string; apiFetch: ReturnType<typeof useApiFetch> }): ReactElement {
-  const [selected, setSelected] = useState<Set<CrosspostPlatform>>(new Set());
-  const [staggerDays, setStaggerDays] = useState('');
-  const [status, setStatus] = useState<CrosspostStatus | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadStatus = useCallback(async () => {
-    try {
-      setStatus(await getCrosspostStatus(apiFetch, contentId));
-    } catch {
-      // No run yet / not found — leave status null.
-    }
-  }, [apiFetch, contentId]);
-
-  useEffect(() => { void loadStatus(); }, [loadStatus]);
-
-  const toggle = (p: CrosspostPlatform): void => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(p)) next.delete(p); else next.add(p);
-      return next;
-    });
-  };
-
-  const submit = async (e: FormEvent): Promise<void> => {
-    e.preventDefault();
-    if (busy || selected.size === 0) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const days = staggerDays.trim() ? Number(staggerDays) : undefined;
-      await crosspostBlog(apiFetch, contentId, [...selected], days);
-      await loadStatus();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="card card-body space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-foreground">Cross-post</h2>
-        <button type="button" className="btn-link text-xs" onClick={() => void loadStatus()}>Refresh status</button>
-      </div>
-
-      <form onSubmit={submit} className="space-y-3">
-        <div className="flex flex-wrap gap-3">
-          {CROSSPOST_PLATFORMS.map((p) => (
-            <label key={p} className="flex items-center gap-1.5 text-sm capitalize">
-              <input type="checkbox" checked={selected.has(p)} onChange={() => toggle(p)} disabled={busy} />
-              {p === 'dev' ? 'DEV' : p}
-            </label>
-          ))}
-          <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-            stagger
-            <input
-              type="number" min={0} max={28} className="input w-16 py-1"
-              value={staggerDays} onChange={(e) => setStaggerDays(e.target.value)} placeholder="0" disabled={busy}
-            />
-            days
-          </label>
-          <button type="submit" className="btn-secondary btn-sm" disabled={busy || selected.size === 0}>
-            {busy ? 'Starting…' : 'Cross-post'}
-          </button>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Requires platform credentials configured in Settings. Staggering spaces the publishes apart.
-        </p>
-      </form>
-
-      {error && <p className="form-error">{error}</p>}
-
-      {status?.platforms && status.platforms.length > 0 && (
-        <div className="space-y-1 border-t border-border pt-3">
-          <h3 className="field-label">Status{status.run ? ` · ${status.run.status}` : ''}</h3>
-          <ul className="space-y-1 text-sm">
-            {status.platforms.map((c) => (
-              <li key={c.platform} className="flex items-center justify-between gap-3">
-                <span className="capitalize text-foreground">{c.platform}</span>
-                <span className="text-muted-foreground">
-                  {c.url ? (
-                    <a href={c.url} target="_blank" rel="noreferrer noopener" className="btn-link">{c.status} ↗</a>
-                  ) : (
-                    c.error ? `error: ${c.error}` : c.status
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // Where a piece is published and how it's performing. Reads GET
 // /content/:id/analytics; lets the creator record distribution (a publish

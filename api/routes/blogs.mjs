@@ -1,9 +1,6 @@
-import { ulid } from "ulid";
 import {
   deleteBlog,
-  findBlog,
   getBlog,
-  getCrosspostStatus,
   listBlogsByTenant,
   listBlogsForCampaign,
   updateBlog,
@@ -18,9 +15,8 @@ import {
 import { requireTenantId } from "../services/identity.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import { parseLimit } from "../services/pagination.mjs";
-import { startCrosspostExecution } from "../services/crosspost-invoker.mjs";
 import { emptyResponse, jsonResponse } from "../services/http-handler.mjs";
-import { BadRequestError, NotFoundError } from "../services/errors.mjs";
+import { BadRequestError } from "../services/errors.mjs";
 import { embedText } from "../services/embeddings.mjs";
 import { queryContentChunks } from "../services/content-vectors.mjs";
 import { answerContentQuestion } from "../services/bedrock.mjs";
@@ -28,14 +24,10 @@ import {
   formatBlog,
   formatBlogAnswer,
   formatBlogSummary,
-  formatCrosspostStatus,
   validateBlogCreate,
   validateBlogQuestion,
   validateBlogUpdate,
-  validateCrosspostRequest,
 } from "../validation/blog.mjs";
-
-const SECONDS_PER_DAY = 24 * 60 * 60;
 
 // Blog catalog CRUD. Every route resolves the tenant from the authorizer
 // sub (requireTenantId) and passes it as the first argument to the domain,
@@ -192,42 +184,8 @@ export function registerBlogRoutes(app) {
     return emptyResponse(204);
   });
 
-  // On-demand cross-post: validate, generate a runId, and start the durable
-  // execution (async). Returns immediately; the client polls the status
-  // route below. Wrapped in withIdempotency so a client retry with the same
-  // Idempotency-Key returns the original runId instead of starting a second
-  // run (the durable execution name + per-platform guard dedupe the rest).
-  app.post("/blogs/:blogId/crosspost", withIdempotency(async ({ event, params }) => {
-    const tenantId = requireTenantId(event);
-    const blog = await findBlog(tenantId, params.blogId);
-    if (!blog) {
-      throw new NotFoundError("Blog", params.blogId);
-    }
-
-    const { platforms, staggerDays } = validateCrosspostRequest(parseBody(event));
-    const runId = ulid();
-    const withDelays = platforms.map((platform, i) => ({
-      platform,
-      delaySeconds: staggerDays ? i * staggerDays * SECONDS_PER_DAY : 0,
-    }));
-
-    await startCrosspostExecution({ tenantId, blogId: params.blogId, runId, platforms: withDelays });
-
-    return jsonResponse(202, {
-      run_id: runId,
-      status: "in progress",
-      platforms: withDelays.map((p) => ({ platform: p.platform, delay_seconds: p.delaySeconds })),
-    });
-  }));
-
-  app.get("/blogs/:blogId/crosspost-status", async ({ event, params }) => {
-    const tenantId = requireTenantId(event);
-    // Pass ?run_id=… to correlate the poll to a specific (just-started) run
-    // rather than whatever the latest persisted run happens to be.
-    const runId = event.queryStringParameters?.run_id;
-    const status = await getCrosspostStatus(tenantId, params.blogId, { runId });
-    return jsonResponse(200, formatCrosspostStatus(status));
-  });
+  // Cross-post is now the synchronous, content-native POST /content/:id/crosspost
+  // (the durable /blogs crosspost pipeline has been retired).
 }
 
 // Normalizes a unified Content row into the shape the Blog formatters expect:
