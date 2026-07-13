@@ -40,6 +40,11 @@ jest.unstable_mockModule("../services/content-vectors.mjs", () => ({
 jest.unstable_mockModule("../services/bedrock.mjs", () => ({
   answerContentQuestion: jest.fn(),
 }));
+// Content cross-post collaborators (POST /content/:id/crosspost).
+jest.unstable_mockModule("../domain/tenant.mjs", () => ({ getTenant: jest.fn() }));
+jest.unstable_mockModule("../services/blog-credentials.mjs", () => ({ getBlogCredentials: jest.fn() }));
+jest.unstable_mockModule("../services/parse-blog.mjs", () => ({ transformBlogForPlatform: jest.fn() }));
+jest.unstable_mockModule("../services/blog-platforms/index.mjs", () => ({ getAdapter: jest.fn() }));
 
 const {
   attachCampaign, createContent, deleteContent, detachCampaign, findContent, getContent,
@@ -48,6 +53,10 @@ const {
 } = await import("../domain/content.mjs");
 const { createCampaign, findCampaign } = await import("../domain/campaign.mjs");
 const { deleteBlog, findBlog, getBlog, listBlogsByTenant } = await import("../domain/blog.mjs");
+const { getTenant } = await import("../domain/tenant.mjs");
+const { getBlogCredentials } = await import("../services/blog-credentials.mjs");
+const { transformBlogForPlatform } = await import("../services/parse-blog.mjs");
+const { getAdapter } = await import("../services/blog-platforms/index.mjs");
 const { embedText } = await import("../services/embeddings.mjs");
 const { queryContentChunks } = await import("../services/content-vectors.mjs");
 const { answerContentQuestion } = await import("../services/bedrock.mjs");
@@ -320,6 +329,45 @@ describe("content publishing + analytics routes", () => {
     expect(body.publish_variants).toHaveLength(1);
     expect(body.stats.map((s) => s.platform)).toEqual(["devto", "medium"]);
     expect(body.stats[0].snapshots.map((s) => s.date)).toEqual(["2026-06-01", "2026-06-02"]);
+  });
+});
+
+describe("POST /content/:contentId/crosspost", () => {
+  const run = (body, params = { contentId: "C1" }) => routes["POST /content/:contentId/crosspost"](ctx({ params, body }));
+
+  test("publishes off the Content row, records variants, and skips already-published", async () => {
+    getContent.mockResolvedValue({ contentId: "C1", title: "T", contentMarkdown: "# body" });
+    getTenant.mockResolvedValue({ canonicalBaseUrl: "https://me.dev", platforms: {} });
+    getBlogCredentials.mockResolvedValue({ dev: { key: "k" } });
+    listContentByTenant.mockResolvedValue({ items: [], lastEvaluatedKey: undefined });
+    listPublishVariants.mockResolvedValue([{ platform: "medium", url: "https://medium.com/x" }]); // already done
+    transformBlogForPlatform.mockReturnValue({ body: "b", tags: ["t"] });
+    getAdapter.mockReturnValue({ publish: jest.fn().mockResolvedValue({ url: "https://dev.to/new" }) });
+    putPublishVariant.mockResolvedValue({});
+
+    const res = await run({ platforms: ["dev", "medium"] });
+    const body = JSON.parse(res.body);
+
+    // dev published; medium skipped (already has a variant url).
+    expect(body.results).toEqual([
+      { platform: "dev", status: "succeeded", url: "https://dev.to/new" },
+      { platform: "medium", status: "skipped", url: "https://medium.com/x" },
+    ]);
+    expect(putPublishVariant).toHaveBeenCalledWith(SUB, "C1", "dev", expect.objectContaining({ url: "https://dev.to/new" }));
+  });
+
+  test("captures a platform failure without aborting the others", async () => {
+    getContent.mockResolvedValue({ contentId: "C1", title: "T", contentMarkdown: "b" });
+    getTenant.mockResolvedValue({ platforms: {} });
+    getBlogCredentials.mockResolvedValue({});
+    listContentByTenant.mockResolvedValue({ items: [], lastEvaluatedKey: undefined });
+    listPublishVariants.mockResolvedValue([]);
+    transformBlogForPlatform.mockReturnValue({ body: "b", tags: [] });
+    getAdapter.mockReturnValue({ publish: jest.fn().mockRejectedValue(new Error("no credential")) });
+
+    const res = await run({ platforms: ["dev"] });
+    expect(JSON.parse(res.body).results).toEqual([{ platform: "dev", status: "failed", error: "no credential" }]);
+    expect(putPublishVariant).not.toHaveBeenCalled();
   });
 });
 

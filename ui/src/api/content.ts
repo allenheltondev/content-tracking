@@ -125,6 +125,23 @@ export async function recordContentStats(
   });
 }
 
+export interface CrosspostContentResult {
+  platform: string;
+  status: 'succeeded' | 'failed' | 'skipped';
+  url?: string;
+  error?: string;
+}
+
+// Cross-post a content piece (dev/medium/hashnode) off the Content row, so
+// content-native pieces can publish. Records each success as a publish variant.
+export async function crosspostContent(
+  apiFetch: ApiFetch,
+  contentId: string,
+  platforms: string[],
+): Promise<{ content_id: string; results: CrosspostContentResult[] }> {
+  return apiFetch(`/content/${contentId}/crosspost`, { method: 'POST', body: { platforms } });
+}
+
 // --- RAG Q&A -----------------------------------------------------------------
 
 export interface AskContentParams {

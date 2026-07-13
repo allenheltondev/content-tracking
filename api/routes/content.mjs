@@ -14,6 +14,11 @@ import {
 } from "../domain/content.mjs";
 import { deleteBlog, findBlog, getBlog, listBlogsByTenant } from "../domain/blog.mjs";
 import { createCampaign, findCampaign } from "../domain/campaign.mjs";
+import { getTenant } from "../domain/tenant.mjs";
+import { getBlogCredentials } from "../services/blog-credentials.mjs";
+import { transformBlogForPlatform } from "../services/parse-blog.mjs";
+import { getAdapter } from "../services/blog-platforms/index.mjs";
+import { validateCrosspostRequest } from "../validation/blog.mjs";
 import { requireTenantId } from "../services/identity.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import { parseLimit } from "../services/pagination.mjs";
@@ -279,6 +284,60 @@ export function registerContentRoutes(app) {
     });
     return jsonResponse(200, formatStatsSnapshot(item));
   });
+
+  // Cross-post a piece of content to dev.to / Medium / Hashnode. Unlike the
+  // legacy /blogs crosspost (a durable, staggerable function that reads the Blog
+  // entity), this publishes synchronously off the Content row so content-native
+  // pieces — which have no Blog row — can cross-post too. Each successful
+  // publish is recorded as a publish variant, so it flows into content
+  // analytics. Platforms already published (a variant with a url exists) are
+  // skipped so a re-invoke can't create duplicate posts.
+  app.post("/content/:contentId/crosspost", withIdempotency(async ({ event, params }) => {
+    const tenantId = requireTenantId(event);
+    const { contentId } = params;
+    const content = await getContent(tenantId, contentId);
+    const { platforms } = validateCrosspostRequest(parseBody(event));
+
+    const [tenant, credentials, catalogPage, existingVariants] = await Promise.all([
+      getTenant(tenantId),
+      getBlogCredentials(tenantId),
+      listContentByTenant(tenantId, { limit: 1000 }),
+      listPublishVariants(tenantId, contentId),
+    ]);
+    const baseUrl = tenant?.canonicalBaseUrl;
+    const catalog = catalogPage.items ?? [];
+    const alreadyPublished = new Map(
+      existingVariants.filter((v) => v.url).map((v) => [v.platform, v.url]),
+    );
+
+    const results = [];
+    for (const platform of platforms) {
+      if (alreadyPublished.has(platform)) {
+        results.push({ platform, status: "skipped", url: alreadyPublished.get(platform) });
+        continue;
+      }
+      try {
+        const transformed = transformBlogForPlatform({ blog: content, catalog, platform, baseUrl });
+        const config = tenant?.platforms?.[platform] ?? {};
+        const published = await getAdapter(platform).publish({
+          blog: content,
+          content: transformed.body,
+          tags: transformed.tags,
+          config,
+          credential: credentials?.[platform],
+        });
+        await putPublishVariant(tenantId, contentId, platform, {
+          url: published.url,
+          publishedAt: new Date().toISOString(),
+        });
+        results.push({ platform, status: "succeeded", url: published.url });
+      } catch (err) {
+        results.push({ platform, status: "failed", error: String(err?.message ?? err) });
+      }
+    }
+
+    return jsonResponse(200, { content_id: contentId, results });
+  }));
 
   // Combined analytics read: where the piece is published plus its per-platform
   // daily metric series, so the content detail page can chart performance.

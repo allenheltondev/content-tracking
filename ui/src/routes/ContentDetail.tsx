@@ -7,6 +7,7 @@ import {
   askContent,
   attachContentCampaign,
   createContentSponsorship,
+  crosspostContent,
   deleteContent,
   detachContentCampaign,
   getContent,
@@ -14,6 +15,7 @@ import {
   recordContentStats,
   updateContent,
 } from '../api/content';
+import type { CrosspostContentResult } from '../api/content';
 import { createVoiceSample } from '../api/voice';
 import { CROSSPOST_PLATFORMS, crosspostBlog, getCrosspostStatus } from '../api/blogs';
 import KeyValueEditor, { type Pair } from '../components/KeyValueEditor';
@@ -156,7 +158,13 @@ export default function ContentDetail(): ReactElement {
               <p className="text-sm text-muted-foreground">This piece has no stored body.</p>
             )}
 
-            {blogBacked && (
+            {/* Content-backed blog pieces cross-post off the Content row
+                (works for content-native pieces too). Legacy Blog-only rows
+                keep the durable /blogs crosspost path. */}
+            {contentBacked && content.type === 'blog' && (
+              <ContentCrosspostPanel contentId={content.content_id} apiFetch={apiFetch} />
+            )}
+            {!contentBacked && blogBacked && (
               <CrosspostPanel contentId={content.content_id} apiFetch={apiFetch} />
             )}
 
@@ -501,6 +509,82 @@ function ActionsRow({
         )}
       </div>
       {error && <p className="form-error">{error}</p>}
+    </div>
+  );
+}
+
+// Cross-post a content-backed piece off the Content row (publishes immediately;
+// each success is recorded as a publish variant and shows up in Analytics).
+// Works for content-native pieces that have no Blog row.
+function ContentCrosspostPanel({ contentId, apiFetch }: { contentId: string; apiFetch: ReturnType<typeof useApiFetch> }): ReactElement {
+  const [selected, setSelected] = useState<Set<CrosspostPlatform>>(new Set());
+  const [results, setResults] = useState<CrosspostContentResult[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const toggle = (p: CrosspostPlatform): void => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(p)) next.delete(p); else next.add(p);
+      return next;
+    });
+  };
+
+  const submit = async (e: FormEvent): Promise<void> => {
+    e.preventDefault();
+    if (busy || selected.size === 0) return;
+    setBusy(true);
+    setError(null);
+    setResults(null);
+    try {
+      const res = await crosspostContent(apiFetch, contentId, [...selected]);
+      setResults(res.results);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card card-body space-y-3">
+      <h2 className="text-lg font-semibold text-foreground">Cross-post</h2>
+      <form onSubmit={submit} className="space-y-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {CROSSPOST_PLATFORMS.map((p) => (
+            <label key={p} className="flex items-center gap-1.5 text-sm capitalize">
+              <input type="checkbox" checked={selected.has(p)} onChange={() => toggle(p)} disabled={busy} />
+              {p === 'dev' ? 'DEV' : p}
+            </label>
+          ))}
+          <button type="submit" className="btn-secondary btn-sm" disabled={busy || selected.size === 0}>
+            {busy ? 'Publishing…' : 'Cross-post now'}
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Publishes immediately using the platform credentials in Settings. Platforms already
+          published are skipped.
+        </p>
+      </form>
+
+      {error && <p className="form-error">{error}</p>}
+
+      {results && (
+        <ul className="space-y-1 text-sm border-t border-border pt-3">
+          {results.map((r) => (
+            <li key={r.platform} className="flex items-center justify-between gap-3">
+              <span className="capitalize text-foreground">{r.platform}</span>
+              <span className="text-muted-foreground">
+                {r.url ? (
+                  <a href={r.url} target="_blank" rel="noreferrer noopener" className="btn-link">{r.status} ↗</a>
+                ) : (
+                  r.error ? `failed: ${r.error}` : r.status
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
