@@ -10,6 +10,7 @@ import { logger } from "../services/logger.mjs";
 import {
   COMPOSE_CANDIDATE_POOL,
   COMPOSE_EXAMPLE_COUNT,
+  isEligibleSample,
   rankVoiceSamples,
   selectRecencyWeighted,
   summarizeVoiceCorpus,
@@ -141,7 +142,7 @@ export function registerVoiceRoutes(app) {
     const platform = validatePlatform(event.queryStringParameters?.platform);
     const items = await listRecentSamples(tenantId, platform);
 
-    const eligible = items.filter((s) => !s.muted && s.source !== "generated");
+    const eligible = items.filter(isEligibleSample);
     const shareById = new Map(
       selectRecencyWeighted(eligible).map((s) => [s.sampleId, s.weightShare]),
     );

@@ -853,8 +853,10 @@ export interface VoiceOverviewEntry {
   recency_half_life_days: number;
   updated_at: string | null;
   corpus: {
+    // Eligible corpus only (what drives the voice); excluded reports held-out rows.
     total_samples: number;
     by_source: Record<string, number>;
+    excluded: { muted: number; generated: number };
     earliest_published: string | null;
     latest_published: string | null;
     recent_influence: VoiceInfluenceHorizon[];

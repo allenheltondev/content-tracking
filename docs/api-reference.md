@@ -866,7 +866,8 @@ plain-English `portrait`, and corpus transparency. One call powers the voice
 dashboard.
 
 - `200 OK` — `{ platforms: [{ platform, portrait, version, samples_since_reflection, reflection_threshold, recency_half_life_days, updated_at, corpus }] }`.
-- `corpus` = `{ total_samples, by_source: { source: count }, earliest_published, latest_published, recent_influence: [{ window_days, influence_share, sample_count }] }`.
+- `corpus` = `{ total_samples, by_source: { source: count }, excluded: { muted, generated }, earliest_published, latest_published, recent_influence: [{ window_days, influence_share, sample_count }] }`.
+- Totals, sources, and influence cover only the **eligible** corpus (what drives the voice); muted and generated samples are held out and counted under `excluded`.
 - `recent_influence[n].influence_share` is the fraction (0-1) of the current voice that comes from posts published within `window_days` — the recency weighting made legible.
 
 ### POST /voice/compose
@@ -891,7 +892,9 @@ Capture a writing sample (manual paste, or "save" a generated draft). Body
 `{ text, platform, format, source?, published_at? }`. `published_at` (a
 `YYYY-MM-DD` date or ISO 8601 timestamp) anchors the sample on the recency
 curve; it defaults to capture time. Style learning happens asynchronously off
-the DynamoDB stream. `201 Created` — the [voice sample](#voice-sample).
+the DynamoDB stream. `source: generated` samples are kept for reference but are
+inert — never embedded, retrieved, or reflected (save as `manual` to count a
+draft as your voice). `201 Created` — the [voice sample](#voice-sample).
 
 ### GET /voice/samples?platform=
 
@@ -936,8 +939,8 @@ takes effect. `200 OK` — `{ profile }`.
 
 Re-derive the profile now from recent samples (the same path the stream runs
 automatically every `ReflectionThreshold` samples). Muted and generated samples
-are excluded — only authored/published work defines the voice. `200 OK` —
-`{ profile }`.
+are excluded — only authored/published work defines the voice; when none remain
+the learned profile is cleared rather than left stale. `200 OK` — `{ profile }`.
 
 A **voice profile** is `{ platform, profile, portrait, steering,
 samples_since_reflection, reflection_threshold, recency_half_life_days, version,

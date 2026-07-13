@@ -188,9 +188,11 @@ yours to control — and you can point the evolution where you want it to go.
   **durable** — a later edit to that post won't quietly bring it back. Curation
   re-derives the profile immediately, so removal takes effect at once.
 
-- **No self-training.** Reflection ignores AI-generated drafts, so the model can
-  never teach your voice about itself — only work you actually authored defines
-  how you sound.
+- **No self-training.** AI-generated drafts never enter the vector index or the
+  reflection cadence, so the model can neither reuse them as examples nor teach
+  your voice about itself — only work you actually authored defines how you
+  sound. Remove your last authored sample and the learned profile is cleared,
+  not left to drift on stale traits.
 
 - **Steer it.** `PUT /voice/profiles/{platform}/steering` stores a short intent
   note ("more concise, less hedging") that biases the next reflection toward

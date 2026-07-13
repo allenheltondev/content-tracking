@@ -83,6 +83,14 @@ describe("recordVoiceSample", () => {
     }));
   });
 
+  test("keeps generated drafts out of the vector path and the reflection cadence", async () => {
+    const res = await recordVoiceSample({ ...sample, source: "generated" });
+    expect(res).toEqual({ skipped: true, reason: "generated" });
+    expect(embedText).not.toHaveBeenCalled();
+    expect(putVoiceSample).not.toHaveBeenCalled();
+    expect(countSampleOnce).not.toHaveBeenCalled();
+  });
+
   test("triggers reflection once the counter reaches the threshold", async () => {
     countSampleOnce.mockResolvedValue({ counted: true, count: 3 });
     await recordVoiceSample(sample);
@@ -132,13 +140,43 @@ describe("runReflection", () => {
     expect(samples.map((s) => s.text)).toEqual(["authored"]);
   });
 
-  test("returns null when every candidate is muted or generated", async () => {
+  test("returns the existing (empty) profile when nothing eligible and no learned profile", async () => {
     listRecentSamples.mockResolvedValue([
       { text: "ai", source: "generated" },
       { text: "muted", muted: true, source: "manual" },
     ]);
+    getVoiceProfile.mockResolvedValue(null);
     expect(await runReflection("T1", "x")).toBeNull();
     expect(reflectVoiceProfile).not.toHaveBeenCalled();
+    expect(putVoiceProfile).not.toHaveBeenCalled();
+  });
+
+  test("CLEARS a learned profile when the last eligible sample is removed", async () => {
+    // Only muted/generated remain, but a real profile exists — it must be
+    // cleared so stale traits stop driving compose.
+    listRecentSamples.mockResolvedValue([{ text: "muted", muted: true, source: "content-auto" }]);
+    getVoiceProfile.mockResolvedValue({ profile: { tone: "wry" }, version: 4, createdAt: "t0", steering: "be bold" });
+    const cleared = { profile: null, version: 5 };
+    putVoiceProfile.mockResolvedValue(cleared);
+
+    const res = await runReflection("T1", "x");
+    expect(reflectVoiceProfile).not.toHaveBeenCalled(); // no Bedrock — nothing to learn
+    expect(putVoiceProfile).toHaveBeenCalledWith("T1", "x", {
+      profile: null, version: 5, createdAt: "t0", steering: "be bold",
+    });
+    expect(createReflection).toHaveBeenCalledWith("T1", "x", expect.objectContaining({
+      sampleWindow: 0, version: 5, portrait: null,
+    }));
+    expect(res).toBe(cleared);
+  });
+
+  test("does not re-clear an already-empty profile (idempotent)", async () => {
+    listRecentSamples.mockResolvedValue([{ text: "muted", muted: true }]);
+    getVoiceProfile.mockResolvedValue({ profile: null, version: 5, createdAt: "t0" });
+    const res = await runReflection("T1", "x");
+    expect(putVoiceProfile).not.toHaveBeenCalled();
+    expect(createReflection).not.toHaveBeenCalled();
+    expect(res).toEqual({ profile: null, version: 5, createdAt: "t0" });
   });
 
   test("pulls a wider candidate pool and hands the model recency-weighted samples, newest first", async () => {

@@ -203,8 +203,11 @@ export function formatVoiceOverviewEntry({ profileRow, summary }) {
     recency_half_life_days: VOICE_HALF_LIFE_DAYS,
     updated_at: profileRow.updatedAt ?? null,
     corpus: {
+      // total_samples / by_source / influence cover only the eligible corpus
+      // (what actually drives the voice); excluded reports the held-out counts.
       total_samples: summary.total,
       by_source: summary.bySource,
+      excluded: summary.excluded ?? { muted: 0, generated: 0 },
       earliest_published: summary.earliestPublished,
       latest_published: summary.latestPublished,
       // Each horizon: the share of the current voice that comes from posts

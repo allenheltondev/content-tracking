@@ -119,11 +119,22 @@ controllable:
 - **Immediate effect.** Curation actions (mute, unmute, delete, steer)
   re-derive the profile right away (best-effort — a reflection failure never
   fails the user's action), so removing a memory updates the learned voice
-  without waiting for the next automatic reflection.
+  without waiting for the next automatic reflection. When the last eligible
+  sample is removed, `runReflection` **clears** the learned profile (rather
+  than leaving stale traits in place), so a voice with no eligible corpus stops
+  driving compose.
 
-- **No self-training.** Reflection excludes `source: generated` samples, so the
-  model's own drafts can never teach the voice about themselves — only
-  authored/published work defines the profile.
+- **No self-training.** Generated drafts (`source: generated`) are kept as rows
+  for reference but never enter the vector index or the reflection cadence —
+  `recordVoiceSample` skips embedding and counting them. So the model's own
+  output can neither be retrieved as a few-shot example nor teach the profile
+  about itself; only authored/published work defines the voice. (To count a
+  draft as your voice, save it as `manual` — endorsing it.)
+
+- **Honest transparency.** `GET /voice/overview` summarizes only the eligible
+  corpus for totals, sources, and influence, and reports muted/generated counts
+  separately under `corpus.excluded` — so the overview never claims a held-out
+  post shapes your voice.
 
 - **Steering.** `PUT /voice/profiles/{platform}/steering { note }` stores a
   short intent note ("more concise, less hedging") on the profile. It's

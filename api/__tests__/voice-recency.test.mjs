@@ -170,9 +170,29 @@ describe("summarizeVoiceCorpus", () => {
     const s = summarizeVoiceCorpus([], { now: NOW });
     expect(s.total).toBe(0);
     expect(s.bySource).toEqual({});
+    expect(s.excluded).toEqual({ muted: 0, generated: 0 });
     expect(s.earliestPublished).toBeNull();
     expect(s.latestPublished).toBeNull();
     expect(s.recentInfluence.every((h) => h.share === 0 && h.sampleCount === 0)).toBe(true);
+  });
+
+  test("excludes muted and generated rows from totals, influence, and date range", () => {
+    const mixed = [
+      { source: "content-auto", publishedAt: daysAgo(2) },       // eligible, fresh
+      { source: "content-auto", publishedAt: daysAgo(1), muted: true }, // muted → excluded
+      { source: "generated", publishedAt: daysAgo(1) },          // generated → excluded
+      { source: "manual", publishedAt: daysAgo(300) },           // eligible, old
+    ];
+    const s = summarizeVoiceCorpus(mixed, { now: NOW, halfLifeDays: 90, horizons: [30] });
+    // Only the two eligible samples are summarized.
+    expect(s.total).toBe(2);
+    expect(s.bySource).toEqual({ "content-auto": 1, manual: 1 });
+    expect(s.excluded).toEqual({ muted: 1, generated: 1 });
+    // The fresh MUTED/generated samples must not be counted in the 30-day window.
+    expect(s.recentInfluence[0].sampleCount).toBe(1);
+    // Date range spans only eligible rows.
+    expect(s.latestPublished).toBe(daysAgo(2));
+    expect(s.earliestPublished).toBe(daysAgo(300));
   });
 });
 

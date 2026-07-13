@@ -30,10 +30,13 @@ if (!args.table) {
   process.exit(1);
 }
 
-// The domain module reads TABLE_NAME at import time (via services/ddb.mjs), so
-// set it BEFORE importing the service module.
+// The domain module reads TABLE_NAME + AWS_REGION at import time (via
+// services/ddb.mjs), so set them BEFORE importing the service module. AWS_REGION
+// is set UNCONDITIONALLY from --region so the writer targets the SAME region the
+// scan reads — a pre-existing AWS_REGION in the shell must not silently redirect
+// writes to a different environment's table of the same name.
 process.env.TABLE_NAME = args.table;
-process.env.AWS_REGION = process.env.AWS_REGION || args.region;
+process.env.AWS_REGION = args.region;
 
 const { captureContentVoiceSample, isVoiceEligibleContent } = await import("../api/services/voice-memory.mjs");
 

@@ -159,6 +159,13 @@ function OverviewCard({
         {Object.entries(corpus.by_source).map(([src, n]) => (
           <span key={src}>{SOURCE_LABEL[src] ?? src} ×{n}</span>
         ))}
+        {(corpus.excluded.muted > 0 || corpus.excluded.generated > 0) && (
+          <span className="italic">
+            held out:
+            {corpus.excluded.muted > 0 ? ` ${corpus.excluded.muted} muted` : ''}
+            {corpus.excluded.generated > 0 ? ` ${corpus.excluded.generated} generated` : ''}
+          </span>
+        )}
       </div>
 
       {headline && headline.sample_count > 0 && (

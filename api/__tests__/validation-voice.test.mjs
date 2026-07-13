@@ -138,6 +138,7 @@ describe("validation/voice", () => {
         summary: {
           total: 12,
           bySource: { "content-auto": 10, manual: 2 },
+          excluded: { muted: 1, generated: 2 },
           earliestPublished: "2024-01-01T00:00:00.000Z",
           latestPublished: "2026-07-01T00:00:00.000Z",
           recentInfluence: [{ windowDays: 30, share: 0.4123, sampleCount: 3 }],
@@ -152,6 +153,7 @@ describe("validation/voice", () => {
         corpus: {
           total_samples: 12,
           by_source: { "content-auto": 10, manual: 2 },
+          excluded: { muted: 1, generated: 2 },
           earliest_published: "2024-01-01T00:00:00.000Z",
           latest_published: "2026-07-01T00:00:00.000Z",
           recent_influence: [{ window_days: 30, influence_share: 0.41, sample_count: 3 }],

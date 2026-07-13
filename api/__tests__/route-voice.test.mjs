@@ -172,6 +172,9 @@ describe("GET /voice/overview", () => {
       { source: "content-auto", publishedAt: daysAgo(5) },
       { source: "content-auto", publishedAt: daysAgo(40) },
       { source: "manual", publishedAt: daysAgo(800) },
+      // Held out of the voice — must not inflate totals or influence.
+      { source: "content-auto", publishedAt: daysAgo(1), muted: true },
+      { source: "generated", publishedAt: daysAgo(1) },
     ]);
 
     const res = await routes["GET /voice/overview"](ctx());
@@ -183,10 +186,13 @@ describe("GET /voice/overview", () => {
     const entry = body.platforms[0];
     expect(entry.platform).toBe("blog");
     expect(entry.portrait).toBe("You write like an engineer.");
+    // Muted + generated excluded from the eligible corpus, reported separately.
     expect(entry.corpus.total_samples).toBe(3);
     expect(entry.corpus.by_source).toEqual({ "content-auto": 2, manual: 1 });
+    expect(entry.corpus.excluded).toEqual({ muted: 1, generated: 1 });
     // Recent posts dominate the current voice: the 30-day window's influence
-    // share should exceed its raw 1/3 sample fraction.
+    // share should exceed its raw 1/3 sample fraction. The fresh muted/generated
+    // samples do NOT appear in the window.
     const h30 = entry.corpus.recent_influence.find((h) => h.window_days === 30);
     expect(h30.sample_count).toBe(1);
     expect(h30.influence_share).toBeGreaterThan(0.33);

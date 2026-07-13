@@ -86,21 +86,36 @@ export function selectRecencyWeighted(samples, { limit, now = Date.now(), halfLi
 // 30/90/365 days), the share of the CURRENT voice that comes from posts inside
 // it, computed as that window's recency weight over the whole corpus's. This is
 // what lets the UI say "posts from the last 90 days shape 71% of your voice".
+//
+// Only the ELIGIBLE corpus (not muted, not generated) is summarized — those are
+// the samples that actually drive the voice, so they're the same set reflection
+// learns from. Muted and generated rows are reported separately in `excluded`
+// so the overview never claims a held-out post shapes the voice.
 const DEFAULT_INFLUENCE_HORIZONS = [30, 90, 365];
+
+export function isEligibleSample(sample) {
+  return !sample?.muted && sample?.source !== "generated";
+}
 
 export function summarizeVoiceCorpus(samples, {
   now = Date.now(),
   halfLifeDays = voiceHalfLifeDays(),
   horizons = DEFAULT_INFLUENCE_HORIZONS,
 } = {}) {
-  const list = samples ?? [];
+  const all = samples ?? [];
+  const list = all.filter(isEligibleSample);
   const total = list.length;
+
+  const excluded = { muted: 0, generated: 0 };
+  for (const s of all) {
+    if (s.muted) excluded.muted += 1;
+    else if (s.source === "generated") excluded.generated += 1;
+  }
 
   const bySource = {};
   let earliest = null;
   let latest = null;
   let totalWeight = 0;
-  const dated = [];
 
   for (const s of list) {
     const source = s.source ?? "unknown";
@@ -111,7 +126,6 @@ export function summarizeVoiceCorpus(samples, {
     if (!Number.isNaN(ts)) {
       if (earliest === null || ts < earliest) earliest = ts;
       if (latest === null || ts > latest) latest = ts;
-      dated.push(ts);
     }
     totalWeight += recencyWeight(date, { now, halfLifeDays });
   }
@@ -139,6 +153,7 @@ export function summarizeVoiceCorpus(samples, {
   return {
     total,
     bySource,
+    excluded,
     earliestPublished: earliest === null ? null : new Date(earliest).toISOString(),
     latestPublished: latest === null ? null : new Date(latest).toISOString(),
     halfLifeDays,

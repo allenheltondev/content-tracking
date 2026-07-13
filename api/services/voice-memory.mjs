@@ -3,7 +3,7 @@ import { putVoiceSample, deleteVoiceSample } from "./voice-vectors.mjs";
 import { reflectVoiceProfile } from "./bedrock.mjs";
 import { logger } from "./logger.mjs";
 import { NotFoundError } from "./errors.mjs";
-import { selectRecencyWeighted, voiceHalfLifeDays } from "./voice-recency.mjs";
+import { isEligibleSample, selectRecencyWeighted, voiceHalfLifeDays } from "./voice-recency.mjs";
 import {
   countSampleOnce,
   createReflection,
@@ -49,10 +49,20 @@ const CONTENT_SAMPLE_MAX_CHARS = 4000;
 //     reset, so it stays >= threshold and the next sample re-triggers it (and
 //     the manual /reflect route is always available) — no work is lost.
 export async function recordVoiceSample(sample) {
-  const { tenantId, platform, sampleId, format, text, publishedAt, createdAt } = sample;
+  const { tenantId, platform, sampleId, format, text, publishedAt, createdAt, source } = sample;
   if (!tenantId || !platform || !sampleId || !text) {
     logger.warn("Skipping voice sample: missing fields", { tenantId, platform, sampleId });
     return { skipped: true, reason: "missing-fields" };
+  }
+
+  // Generated drafts (saved from Compose) are kept as rows for reference but
+  // never enter the vector index or the reflection cadence — otherwise the
+  // model's own output could be retrieved as a few-shot example and teach the
+  // voice about itself. A draft the creator wants to count as their voice
+  // should be saved as `manual` (endorsing it), not `generated`.
+  if (source === "generated") {
+    logger.info("Skipping generated voice sample (excluded from the voice)", { platform, sampleId });
+    return { skipped: true, reason: "generated" };
   }
 
   const embedding = await embedText(text);
@@ -96,14 +106,40 @@ export async function recordVoiceSample(sample) {
 // Only authored/published work defines the profile.
 export async function runReflection(tenantId, platform) {
   const candidates = await listRecentSamples(tenantId, platform, CANDIDATE_POOL);
-  const eligible = candidates.filter((c) => !c.muted && c.source !== "generated");
+  const eligible = candidates.filter(isEligibleSample);
+  const current = await getVoiceProfile(tenantId, platform);
+
   if (eligible.length === 0) {
-    logger.warn("Reflection skipped: no eligible samples", { platform, candidates: candidates.length });
-    return null;
+    // Nothing left to learn from. If a learned profile exists (e.g. the last
+    // authored sample was just muted/deleted), CLEAR it so its stale traits
+    // stop driving compose — leaving it in place would let a voice with 0
+    // eligible samples keep generating. When there's no profile yet, it's a
+    // plain no-op. Idempotent: a null profile isn't re-cleared.
+    if (!current || current.profile == null) {
+      logger.warn("Reflection skipped: no eligible samples", { platform, candidates: candidates.length });
+      return current ?? null;
+    }
+    const clearedVersion = (current.version ?? 0) + 1;
+    const cleared = await putVoiceProfile(tenantId, platform, {
+      profile: null,
+      version: clearedVersion,
+      createdAt: current.createdAt,
+      steering: current.steering ?? null,
+    });
+    await createReflection(tenantId, platform, {
+      changeSummary: "Voice cleared — no eligible samples remain to learn from.",
+      sampleWindow: 0,
+      model: process.env.BEDROCK_MODEL_ID ?? null,
+      halfLifeDays: voiceHalfLifeDays(),
+      version: clearedVersion,
+      portrait: null,
+    });
+    logger.info("Cleared voice profile (no eligible samples)", { platform, version: clearedVersion });
+    return cleared;
   }
+
   const samples = selectRecencyWeighted(eligible, { limit: WINDOW });
 
-  const current = await getVoiceProfile(tenantId, platform);
   const { profile, change_summary } = await reflectVoiceProfile({
     platform,
     currentProfile: current?.profile ?? null,
