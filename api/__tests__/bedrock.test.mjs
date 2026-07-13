@@ -4,7 +4,7 @@ process.env.BEDROCK_MODEL_ID = "us.amazon.nova-pro-v1:0";
 process.env.BEDROCK_REGION = "us-east-1";
 
 const { BedrockRuntimeClient } = await import("@aws-sdk/client-bedrock-runtime");
-const { summarizeBrief, reviewDraft, recommendEngagement, answerBlogQuestion, answerContentQuestion, composeVoicePost, reflectVoiceProfile } = await import("../services/bedrock.mjs");
+const { summarizeBrief, reviewDraft, recommendEngagement, answerBlogQuestion, answerContentQuestion, composeVoicePost, reflectVoiceProfile, assessVoiceMatch } = await import("../services/bedrock.mjs");
 const { UpstreamError } = await import("../services/errors.mjs");
 
 describe("services/bedrock summarizeBrief", () => {
@@ -518,6 +518,50 @@ describe("services/bedrock voice", () => {
     expect(userText).toContain("[1] (published 2026-07-10, recency weight 60%) newest");
     expect(userText).toContain("[2] (published 2025-11-02, recency weight 40%) older");
     expect(userText).toContain("newest-published first");
+  });
+
+  test("reflectVoiceProfile asks the model for a plain-English portrait", async () => {
+    mockSend.mockResolvedValueOnce(toolResponse("record_voice_profile", { profile: {}, change_summary: "s" }));
+    await reflectVoiceProfile({ platform: "blog", currentProfile: null, samples: [{ text: "post" }] });
+    const command = mockSend.mock.calls[0][0];
+    // The reflect prompt drives the human-readable portrait...
+    expect(command.input.system[0].text).toContain("portrait");
+    // ...and the forced tool's schema has a place to put it.
+    expect(command.input.toolConfig.tools[0].toolSpec.inputSchema.json.properties.profile.properties)
+      .toHaveProperty("portrait");
+  });
+
+  test("assessVoiceMatch forces record_voice_assessment and grounds on profile + dated draft", async () => {
+    mockSend.mockResolvedValueOnce(toolResponse("record_voice_assessment", {
+      score: 73, verdict: "close", summary: "Close, but a touch formal.",
+      strengths: ["good hook"], issues: [{ area: "tone", detail: "too stiff", suggestion: "loosen up" }],
+    }));
+
+    const result = await assessVoiceMatch({
+      platform: "x",
+      profile: { tone: "wry" },
+      samples: [{ text: "a real past post", publishedAt: "2026-07-01" }],
+      draft: "the draft to grade",
+    });
+
+    expect(result.score).toBe(73);
+    expect(result.verdict).toBe("close");
+    const command = mockSend.mock.calls[0][0];
+    expect(command.input.toolConfig.toolChoice.tool.name).toBe("record_voice_assessment");
+    const userText = command.input.messages[0].content[0].text;
+    expect(userText).toContain("STYLE PROFILE (x)");
+    expect(userText).toContain('"tone": "wry"');
+    expect(userText).toContain("[1] (published 2026-07-01) a real past post");
+    expect(userText).toContain("DRAFT TO ASSESS");
+    expect(userText).toContain("the draft to grade");
+  });
+
+  test("assessVoiceMatch works on a cold start (no profile / no examples)", async () => {
+    mockSend.mockResolvedValueOnce(toolResponse("record_voice_assessment", { score: 30, verdict: "off_voice", summary: "s" }));
+    await assessVoiceMatch({ platform: "x", profile: null, samples: [], draft: "d" });
+    const userText = mockSend.mock.calls[0][0].input.messages[0].content[0].text;
+    expect(userText).toContain("no learned profile yet");
+    expect(userText).toContain("(no examples yet)");
   });
 
   test("wraps Bedrock errors in UpstreamError", async () => {

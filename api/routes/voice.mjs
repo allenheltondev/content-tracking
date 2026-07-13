@@ -4,12 +4,13 @@ import { emptyResponse, jsonResponse } from "../services/http-handler.mjs";
 import { BadRequestError } from "../services/errors.mjs";
 import { embedText } from "../services/embeddings.mjs";
 import { queryVoiceSamples, deleteVoiceSample } from "../services/voice-vectors.mjs";
-import { composeVoicePost } from "../services/bedrock.mjs";
+import { composeVoicePost, assessVoiceMatch } from "../services/bedrock.mjs";
 import { runReflection } from "../services/voice-memory.mjs";
 import {
   COMPOSE_CANDIDATE_POOL,
   COMPOSE_EXAMPLE_COUNT,
   rankVoiceSamples,
+  summarizeVoiceCorpus,
 } from "../services/voice-recency.mjs";
 import {
   createVoiceSample,
@@ -20,13 +21,16 @@ import {
   listRecentSamples,
 } from "../domain/voice.mjs";
 import {
+  formatVoiceAssessment,
   formatVoiceDraft,
+  formatVoiceOverviewEntry,
   formatVoiceProfile,
   formatVoiceReflection,
   formatVoiceSample,
   validateComposeRequest,
   validatePlatform,
   validateSampleCreate,
+  validateVoiceCheckRequest,
 } from "../validation/voice.mjs";
 
 // The "voice" feature: learn the creator's per-platform writing style and draft
@@ -35,6 +39,11 @@ import {
 // partition. Style learning happens off the DynamoDB stream
 // (VoiceMemoryFunction); these routes drive composing, capturing samples, and
 // reading/triggering the learned profiles.
+
+// Upper bound on samples pulled per platform for the overview's corpus stats.
+// A creator's per-platform corpus is personal-scale, so this comfortably covers
+// the whole history while capping a pathological tenant.
+const OVERVIEW_SAMPLE_CAP = 500;
 
 export function registerVoiceRoutes(app) {
   // POST /voice/compose — draft a post in the creator's voice. Embeds the topic,
@@ -63,6 +72,48 @@ export function registerVoiceRoutes(app) {
       guidance,
     });
     return jsonResponse(200, formatVoiceDraft(draft));
+  });
+
+  // POST /voice/check — grade an arbitrary draft against the learned voice
+  // (paste-and-score). Same retrieval as compose — the draft's own text is the
+  // query, so the closest, most-recent examples ground the assessment — but
+  // instead of writing it asks Bedrock how on-voice the draft already is.
+  // Nothing is persisted.
+  app.post("/voice/check", async ({ event }) => {
+    const tenantId = requireTenantId(event);
+    const { draft, platform } = validateVoiceCheckRequest(parseBody(event));
+
+    const queryEmbedding = await embedText(draft);
+    const [candidates, profileRow] = await Promise.all([
+      queryVoiceSamples({ tenantId, queryEmbedding, platform, topK: COMPOSE_CANDIDATE_POOL }),
+      getVoiceProfile(tenantId, platform),
+    ]);
+    const samples = rankVoiceSamples(candidates, { topK: COMPOSE_EXAMPLE_COUNT });
+
+    const assessment = await assessVoiceMatch({
+      platform,
+      profile: profileRow?.profile ?? null,
+      samples,
+      draft,
+    });
+    return jsonResponse(200, formatVoiceAssessment(assessment));
+  });
+
+  // GET /voice/overview — the flagship read: for every platform the creator has
+  // a profile on, the plain-English portrait plus corpus transparency (how many
+  // samples, from where, over what date range, and how concentrated the current
+  // voice is in recent posts). One call powers the whole voice dashboard.
+  app.get("/voice/overview", async ({ event }) => {
+    const tenantId = requireTenantId(event);
+    const profiles = await listProfiles(tenantId);
+
+    const entries = await Promise.all(profiles.map(async (profileRow) => {
+      const samples = await listRecentSamples(tenantId, profileRow.platform, OVERVIEW_SAMPLE_CAP);
+      const summary = summarizeVoiceCorpus(samples);
+      return formatVoiceOverviewEntry({ profileRow, summary });
+    }));
+
+    return jsonResponse(200, { platforms: entries });
   });
 
   // POST /voice/samples — capture a writing sample (manual paste, or "save" a

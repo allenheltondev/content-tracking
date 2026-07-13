@@ -140,6 +140,40 @@ prompt tells the model to favor the most recently published examples when
 styles conflict — so drafts sound like you write today, not like your
 back catalog's average.
 
+### 5. Reading your voice back — portrait, overview, and draft-check
+
+The learned voice isn't just a JSON blob the model consumes; it's surfaced so a
+person can understand and use it directly.
+
+- **Plain-English portrait.** Every reflection also writes a `portrait` — a
+  vivid 2-4 sentence description of how you write now ("You open with a blunt
+  claim, then earn it with a concrete example…"), stored on the profile and
+  shown at the top of the voice page. It's the human-readable answer to "what
+  has the system actually learned about my voice?"
+
+- **`GET /voice/overview`** — one call returns, for every platform you have a
+  voice on: the portrait, and full corpus transparency — how many samples, from
+  which sources, over what published date range, and the recency math made
+  legible as *influence horizons* ("posts from the last 90 days shape 71% of
+  your current voice"). This is the flagship read that powers the dashboard.
+
+- **`POST /voice/check`** — paste any draft and get an on-voice score (0-100), a
+  verdict, plain-English feedback, concrete off-voice issues with fixes, and an
+  optional rewrite. It runs the same recency-weighted retrieval as compose, but
+  grades against your voice instead of writing — so the tool both *generates*
+  and *evaluates* in your voice.
+
+```mermaid
+flowchart LR
+    R["Reflection"] --> P["Portrait<br/>(plain-English summary)"]
+    S["Voice samples"] --> C["Corpus stats:<br/>counts · sources · date range<br/>influence horizons"]
+    P --> O["GET /voice/overview<br/>(dashboard)"]
+    C --> O
+    D["Paste a draft"] --> CK["POST /voice/check"]
+    PR["Profile + recent examples"] --> CK
+    CK --> V["Score + verdict +<br/>strengths / issues / rewrite"]
+```
+
 ### Tuning knobs
 
 | Knob | Where | Default | Effect |

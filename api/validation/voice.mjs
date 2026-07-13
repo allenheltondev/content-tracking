@@ -32,6 +32,7 @@ const VOICE_HALF_LIFE_DAYS = Number(process.env.VOICE_HALF_LIFE_DAYS ?? 90);
 const TOPIC_MAX = 2000;
 const GUIDANCE_MAX = 1000;
 const SAMPLE_TEXT_MAX = 20_000;
+const DRAFT_MAX = 20_000;
 
 function requireObject(body) {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
@@ -81,6 +82,19 @@ export function validateComposeRequest(body) {
     out.guidance = validateOptionalString(body.guidance, "guidance", GUIDANCE_MAX);
   }
   return out;
+}
+
+// POST /voice/check — grade an arbitrary draft against the learned voice. Like
+// compose it needs a platform + format (which few-shot examples to pull), plus
+// the draft to assess.
+export function validateVoiceCheckRequest(body) {
+  requireObject(body);
+  const platform = validatePlatform(body.platform);
+  return {
+    draft: validateOptionalString(body.draft, "draft", DRAFT_MAX),
+    platform,
+    format: validateFormat(body.format, platform),
+  };
 }
 
 export function validateSampleCreate(body) {
@@ -134,12 +148,59 @@ export function formatVoiceProfile(row) {
   return {
     platform: row.platform,
     profile: row.profile ?? null,
+    // The plain-English portrait lives inside the learned profile JSON; surface
+    // it at the top level too so clients don't have to reach into `profile`.
+    portrait: typeof row.profile?.portrait === "string" ? row.profile.portrait : null,
     samples_since_reflection: row.samplesSinceReflection ?? 0,
     reflection_threshold: REFLECTION_THRESHOLD,
     recency_half_life_days: VOICE_HALF_LIFE_DAYS,
     version: row.version ?? 0,
     created_at: row.createdAt ?? null,
     updated_at: row.updatedAt ?? null,
+  };
+}
+
+// One platform's entry in GET /voice/overview: the plain-English portrait plus
+// corpus transparency (what the voice is listening to and how recency-weighted
+// it is). `summary` is the summarizeVoiceCorpus output.
+export function formatVoiceOverviewEntry({ profileRow, summary }) {
+  return {
+    platform: profileRow.platform,
+    portrait: typeof profileRow.profile?.portrait === "string" ? profileRow.profile.portrait : null,
+    version: profileRow.version ?? 0,
+    samples_since_reflection: profileRow.samplesSinceReflection ?? 0,
+    reflection_threshold: REFLECTION_THRESHOLD,
+    recency_half_life_days: VOICE_HALF_LIFE_DAYS,
+    updated_at: profileRow.updatedAt ?? null,
+    corpus: {
+      total_samples: summary.total,
+      by_source: summary.bySource,
+      earliest_published: summary.earliestPublished,
+      latest_published: summary.latestPublished,
+      // Each horizon: the share of the current voice that comes from posts
+      // published inside the window — the recency math made legible.
+      recent_influence: summary.recentInfluence.map((h) => ({
+        window_days: h.windowDays,
+        influence_share: Math.round(h.share * 100) / 100,
+        sample_count: h.sampleCount,
+      })),
+    },
+  };
+}
+
+// POST /voice/check result. `result` is the assessVoiceMatch tool output.
+export function formatVoiceAssessment(result) {
+  return {
+    score: result.score,
+    verdict: result.verdict,
+    summary: result.summary,
+    strengths: result.strengths ?? [],
+    issues: (result.issues ?? []).map((i) => ({
+      area: i.area ?? null,
+      detail: i.detail,
+      suggestion: i.suggestion,
+    })),
+    on_voice_rewrite: result.on_voice_rewrite ?? null,
   };
 }
 

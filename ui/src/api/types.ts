@@ -817,6 +817,8 @@ export interface VoiceSample {
 export interface VoiceProfile {
   platform: string;
   profile: Record<string, unknown> | null;
+  // Plain-English portrait of the learned voice, surfaced from profile.portrait.
+  portrait: string | null;
   samples_since_reflection: number;
   reflection_threshold: number;
   // Half-life (days) of the publish-date decay weighting samples.
@@ -824,6 +826,47 @@ export interface VoiceProfile {
   version: number;
   created_at: string | null;
   updated_at: string | null;
+}
+
+// One horizon in the overview's recency breakdown: what share of the current
+// voice comes from posts published within the last `window_days`.
+export interface VoiceInfluenceHorizon {
+  window_days: number;
+  influence_share: number;
+  sample_count: number;
+}
+
+// GET /voice/overview — one platform's portrait + corpus transparency.
+export interface VoiceOverviewEntry {
+  platform: string;
+  portrait: string | null;
+  version: number;
+  samples_since_reflection: number;
+  reflection_threshold: number;
+  recency_half_life_days: number;
+  updated_at: string | null;
+  corpus: {
+    total_samples: number;
+    by_source: Record<string, number>;
+    earliest_published: string | null;
+    latest_published: string | null;
+    recent_influence: VoiceInfluenceHorizon[];
+  };
+}
+
+// POST /voice/check — how on-voice a draft is.
+export interface VoiceAssessmentIssue {
+  area: string | null;
+  detail: string;
+  suggestion: string;
+}
+export interface VoiceAssessment {
+  score: number;
+  verdict: 'on_voice' | 'close' | 'off_voice';
+  summary: string;
+  strengths: string[];
+  issues: VoiceAssessmentIssue[];
+  on_voice_rewrite: string | null;
 }
 
 export interface VoiceReflection {

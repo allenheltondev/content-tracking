@@ -7,6 +7,7 @@ const {
   effectiveSampleDate,
   selectRecencyWeighted,
   rankVoiceSamples,
+  summarizeVoiceCorpus,
   voiceHalfLifeDays,
   voiceRecencyBlend,
   COMPOSE_CANDIDATE_POOL,
@@ -116,6 +117,62 @@ describe("rankVoiceSamples", () => {
       { now: NOW, topK: 1 },
     );
     expect(out[0].similarity).toBe(0);
+  });
+});
+
+describe("summarizeVoiceCorpus", () => {
+  const daysAgo = (n) => new Date(NOW - n * DAY).toISOString();
+  const samples = [
+    { source: "content-auto", publishedAt: daysAgo(5) },
+    { source: "content-auto", publishedAt: daysAgo(45) },
+    { source: "manual", publishedAt: daysAgo(400) },
+    { source: "manual", createdAt: daysAgo(10) }, // no publishedAt → uses createdAt
+    { source: "blog-seed" }, // undated
+  ];
+
+  test("counts totals and breaks down by source", () => {
+    const s = summarizeVoiceCorpus(samples, { now: NOW });
+    expect(s.total).toBe(5);
+    expect(s.bySource).toEqual({ "content-auto": 2, manual: 2, "blog-seed": 1 });
+  });
+
+  test("reports the published date range from the recency anchors", () => {
+    const s = summarizeVoiceCorpus(samples, { now: NOW });
+    expect(s.earliestPublished).toBe(daysAgo(400));
+    expect(s.latestPublished).toBe(daysAgo(5));
+  });
+
+  test("influence horizons: recent windows' share of the current voice", () => {
+    const s = summarizeVoiceCorpus(samples, { now: NOW, halfLifeDays: 90, horizons: [30, 90, 365] });
+    const byWindow = Object.fromEntries(s.recentInfluence.map((h) => [h.windowDays, h]));
+    // 30-day window holds the 5-day and 10-day samples.
+    expect(byWindow[30].sampleCount).toBe(2);
+    // Shares are non-decreasing as the window widens, and bounded by 1.
+    expect(byWindow[30].share).toBeLessThanOrEqual(byWindow[90].share);
+    expect(byWindow[90].share).toBeLessThanOrEqual(byWindow[365].share);
+    expect(byWindow[365].share).toBeLessThanOrEqual(1);
+    // Recent posts dominate: two fresh samples out of five carry well over
+    // their 40% head-count share of the total influence.
+    expect(byWindow[30].share).toBeGreaterThan(0.4);
+  });
+
+  test("undated samples dilute the denominator but never join a window", () => {
+    const s = summarizeVoiceCorpus(
+      [{ source: "manual", publishedAt: daysAgo(1) }, { source: "blog-seed" }],
+      { now: NOW, halfLifeDays: 90, horizons: [30] },
+    );
+    expect(s.recentInfluence[0].sampleCount).toBe(1);
+    // Fresh sample weight ~1, undated ~0.5 → share ~1/1.5.
+    expect(s.recentInfluence[0].share).toBeCloseTo(1 / 1.5, 1);
+  });
+
+  test("empty corpus is all zeros / nulls", () => {
+    const s = summarizeVoiceCorpus([], { now: NOW });
+    expect(s.total).toBe(0);
+    expect(s.bySource).toEqual({});
+    expect(s.earliestPublished).toBeNull();
+    expect(s.latestPublished).toBeNull();
+    expect(s.recentInfluence.every((h) => h.share === 0 && h.sampleCount === 0)).toBe(true);
   });
 });
 

@@ -73,6 +73,32 @@ The compose prompt tells the model to favor the more recently published
 examples when styles conflict. A recent near-match therefore beats a stale
 exact match, so generated content sounds like the creator *now*.
 
+## Making the voice legible
+
+The learned voice is surfaced for humans, not just fed to the model:
+
+- **Portrait.** The reflection tool schema includes a `portrait` field — a
+  plain-English, second-person description of how the creator writes now,
+  regenerated on every reflection and stored inside `VoiceProfile.profile`.
+  `formatVoiceProfile` also lifts it to the top level (`portrait`) so clients
+  don't have to reach into the profile JSON.
+
+- **`GET /voice/overview`.** For each platform profile, returns the portrait
+  plus `summarizeVoiceCorpus` output: total samples, a by-source breakdown,
+  the published date range, and *influence horizons*. Each horizon reports, for
+  a window (30/90/365 days), the share of the current voice's total recency
+  weight that comes from posts inside it — turning the decay math into a
+  sentence like "the last 90 days are 71% of your voice". Undated samples
+  dilute the denominator but never count toward a window's numerator.
+
+- **`POST /voice/check`.** Grades an arbitrary draft against the voice.
+  `assessVoiceMatch` runs the same recency-weighted retrieval as compose (the
+  draft text is the query), then forces a `record_voice_assessment` tool call
+  returning a 0-100 score, a verdict (`on_voice` / `close` / `off_voice`), a
+  plain-English summary, concrete strengths and off-voice issues with fixes,
+  and an optional on-voice rewrite. It judges style, not topic — an unusual
+  topic can still be perfectly on-voice.
+
 ## Tuning
 
 | Knob | Where | Default | Effect |

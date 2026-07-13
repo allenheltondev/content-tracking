@@ -8,7 +8,10 @@ jest.unstable_mockModule("../services/voice-vectors.mjs", () => ({
   queryVoiceSamples: jest.fn(),
   deleteVoiceSample: jest.fn(),
 }));
-jest.unstable_mockModule("../services/bedrock.mjs", () => ({ composeVoicePost: jest.fn() }));
+jest.unstable_mockModule("../services/bedrock.mjs", () => ({
+  composeVoicePost: jest.fn(),
+  assessVoiceMatch: jest.fn(),
+}));
 jest.unstable_mockModule("../services/voice-memory.mjs", () => ({ runReflection: jest.fn() }));
 jest.unstable_mockModule("../domain/voice.mjs", () => ({
   createVoiceSample: jest.fn(),
@@ -21,7 +24,7 @@ jest.unstable_mockModule("../domain/voice.mjs", () => ({
 
 const { embedText } = await import("../services/embeddings.mjs");
 const { queryVoiceSamples, deleteVoiceSample } = await import("../services/voice-vectors.mjs");
-const { composeVoicePost } = await import("../services/bedrock.mjs");
+const { composeVoicePost, assessVoiceMatch } = await import("../services/bedrock.mjs");
 const { runReflection } = await import("../services/voice-memory.mjs");
 const {
   createVoiceSample, deleteVoiceSampleRow, getVoiceProfile, listProfiles, listReflections, listRecentSamples,
@@ -106,6 +109,88 @@ describe("POST /voice/compose", () => {
     await expect(routes["POST /voice/compose"](ctx({ body: { topic: "t", platform: "myspace", format: "social" } })))
       .rejects.toThrow(/platform/);
     expect(embedText).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /voice/check", () => {
+  test("embeds the draft, retrieves ranked examples + profile, and assesses", async () => {
+    embedText.mockResolvedValue([0.3]);
+    queryVoiceSamples.mockResolvedValue([{ text: "past", distance: 0.1 }]);
+    getVoiceProfile.mockResolvedValue({ profile: { tone: "wry" } });
+    assessVoiceMatch.mockResolvedValue({
+      score: 82, verdict: "on_voice", summary: "Sounds like you.",
+      strengths: ["punchy opener"], issues: [], on_voice_rewrite: null,
+    });
+
+    const res = await routes["POST /voice/check"](ctx({ body: { draft: "my draft text", platform: "x", format: "social" } }));
+
+    expect(res.statusCode).toBe(200);
+    expect(embedText).toHaveBeenCalledWith("my draft text");
+    expect(queryVoiceSamples).toHaveBeenCalledWith({ tenantId: SUB, queryEmbedding: [0.3], platform: "x", topK: 16 });
+    expect(assessVoiceMatch).toHaveBeenCalledWith(expect.objectContaining({
+      platform: "x", profile: { tone: "wry" }, draft: "my draft text",
+      samples: [expect.objectContaining({ text: "past" })],
+    }));
+    const body = JSON.parse(res.body);
+    expect(body.score).toBe(82);
+    expect(body.verdict).toBe("on_voice");
+    expect(body.strengths).toEqual(["punchy opener"]);
+  });
+
+  test("assesses on a cold start (no profile, no samples)", async () => {
+    embedText.mockResolvedValue([0.1]);
+    queryVoiceSamples.mockResolvedValue([]);
+    getVoiceProfile.mockResolvedValue(null);
+    assessVoiceMatch.mockResolvedValue({ score: 40, verdict: "off_voice", summary: "Hard to tell yet." });
+    await routes["POST /voice/check"](ctx({ body: { draft: "d", platform: "linkedin", format: "social" } }));
+    expect(assessVoiceMatch).toHaveBeenCalledWith(expect.objectContaining({ profile: null, samples: [] }));
+  });
+
+  test("requires a non-empty draft and a known platform", async () => {
+    await expect(routes["POST /voice/check"](ctx({ body: { draft: "  ", platform: "x", format: "social" } })))
+      .rejects.toThrow(/draft/);
+    await expect(routes["POST /voice/check"](ctx({ body: { draft: "d", platform: "myspace", format: "social" } })))
+      .rejects.toThrow(/platform/);
+    expect(embedText).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /voice/overview", () => {
+  test("summarizes every profile's portrait + corpus in one call", async () => {
+    listProfiles.mockResolvedValue([
+      { platform: "blog", profile: { portrait: "You write like an engineer." }, version: 3, updatedAt: "t3" },
+    ]);
+    const now = Date.now();
+    const daysAgo = (n) => new Date(now - n * 86_400_000).toISOString();
+    listRecentSamples.mockResolvedValue([
+      { source: "content-auto", publishedAt: daysAgo(5) },
+      { source: "content-auto", publishedAt: daysAgo(40) },
+      { source: "manual", publishedAt: daysAgo(800) },
+    ]);
+
+    const res = await routes["GET /voice/overview"](ctx());
+
+    expect(res.statusCode).toBe(200);
+    expect(listRecentSamples).toHaveBeenCalledWith(SUB, "blog", 500);
+    const body = JSON.parse(res.body);
+    expect(body.platforms).toHaveLength(1);
+    const entry = body.platforms[0];
+    expect(entry.platform).toBe("blog");
+    expect(entry.portrait).toBe("You write like an engineer.");
+    expect(entry.corpus.total_samples).toBe(3);
+    expect(entry.corpus.by_source).toEqual({ "content-auto": 2, manual: 1 });
+    // Recent posts dominate the current voice: the 30-day window's influence
+    // share should exceed its raw 1/3 sample fraction.
+    const h30 = entry.corpus.recent_influence.find((h) => h.window_days === 30);
+    expect(h30.sample_count).toBe(1);
+    expect(h30.influence_share).toBeGreaterThan(0.33);
+  });
+
+  test("returns an empty list when the tenant has no profiles", async () => {
+    listProfiles.mockResolvedValue([]);
+    const res = await routes["GET /voice/overview"](ctx());
+    expect(JSON.parse(res.body)).toEqual({ platforms: [] });
+    expect(listRecentSamples).not.toHaveBeenCalled();
   });
 });
 

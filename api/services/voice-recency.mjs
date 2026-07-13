@@ -80,6 +80,72 @@ export function selectRecencyWeighted(samples, { limit, now = Date.now(), halfLi
   }));
 }
 
+// Corpus transparency: summarizes the sample set a voice is learned from, and
+// makes the recency math legible. Returns totals, a by-source breakdown, the
+// published date range, and "influence horizons" — for each window (e.g. last
+// 30/90/365 days), the share of the CURRENT voice that comes from posts inside
+// it, computed as that window's recency weight over the whole corpus's. This is
+// what lets the UI say "posts from the last 90 days shape 71% of your voice".
+const DEFAULT_INFLUENCE_HORIZONS = [30, 90, 365];
+
+export function summarizeVoiceCorpus(samples, {
+  now = Date.now(),
+  halfLifeDays = voiceHalfLifeDays(),
+  horizons = DEFAULT_INFLUENCE_HORIZONS,
+} = {}) {
+  const list = samples ?? [];
+  const total = list.length;
+
+  const bySource = {};
+  let earliest = null;
+  let latest = null;
+  let totalWeight = 0;
+  const dated = [];
+
+  for (const s of list) {
+    const source = s.source ?? "unknown";
+    bySource[source] = (bySource[source] ?? 0) + 1;
+
+    const date = effectiveSampleDate(s);
+    const ts = typeof date === "string" ? Date.parse(date) : NaN;
+    if (!Number.isNaN(ts)) {
+      if (earliest === null || ts < earliest) earliest = ts;
+      if (latest === null || ts > latest) latest = ts;
+      dated.push(ts);
+    }
+    totalWeight += recencyWeight(date, { now, halfLifeDays });
+  }
+
+  const recentInfluence = horizons.map((windowDays) => {
+    const cutoff = now - windowDays * MS_PER_DAY;
+    let windowWeight = 0;
+    let count = 0;
+    for (const s of list) {
+      const date = effectiveSampleDate(s);
+      const ts = typeof date === "string" ? Date.parse(date) : NaN;
+      // Undated samples can't be placed in a window; they only affect the
+      // denominator (via totalWeight), never a window's numerator.
+      if (Number.isNaN(ts) || ts < cutoff) continue;
+      windowWeight += recencyWeight(date, { now, halfLifeDays });
+      count += 1;
+    }
+    return {
+      windowDays,
+      share: totalWeight > 0 ? windowWeight / totalWeight : 0,
+      sampleCount: count,
+    };
+  });
+
+  return {
+    total,
+    bySource,
+    earliestPublished: earliest === null ? null : new Date(earliest).toISOString(),
+    latestPublished: latest === null ? null : new Date(latest).toISOString(),
+    halfLifeDays,
+    recentInfluence,
+  };
+}
+
 // Compose ranking: blends topical similarity (from the vector query's cosine
 // distance) with publish-date recency, so the few-shot examples are both
 // on-topic AND representative of the current voice. Candidates come from

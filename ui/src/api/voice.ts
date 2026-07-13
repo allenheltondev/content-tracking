@@ -1,5 +1,13 @@
 import type { ApiFetch } from '../auth/useApiFetch';
-import type { VoiceDraft, VoiceFormat, VoiceProfile, VoiceReflection, VoiceSample } from './types';
+import type {
+  VoiceAssessment,
+  VoiceDraft,
+  VoiceFormat,
+  VoiceOverviewEntry,
+  VoiceProfile,
+  VoiceReflection,
+  VoiceSample,
+} from './types';
 
 // Voice feature client. Composing and reflecting call Bedrock (POST); the style
 // learning itself happens server-side off the DynamoDB stream after a sample is
@@ -105,5 +113,21 @@ export async function reflectVoiceProfile(apiFetch: ApiFetch, platform: string):
   return apiFetch<{ profile: VoiceProfile | null }>(`/voice/profiles/${platform}/reflect`, {
     method: 'POST',
     body: {},
+  });
+}
+
+// The flagship read: portrait + corpus transparency for every platform, in one call.
+export async function getVoiceOverview(apiFetch: ApiFetch): Promise<{ platforms: VoiceOverviewEntry[] }> {
+  return apiFetch<{ platforms: VoiceOverviewEntry[] }>('/voice/overview');
+}
+
+// Grade an arbitrary draft against the learned voice (paste-and-score).
+export async function checkVoice(
+  apiFetch: ApiFetch,
+  params: { draft: string; platform: string; format: VoiceFormat },
+): Promise<VoiceAssessment> {
+  return apiFetch<VoiceAssessment>('/voice/check', {
+    method: 'POST',
+    body: { draft: params.draft, platform: params.platform, format: params.format },
   });
 }
