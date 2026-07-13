@@ -492,7 +492,8 @@ export async function listPublishVariants(tenantId, contentId) {
   return result.Items ?? [];
 }
 
-// Writes a daily stats snapshot for one platform of a piece of content.
+// Writes a daily stats snapshot for one platform of a piece of content. Same-
+// day rewrites overwrite — only the last write of the day is kept.
 export async function putStatsSnapshot(tenantId, contentId, platform, date, fields = {}) {
   const item = {
     ...fields,
@@ -506,4 +507,27 @@ export async function putStatsSnapshot(tenantId, contentId, platform, date, fiel
   };
   await ddb.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
   return item;
+}
+
+// Reads every daily stats snapshot for a piece of content, across platforms,
+// oldest first. Personal scale, so all pages are consumed. Used by the content
+// analytics view to plot per-platform daily series.
+export async function listContentStats(tenantId, contentId) {
+  const items = [];
+  let exclusiveStartKey;
+  do {
+    const result = await ddb.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+      ExpressionAttributeValues: {
+        ":pk": tenantPartition(tenantId),
+        ":prefix": `CONTENT#${contentId}#STATS#`,
+      },
+      ExclusiveStartKey: exclusiveStartKey,
+    }));
+    for (const it of result.Items ?? []) items.push(it);
+    exclusiveStartKey = result.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+  items.sort((a, b) => `${a.platform}#${a.date}`.localeCompare(`${b.platform}#${b.date}`));
+  return items;
 }

@@ -1,9 +1,13 @@
 import type { ApiFetch } from '../auth/useApiFetch';
 import type {
+  AddPublishVariantParams,
   Campaign,
   Content,
+  ContentAnalyticsResponse,
   ContentAnswer,
   ContentListResponse,
+  ContentPublishVariant,
+  ContentStatsSnapshot,
   ContentType,
   CreateContentParams,
   UpdateContentParams,
@@ -93,6 +97,32 @@ export async function createContentSponsorship(
 // Detach the sponsorship, leaving an unsponsored piece (the campaign survives).
 export async function detachContentCampaign(apiFetch: ApiFetch, contentId: string): Promise<void> {
   await apiFetch(`/content/${contentId}/campaign`, { method: 'DELETE' });
+}
+
+// --- Publishing + analytics --------------------------------------------------
+
+export async function getContentAnalytics(apiFetch: ApiFetch, contentId: string): Promise<ContentAnalyticsResponse> {
+  return apiFetch<ContentAnalyticsResponse>(`/content/${contentId}/analytics`);
+}
+
+export async function addPublishVariant(
+  apiFetch: ApiFetch,
+  contentId: string,
+  params: AddPublishVariantParams,
+): Promise<ContentPublishVariant> {
+  return apiFetch<ContentPublishVariant>(`/content/${contentId}/publish`, { method: 'POST', body: params });
+}
+
+export async function recordContentStats(
+  apiFetch: ApiFetch,
+  contentId: string,
+  platform: string,
+  metrics: Record<string, number>,
+): Promise<ContentStatsSnapshot> {
+  return apiFetch<ContentStatsSnapshot>(`/content/${contentId}/stats/${encodeURIComponent(platform)}`, {
+    method: 'PUT',
+    body: { metrics },
+  });
 }
 
 // --- RAG Q&A -----------------------------------------------------------------

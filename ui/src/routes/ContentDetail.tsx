@@ -3,18 +3,23 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useApiFetch } from '../auth/useApiFetch';
 import {
+  addPublishVariant,
   askContent,
   attachContentCampaign,
   createContentSponsorship,
   deleteContent,
   detachContentCampaign,
   getContent,
+  getContentAnalytics,
+  recordContentStats,
   updateContent,
 } from '../api/content';
 import { createVoiceSample } from '../api/voice';
 import { CROSSPOST_PLATFORMS, crosspostBlog, getCrosspostStatus } from '../api/blogs';
+import KeyValueEditor, { type Pair } from '../components/KeyValueEditor';
 import type {
   Content,
+  ContentAnalyticsResponse,
   ContentAnswer,
   ContentSource,
   ContentStatus,
@@ -153,6 +158,10 @@ export default function ContentDetail(): ReactElement {
 
             {blogBacked && (
               <CrosspostPanel contentId={content.content_id} apiFetch={apiFetch} />
+            )}
+
+            {contentBacked && (
+              <ContentAnalyticsSection contentId={content.content_id} apiFetch={apiFetch} />
             )}
 
             <AskPanel contentId={content.content_id} apiFetch={apiFetch} />
@@ -593,6 +602,197 @@ function CrosspostPanel({ contentId, apiFetch }: { contentId: string; apiFetch: 
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+// Where a piece is published and how it's performing. Reads GET
+// /content/:id/analytics; lets the creator record distribution (a publish
+// variant) and log per-platform metric snapshots — content-level analytics
+// independent of any campaign.
+function ContentAnalyticsSection({ contentId, apiFetch }: { contentId: string; apiFetch: ReturnType<typeof useApiFetch> }): ReactElement {
+  const [data, setData] = useState<ContentAnalyticsResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [recording, setRecording] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setData(await getContentAnalytics(apiFetch, contentId));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }, [apiFetch, contentId]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const latest = (platform: string): Record<string, number> | null => {
+    const series = data?.stats.find((s) => s.platform === platform)?.snapshots ?? [];
+    return series.length ? series[series.length - 1].metrics : null;
+  };
+
+  const platforms = data
+    ? [...new Set([...data.publish_variants.map((v) => v.platform), ...data.stats.map((s) => s.platform)])].sort()
+    : [];
+
+  return (
+    <div className="card card-body space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-foreground">Analytics</h2>
+        <button type="button" className="btn-link text-xs" onClick={() => setAdding((v) => !v)}>
+          {adding ? 'Close' : '+ Publish location'}
+        </button>
+      </div>
+
+      {adding && (
+        <AddPublishForm
+          apiFetch={apiFetch}
+          contentId={contentId}
+          onAdded={() => { setAdding(false); void load(); }}
+        />
+      )}
+
+      {error && <p className="form-error">{error}</p>}
+
+      {data && platforms.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          No publish locations yet. Add where this piece went live to start tracking performance.
+        </p>
+      )}
+
+      {platforms.map((platform) => {
+        const variant = data?.publish_variants.find((v) => v.platform === platform);
+        const metrics = latest(platform);
+        return (
+          <div key={platform} className="border-t border-border pt-3 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <span className="font-medium text-foreground capitalize">{platform}</span>
+                {variant?.url && (
+                  <a href={variant.url} target="_blank" rel="noreferrer noopener" className="btn-link text-sm ml-2">open ↗</a>
+                )}
+              </div>
+              <button type="button" className="btn-link text-xs" onClick={() => setRecording(recording === platform ? null : platform)}>
+                {recording === platform ? 'Close' : 'Record metrics'}
+              </button>
+            </div>
+            {metrics ? (
+              <div className="flex flex-wrap gap-3 text-sm">
+                {Object.entries(metrics).map(([k, v]) => (
+                  <span key={k} className="text-muted-foreground">
+                    <span className="font-semibold text-foreground tabular-nums">{v.toLocaleString()}</span> {k}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No metrics recorded yet.</p>
+            )}
+            {recording === platform && (
+              <RecordStatsForm
+                apiFetch={apiFetch}
+                contentId={contentId}
+                platform={platform}
+                onRecorded={() => { setRecording(null); void load(); }}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AddPublishForm({
+  apiFetch, contentId, onAdded,
+}: {
+  apiFetch: ReturnType<typeof useApiFetch>;
+  contentId: string;
+  onAdded: () => void;
+}): ReactElement {
+  const [platform, setPlatform] = useState('');
+  const [url, setUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: FormEvent): Promise<void> => {
+    e.preventDefault();
+    if (busy || !platform.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await addPublishVariant(apiFetch, contentId, {
+        platform: platform.trim(),
+        ...(url.trim() ? { url: url.trim() } : {}),
+      });
+      onAdded();
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
+      <label className="flex-1 min-w-32">
+        <span className="field-label">Platform</span>
+        <input className="input" value={platform} onChange={(e) => setPlatform(e.target.value)} placeholder="devto, medium, youtube…" disabled={busy} />
+      </label>
+      <label className="flex-[2] min-w-48">
+        <span className="field-label">URL (optional)</span>
+        <input className="input" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" disabled={busy} />
+      </label>
+      <button type="submit" className="btn-primary btn-sm" disabled={busy || !platform.trim()}>
+        {busy ? 'Adding…' : 'Add'}
+      </button>
+      {error && <p className="form-error w-full">{error}</p>}
+    </form>
+  );
+}
+
+function RecordStatsForm({
+  apiFetch, contentId, platform, onRecorded,
+}: {
+  apiFetch: ReturnType<typeof useApiFetch>;
+  contentId: string;
+  platform: string;
+  onRecorded: () => void;
+}): ReactElement {
+  const [pairs, setPairs] = useState<Pair[]>([{ key: 'views', value: '' }]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      const metrics: Record<string, number> = {};
+      for (const { key, value } of pairs) {
+        const k = key.trim();
+        if (!k) continue;
+        const n = Number(value);
+        if (!Number.isFinite(n) || n < 0) {
+          throw new Error(`"${k}" must be a non-negative number`);
+        }
+        metrics[k] = n;
+      }
+      if (Object.keys(metrics).length === 0) {
+        throw new Error('Add at least one metric');
+      }
+      await recordContentStats(apiFetch, contentId, platform, metrics);
+      onRecorded();
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2 rounded-md bg-muted/50 p-3">
+      <KeyValueEditor pairs={pairs} onChange={setPairs} keyPlaceholder="metric (views)" valuePlaceholder="count" />
+      {error && <p className="form-error">{error}</p>}
+      <button type="button" className="btn-secondary btn-sm" onClick={() => void submit()} disabled={busy}>
+        {busy ? 'Recording…' : 'Record today'}
+      </button>
     </div>
   );
 }

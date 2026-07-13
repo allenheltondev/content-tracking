@@ -11,6 +11,10 @@ jest.unstable_mockModule("../domain/content.mjs", () => ({
   findContent: jest.fn(),
   getContent: jest.fn(),
   listContentByTenant: jest.fn(),
+  listContentStats: jest.fn(),
+  listPublishVariants: jest.fn(),
+  putPublishVariant: jest.fn(),
+  putStatsSnapshot: jest.fn(),
   updateContent: jest.fn(),
 }));
 jest.unstable_mockModule("../domain/campaign.mjs", () => ({
@@ -39,7 +43,8 @@ jest.unstable_mockModule("../services/bedrock.mjs", () => ({
 
 const {
   attachCampaign, createContent, deleteContent, detachCampaign, findContent, getContent,
-  listContentByTenant, updateContent,
+  listContentByTenant, listContentStats, listPublishVariants, putPublishVariant,
+  putStatsSnapshot, updateContent,
 } = await import("../domain/content.mjs");
 const { createCampaign, findCampaign } = await import("../domain/campaign.mjs");
 const { deleteBlog, findBlog, getBlog, listBlogsByTenant } = await import("../domain/blog.mjs");
@@ -264,6 +269,57 @@ describe("content sponsorship routes", () => {
     const res = await routes["DELETE /content/:contentId/campaign"](ctx({ params: { contentId: "C1" } }));
     expect(res.statusCode).toBe(204);
     expect(detachCampaign).toHaveBeenCalledWith(SUB, "C1");
+  });
+});
+
+describe("content publishing + analytics routes", () => {
+  test("POST /publish records a publish variant", async () => {
+    getContent.mockResolvedValue({ contentId: "C1" });
+    putPublishVariant.mockResolvedValue({ platform: "devto", url: "https://dev.to/x", publishedAt: "2026-06-01" });
+    const res = await routes["POST /content/:contentId/publish"](ctx({
+      params: { contentId: "C1" }, body: { platform: "devto", url: "https://dev.to/x", published_at: "2026-06-01" },
+    }));
+    expect(res.statusCode).toBe(201);
+    expect(putPublishVariant).toHaveBeenCalledWith(SUB, "C1", "devto", expect.objectContaining({ url: "https://dev.to/x" }));
+    expect(JSON.parse(res.body).platform).toBe("devto");
+  });
+
+  test("POST /publish rejects a bad platform", async () => {
+    getContent.mockResolvedValue({ contentId: "C1" });
+    await expect(routes["POST /content/:contentId/publish"](ctx({ params: { contentId: "C1" }, body: { platform: "" } })))
+      .rejects.toThrow(/platform must be/);
+    expect(putPublishVariant).not.toHaveBeenCalled();
+  });
+
+  test("PUT /stats records a snapshot for the day", async () => {
+    putStatsSnapshot.mockResolvedValue({ platform: "devto", date: "2026-06-02", metrics: { views: 10 } });
+    const res = await routes["PUT /content/:contentId/stats/:platform"](ctx({
+      params: { contentId: "C1", platform: "devto" }, body: { metrics: { views: 10 }, captured_at: "2026-06-02T09:00:00Z" },
+    }));
+    expect(res.statusCode).toBe(200);
+    expect(putStatsSnapshot).toHaveBeenCalledWith(SUB, "C1", "devto", "2026-06-02", expect.objectContaining({ metrics: { views: 10 } }));
+    expect(JSON.parse(res.body).metrics).toEqual({ views: 10 });
+  });
+
+  test("PUT /stats rejects non-numeric metrics", async () => {
+    await expect(routes["PUT /content/:contentId/stats/:platform"](ctx({
+      params: { contentId: "C1", platform: "devto" }, body: { metrics: { views: "lots" } },
+    }))).rejects.toThrow(/non-negative finite number/);
+    expect(putStatsSnapshot).not.toHaveBeenCalled();
+  });
+
+  test("GET /analytics groups snapshots by platform", async () => {
+    listPublishVariants.mockResolvedValue([{ platform: "devto", url: "https://dev.to/x" }]);
+    listContentStats.mockResolvedValue([
+      { platform: "devto", date: "2026-06-01", metrics: { views: 5 } },
+      { platform: "devto", date: "2026-06-02", metrics: { views: 9 } },
+      { platform: "medium", date: "2026-06-02", metrics: { reads: 3 } },
+    ]);
+    const res = await routes["GET /content/:contentId/analytics"](ctx({ params: { contentId: "C1" } }));
+    const body = JSON.parse(res.body);
+    expect(body.publish_variants).toHaveLength(1);
+    expect(body.stats.map((s) => s.platform)).toEqual(["devto", "medium"]);
+    expect(body.stats[0].snapshots.map((s) => s.date)).toEqual(["2026-06-01", "2026-06-02"]);
   });
 });
 

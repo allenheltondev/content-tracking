@@ -6,6 +6,10 @@ import {
   findContent,
   getContent,
   listContentByTenant,
+  listContentStats,
+  listPublishVariants,
+  putPublishVariant,
+  putStatsSnapshot,
   updateContent,
 } from "../domain/content.mjs";
 import { deleteBlog, findBlog, getBlog, listBlogsByTenant } from "../domain/blog.mjs";
@@ -19,6 +23,13 @@ import { embedText } from "../services/embeddings.mjs";
 import { queryContentChunks } from "../services/content-vectors.mjs";
 import { answerContentQuestion } from "../services/bedrock.mjs";
 import { formatCampaign, validateCampaignCreate } from "../validation/campaign.mjs";
+import {
+  formatPublishVariant,
+  formatStatsSnapshot,
+  validatePlatform,
+  validatePublishVariant,
+  validateStatsUpdate,
+} from "../validation/content-analytics.mjs";
 import {
   formatContent,
   formatContentAnswer,
@@ -228,6 +239,74 @@ export function registerContentRoutes(app) {
     const tenantId = requireTenantId(event);
     await detachCampaign(tenantId, params.contentId);
     return emptyResponse(204);
+  });
+
+  // --- Publishing + analytics (works for any piece, sponsored or not) -------
+
+  // Record where a piece was published (one row per platform; re-posting the
+  // same platform updates it). Independent of the campaign machinery, so an
+  // unsponsored piece can track its own distribution.
+  app.post("/content/:contentId/publish", withIdempotency(async ({ event, params }) => {
+    const tenantId = requireTenantId(event);
+    await getContent(tenantId, params.contentId); // 404 if the piece is gone
+    const { platform, ...fields } = validatePublishVariant(parseBody(event));
+    const item = await putPublishVariant(tenantId, params.contentId, platform, fields);
+    return jsonResponse(201, formatPublishVariant(item));
+  }));
+
+  app.get("/content/:contentId/publish", async ({ event, params }) => {
+    const tenantId = requireTenantId(event);
+    const variants = await listPublishVariants(tenantId, params.contentId);
+    return jsonResponse(200, {
+      content_id: params.contentId,
+      publish_variants: variants
+        .map(formatPublishVariant)
+        .sort((a, b) => a.platform.localeCompare(b.platform)),
+    });
+  });
+
+  // Record a metric snapshot for one platform on the current UTC day (same-day
+  // writes overwrite). The analogue of the campaign social-post analytics PUT,
+  // but for a piece of content's own performance.
+  app.put("/content/:contentId/stats/:platform", async ({ event, params }) => {
+    const tenantId = requireTenantId(event);
+    const platform = validatePlatform(params.platform);
+    const { metrics, capturedAt } = validateStatsUpdate(parseBody(event));
+    const date = (capturedAt ? new Date(capturedAt) : new Date()).toISOString().slice(0, 10);
+    const item = await putStatsSnapshot(tenantId, params.contentId, platform, date, {
+      metrics,
+      ...(capturedAt ? { capturedAt } : {}),
+    });
+    return jsonResponse(200, formatStatsSnapshot(item));
+  });
+
+  // Combined analytics read: where the piece is published plus its per-platform
+  // daily metric series, so the content detail page can chart performance.
+  app.get("/content/:contentId/analytics", async ({ event, params }) => {
+    const tenantId = requireTenantId(event);
+    const [variants, stats] = await Promise.all([
+      listPublishVariants(tenantId, params.contentId),
+      listContentStats(tenantId, params.contentId),
+    ]);
+
+    const byPlatform = new Map();
+    for (const s of stats) {
+      if (!byPlatform.has(s.platform)) byPlatform.set(s.platform, []);
+      byPlatform.get(s.platform).push(formatStatsSnapshot(s));
+    }
+
+    return jsonResponse(200, {
+      content_id: params.contentId,
+      publish_variants: variants
+        .map(formatPublishVariant)
+        .sort((a, b) => a.platform.localeCompare(b.platform)),
+      stats: [...byPlatform.entries()]
+        .map(([platform, snapshots]) => ({
+          platform,
+          snapshots: snapshots.sort((a, b) => a.date.localeCompare(b.date)),
+        }))
+        .sort((a, b) => a.platform.localeCompare(b.platform)),
+    });
   });
 }
 

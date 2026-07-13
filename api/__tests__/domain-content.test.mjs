@@ -22,6 +22,7 @@ const {
   putPublishVariant,
   listPublishVariants,
   putStatsSnapshot,
+  listContentStats,
 } = await import("../domain/content.mjs");
 
 const input = (mockSend, i = 0) => mockSend.mock.calls[i][0].input;
@@ -360,6 +361,21 @@ describe("domain/content", () => {
         date: "2026-06-22",
         views: 5,
       });
+    });
+
+    test("listContentStats queries the STATS prefix and sorts by platform+date", async () => {
+      mockSend.mockResolvedValue({
+        Items: [
+          { platform: "medium", date: "2026-06-02", metrics: { reads: 3 } },
+          { platform: "devto", date: "2026-06-02", metrics: { views: 9 } },
+          { platform: "devto", date: "2026-06-01", metrics: { views: 5 } },
+        ],
+      });
+      const stats = await listContentStats(TENANT, "C1");
+      expect(input(mockSend).ExpressionAttributeValues[":prefix"]).toBe("CONTENT#C1#STATS#");
+      expect(stats.map((s) => `${s.platform}#${s.date}`)).toEqual([
+        "devto#2026-06-01", "devto#2026-06-02", "medium#2026-06-02",
+      ]);
     });
   });
 });

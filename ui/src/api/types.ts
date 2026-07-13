@@ -950,6 +950,36 @@ export interface ContentAnswer {
   sources: ContentAnswerSource[];
 }
 
+// Content publishing + analytics: where a piece was published and its
+// per-platform daily metric snapshots.
+export interface ContentPublishVariant {
+  platform: string;
+  url: string | null;
+  published_at: string | null;
+  notes: string | null;
+  updated_at: string | null;
+}
+
+export interface ContentStatsSnapshot {
+  platform: string;
+  date: string;
+  metrics: Record<string, number>;
+  captured_at: string | null;
+}
+
+export interface ContentAnalyticsResponse {
+  content_id: string;
+  publish_variants: ContentPublishVariant[];
+  stats: { platform: string; snapshots: ContentStatsSnapshot[] }[];
+}
+
+export interface AddPublishVariantParams {
+  platform: string;
+  url?: string;
+  published_at?: string;
+  notes?: string;
+}
+
 export type CrosspostPlatform = 'dev' | 'medium' | 'hashnode';
 
 export interface CrosspostRun {
