@@ -3,7 +3,7 @@ import { logger } from "../../api/services/logger.mjs";
 import { recordVoiceSample } from "../../api/services/voice-memory.mjs";
 
 // DynamoDB-stream-driven voice memory. A second event-source mapping on the
-// shared table stream (the first feeds VectorizeBlogFunction), filtered in
+// shared table stream (the first feeds VectorizeContentFunction), filtered in
 // template.yaml to INSERT records whose entity is "VoiceSample" — so this only
 // sees new samples, never the VoiceProfile / VoiceReflection rows it writes
 // (which would otherwise loop).

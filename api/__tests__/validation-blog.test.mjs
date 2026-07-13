@@ -4,7 +4,6 @@ import {
   validateCrosspostRequest,
   formatBlog,
   formatBlogSummary,
-  formatCrosspostStatus,
 } from "../validation/blog.mjs";
 
 describe("validation/blog", () => {
@@ -148,23 +147,6 @@ describe("validation/blog", () => {
         platforms: ["dev", "medium", "hashnode"],
         staggerDays: 14,
       });
-    });
-  });
-
-  describe("formatCrosspostStatus", () => {
-    test("maps the run and per-platform copies to snake_case", () => {
-      const out = formatCrosspostStatus({
-        run: { runId: "R1", status: "succeeded", platforms: ["dev"], startedAt: "t0", completedAt: "t1" },
-        copies: [{ platform: "dev", status: "succeeded", url: "https://dev/x", id: 5, publishedAt: "t1" }],
-      });
-      expect(out.run).toEqual({ run_id: "R1", status: "succeeded", platforms: ["dev"], started_at: "t0", completed_at: "t1" });
-      expect(out.platforms[0]).toEqual({ platform: "dev", status: "succeeded", url: "https://dev/x", id: 5, scheduled_for: null, published_at: "t1", error: null });
-    });
-
-    test("returns run: null when there is no run yet", () => {
-      const out = formatCrosspostStatus({ run: null, copies: [] });
-      expect(out.run).toBeNull();
-      expect(out.platforms).toEqual([]);
     });
   });
 });

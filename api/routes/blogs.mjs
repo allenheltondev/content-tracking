@@ -33,15 +33,16 @@ import {
 // sub (requireTenantId) and passes it as the first argument to the domain,
 // so reads/writes are confined to the caller's TENANT#{sub} partition.
 //
-// Dual-read transition (content-model unification, Phase 1.6): the unified
-// Content entity (type="blog") is AUTHORITATIVE for the blog READ surfaces,
-// with a safe fallback/merge onto the legacy Blog entity. Writes in this
-// phase STILL target Blog (POST/PATCH/DELETE /blogs, crosspost, campaign
-// linkage are unchanged), so the reads must still surface Blog-only rows
-// that haven't been migrated yet:
+// Content-model unification: the blog surface is now a thin facade over the
+// unified Content entity (type="blog"). Writes are Content-first —
+//   - POST /blogs        — creates a Content row (createContent).
+//   - PATCH/DELETE       — edit/delete the Content row when present, falling
+//                          back to a legacy Blog row for one not migrated yet.
+// Reads are Content-authoritative with a legacy Blog fallback so un-migrated
+// posts still resolve:
 //   - GET /blogs/:blogId — Content first, Blog fallback (Content wins).
-//   - GET /blogs        — merge of migrated Content + Blog-only rows,
-//                         deduped Content-wins, newest-first.
+//   - GET /blogs         — merge of migrated Content + Blog-only rows,
+//                          deduped Content-wins, newest-first.
 // POST /blogs/ask is aliased onto the unified content-vectors index, scoped
 // to type="blog" so it never pulls sponsored/other content.
 

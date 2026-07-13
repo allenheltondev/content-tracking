@@ -604,8 +604,8 @@ Answer by calling the record_blog_answer tool. Rules:
 - If the excerpts don't actually answer the question, say you couldn't find it in their catalog, set confidence to 'low', and leave sources_used empty.
 - Write the answer in a direct, helpful voice ("You wrote about ...", "Your post on ... covers ..."). Do not write prose outside the tool — only call record_blog_answer.`;
 
-// Answers a question grounded in retrieved blog chunks. `chunks` is the
-// ordered result of queryBlogChunks ([{ blogId, title, text, ... }]); each
+// Answers a question grounded in retrieved content chunks. `chunks` is the
+// ordered result of queryContentChunks ([{ contentId, title, text, ... }]); each
 // becomes a numbered source the model may cite via sources_used (1-based,
 // matching the order passed in). Returns { answer, sources_used, confidence }.
 export async function answerBlogQuestion({ question, chunks }) {

@@ -270,27 +270,3 @@ export function formatBlogAnswer({ answer, confidence, citations }) {
     })),
   };
 }
-
-// Shapes the cross-post status response: the latest run + per-platform copies.
-export function formatCrosspostStatus({ run, copies }) {
-  return {
-    run: run
-      ? {
-        run_id: run.runId,
-        status: run.status,
-        platforms: run.platforms ?? [],
-        started_at: run.startedAt ?? null,
-        completed_at: run.completedAt ?? null,
-      }
-      : null,
-    platforms: (copies ?? []).map((c) => ({
-      platform: c.platform,
-      status: c.status,
-      url: c.url ?? null,
-      id: c.id ?? null,
-      scheduled_for: c.scheduledFor ?? null,
-      published_at: c.publishedAt ?? null,
-      error: c.error ?? null,
-    })),
-  };
-}

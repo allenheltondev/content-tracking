@@ -7,10 +7,10 @@ import {
 import { logger } from "./logger.mjs";
 
 // S3 Vectors wrapper for the "voice" episodic memory. Sibling of
-// blog-vectors.mjs but a separate index: voice samples are short whole posts
+// content-vectors.mjs but a separate index: voice samples are short whole posts
 // (one vector each, no chunking) and are retrieved as few-shot style examples,
-// whereas blog-vectors holds chunked long-form for /blogs/ask. Both indexes
-// live in the same bucket (VECTOR_BUCKET_NAME).
+// whereas content-vectors holds chunked long-form for /blogs/ask and
+// /content/ask. Both indexes live in the same bucket (VECTOR_BUCKET_NAME).
 //
 // Vector key:  `${tenantId}#${platform}#${sampleId}` — deterministic, so a
 //              re-put overwrites in place and delete needs no list/scan.

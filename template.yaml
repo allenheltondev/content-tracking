@@ -97,10 +97,11 @@ Parameters:
     Type: String
     Default: amazon.titan-embed-text-v2:0
     Description: |
-      Bedrock embedding model used by VectorizeBlogFunction to turn blog text
-      into vectors. Titan Text Embeddings V2 at 1024 dimensions. If you change
-      the model or its dimension, the BlogVectorIndex Dimension below must match
-      and existing vectors must be re-embedded (run scripts/backfill-blog-vectors.mjs).
+      Bedrock embedding model used by VectorizeContentFunction to turn content
+      text into vectors. Titan Text Embeddings V2 at 1024 dimensions. If you
+      change the model or its dimension, the ContentVectorIndex Dimension below
+      must match and existing vectors must be re-embedded (run
+      scripts/backfill-content-vectors.mjs).
   ReflectionThreshold:
     Type: Number
     Default: 5
@@ -177,18 +178,17 @@ Globals:
         BRIEFS_BUCKET: !Ref BriefsBucket
         BEDROCK_MODEL_ID: !Ref BedrockModelId
         BEDROCK_REGION: !Ref BedrockRegion
-        # Blog vectorization config, shared by the stream-driven embedder
-        # (writes vectors) and the API Lambda (POST /blogs/ask reads them).
-        # The bucket name is the same !Sub the BlogVectorBucket resource uses;
-        # referencing the literal name (not !Ref, which returns the ARN) keeps
-        # the S3 Vectors SDK calls, which take a bucket name, simple.
+        # Vectorization config, shared by the stream-driven embedders (write
+        # vectors) and the API Lambda (POST /blogs/ask and /content/ask read
+        # them). The bucket name is the same !Sub the BlogVectorBucket resource
+        # uses; referencing the literal name (not !Ref, which returns the ARN)
+        # keeps the S3 Vectors SDK calls, which take a bucket name, simple.
         EMBEDDING_MODEL_ID: !Ref EmbeddingModelId
         VECTOR_BUCKET_NAME: !Sub "content-tracking-blog-vectors-${Environment}-${AWS::AccountId}"
-        VECTOR_INDEX_NAME: blog-vectors
-        # Content vectorization: a third index in the SAME bucket holds the
+        # Content vectorization: the index in the SAME bucket holding the
         # generalized Content entity's chunk embeddings, written by the
         # stream-driven VectorizeContentFunction and read by the API Lambda
-        # (the upcoming POST /content/ask).
+        # (POST /content/ask and the content-native /blogs/ask).
         CONTENT_VECTOR_INDEX_NAME: content-vectors
         # Voice feature: a second index in the SAME bucket holds per-sample
         # voice embeddings; REFLECTION_THRESHOLD drives the auto-reflection
@@ -309,9 +309,9 @@ Resources:
       TimeToLiveSpecification:
         AttributeName: expiresAt
         Enabled: true
-      # Streams blog root changes to VectorizeBlogFunction, which (re)embeds the
-      # post into the S3 vector index. NEW_AND_OLD_IMAGES so the handler sees the
-      # full item on create/edit and the old item on delete (for vector cleanup).
+      # Streams Content root changes to VectorizeContentFunction, which (re)embeds
+      # the piece into the S3 vector index. NEW_AND_OLD_IMAGES so the handler sees
+      # the full item on create/edit and the old item on delete (for vector cleanup).
       StreamSpecification:
         StreamViewType: NEW_AND_OLD_IMAGES
 
@@ -557,17 +557,17 @@ Resources:
               Resource:
                 - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
                 - !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/*"
-            # S3 Vectors: semantic search for POST /blogs/ask and
+            # S3 Vectors: semantic search for POST /blogs/ask, /content/ask and
             # POST /voice/compose. GetVectors is required alongside QueryVectors
             # because the query returns metadata and uses a tenant filter. The
-            # API reads both indexes; writes happen only on the stream consumers.
+            # API reads the content + voice indexes; writes happen only on the
+            # stream consumers.
             - Effect: Allow
               Action:
                 - s3vectors:QueryVectors
                 - s3vectors:GetVectors
               Resource:
                 - !GetAtt BlogVectorBucket.VectorBucketArn
-                - !GetAtt BlogVectorIndex.IndexArn
                 - !GetAtt ContentVectorIndex.IndexArn
                 - !GetAtt BlogVoiceIndex.IndexArn
             # DELETE /voice/samples removes a sample's vector directly (blog
@@ -693,30 +693,11 @@ Resources:
     Properties:
       VectorBucketName: !Sub "content-tracking-blog-vectors-${Environment}-${AWS::AccountId}"
 
-  # The vector index. Dimension MUST match the embedding model's output
+  # Generalized content index in the vector bucket: one set of chunk vectors
+  # per Content entity item. Dimension MUST match the embedding model's output
   # (Titan v2 @ 1024). `text` is declared non-filterable so each chunk's source
   # text rides along in results without counting against the 2 KB filterable
   # metadata budget. Cosine distance suits normalized text embeddings.
-  BlogVectorIndex:
-    Type: AWS::S3Vectors::Index
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      VectorBucketArn: !GetAtt BlogVectorBucket.VectorBucketArn
-      IndexName: blog-vectors
-      DataType: float32
-      Dimension: 1024
-      DistanceMetric: cosine
-      MetadataConfiguration:
-        NonFilterableMetadataKeys:
-          - text
-
-  # Generalized content index, sibling of BlogVectorIndex in the same bucket:
-  # one set of chunk vectors per Content entity item. Dimension MUST match the
-  # embedding model's output (Titan v2 @ 1024). `text` is declared
-  # non-filterable so each chunk's source text rides along in results without
-  # counting against the 2 KB filterable metadata budget. Cosine distance suits
-  # normalized text embeddings.
   ContentVectorIndex:
     Type: AWS::S3Vectors::Index
     DeletionPolicy: Retain
@@ -734,7 +715,7 @@ Resources:
   # Second index in the same bucket for the Voice feature: one vector per voice
   # sample (whole short post, no chunking), retrieved as few-shot style examples.
   # Filter metadata is {tenantId, platform, format}; the sample text rides along
-  # as non-filterable. Same dim/metric as BlogVectorIndex (shared Titan model).
+  # as non-filterable. Same dim/metric as ContentVectorIndex (shared Titan model).
   BlogVoiceIndex:
     Type: AWS::S3Vectors::Index
     DeletionPolicy: Retain
@@ -991,14 +972,15 @@ Resources:
               Resource:
                 - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
                 - !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/*"
-            # Retrieve few-shot examples (voice) / passages (blog).
+            # Retrieve few-shot examples (voice) / passages (content-native
+            # /blogs/ask streams from the content index via queryContentChunks).
             - Effect: Allow
               Action:
                 - s3vectors:QueryVectors
                 - s3vectors:GetVectors
               Resource:
                 - !GetAtt BlogVectorBucket.VectorBucketArn
-                - !GetAtt BlogVectorIndex.IndexArn
+                - !GetAtt ContentVectorIndex.IndexArn
                 - !GetAtt BlogVoiceIndex.IndexArn
             # Read the voice profile injected into the compose prompt.
             - Effect: Allow
@@ -1486,13 +1468,9 @@ Outputs:
 
   BlogVectorBucketName:
     Description: |
-      S3 vector bucket holding blog post embeddings. Pass to
-      scripts/backfill-blog-vectors.mjs --bucket to vectorize the back catalog.
+      S3 vector bucket holding content + voice embeddings. Pass to
+      scripts/backfill-content-vectors.mjs --bucket to vectorize the back catalog.
     Value: !Sub "content-tracking-blog-vectors-${Environment}-${AWS::AccountId}"
-
-  BlogVectorIndexName:
-    Description: S3 vector index name for blog embeddings (--index for the backfill script).
-    Value: blog-vectors
 
   ContentVectorIndexName:
     Description: S3 vector index name for the generalized Content entity's embeddings.
