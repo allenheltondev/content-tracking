@@ -1139,3 +1139,24 @@ export interface GenerateContentIdeasParams {
   feed_ids?: string[];
   limit?: number;
 }
+
+// The creator's stated radar intent, blended into idea generation on top of the
+// auto-derived recent-title topics.
+export interface ContentRadarPreferences {
+  interests: string[];
+  avoid: string[];
+  default_platform: string | null;
+  default_guidance: string | null;
+  audience: string | null;
+  updated_at: string | null;
+}
+
+// PUT body — partial: only provided keys are written. Topic lists clear with
+// [], scalars with null.
+export interface UpdateRadarPreferencesParams {
+  interests?: string[];
+  avoid?: string[];
+  default_platform?: string | null;
+  default_guidance?: string | null;
+  audience?: string | null;
+}

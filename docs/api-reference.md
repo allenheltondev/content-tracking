@@ -986,6 +986,22 @@ idea generation but kept in the list. `200 OK` — the updated
 
 Remove a source. `204 No Content`. `404` when it doesn't exist.
 
+### GET /content-radar/preferences
+
+The creator's stated radar intent, which steers idea generation on top of the
+auto-derived recent-title topics. `200 OK` — `{ interests: [string], avoid:
+[string], default_platform, default_guidance, audience, updated_at }`. Defaults
+to empty lists / nulls when nothing's been set.
+
+### PUT /content-radar/preferences
+
+Set the radar preferences (partial — only the keys you send are written). Body
+`{ interests?, avoid?, default_platform?, default_guidance?, audience? }`.
+`interests` / `avoid` are topic lists (≤30 entries, each ≤120 chars; send `[]`
+to clear); `default_platform` is a [voice platform](#voice) or null;
+`default_guidance` (≤1000) and `audience` (≤500) are free text or null. `200
+OK` — the updated preferences.
+
 ### GET /content-radar/feed
 
 The live aggregated feed across all active (non-muted) sources: one merged,
@@ -1002,8 +1018,11 @@ Read the live feed and propose content angles in the creator's voice. Body (all
 optional) `{ platform?, guidance?, feed_ids?, limit? }`: `platform` (a
 [voice platform](#voice)) pins the target format, `guidance` steers the agent,
 `feed_ids` restricts to specific sources, `limit` caps items read (1-60, default
-40). Calls Bedrock; nothing is persisted (regenerating is a fresh read, like
-`/voice/compose`). `400` when the radar has no sources to read.
+40). The saved [preferences](#put-content-radarpreferences) always contribute —
+`interests` / `avoid` / `audience` steer angle selection, and
+`default_platform` / `default_guidance` fill in when the request omits them
+(request values win). Calls Bedrock; nothing is persisted (regenerating is a
+fresh read, like `/voice/compose`). `400` when the radar has no sources to read.
 
 - `200 OK` — `{ summary, themes: [{ theme, momentum, why_it_fits }], angles: [{ title, angle, format, rationale, on_voice_note, sources }], items: [feed item], sources: [feed source result] }`.
 - `momentum` is `surging` \| `steady` \| `emerging` \| `fading`. Each angle's `sources` are the `[n]` feed-item numbers it draws on — 1-indexed into the returned `items`, so every idea resolves to the real article backing it.

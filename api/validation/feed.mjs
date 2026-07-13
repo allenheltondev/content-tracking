@@ -11,6 +11,9 @@ import { VOICE_PLATFORMS } from "./voice.mjs";
 const URL_MAX = 2000;
 const TITLE_MAX = 200;
 const GUIDANCE_MAX = 1000;
+const TOPIC_MAX = 120;
+const TOPIC_LIST_MAX = 30;
+const AUDIENCE_MAX = 500;
 
 // How many aggregated feed items the ideas agent reads. Enough to see what's
 // trending across sources without ballooning the prompt.
@@ -123,6 +126,97 @@ export function validateIdeasRequest(rawBody) {
   }
 
   return out;
+}
+
+// Normalizes a topic list (interests / avoid): trims, drops empties, dedupes
+// case-insensitively, and enforces per-topic and list-size bounds.
+function validateTopicList(value, label) {
+  if (!Array.isArray(value)) {
+    throw new BadRequestError(`${label} must be an array of strings`);
+  }
+  const seen = new Set();
+  const out = [];
+  for (const raw of value) {
+    if (typeof raw !== "string") {
+      throw new BadRequestError(`${label} must be an array of strings`);
+    }
+    const t = raw.trim();
+    if (t.length === 0) continue;
+    if (t.length > TOPIC_MAX) {
+      throw new BadRequestError(`each ${label} entry must be at most ${TOPIC_MAX} chars`);
+    }
+    const key = t.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  if (out.length > TOPIC_LIST_MAX) {
+    throw new BadRequestError(`${label} must have at most ${TOPIC_LIST_MAX} entries`);
+  }
+  return out;
+}
+
+// PUT /content-radar/preferences — the creator's stated intent for the radar.
+// Every field is optional and independently clearable; only provided keys are
+// written (a partial PUT patches). Topic lists clear with `[]`; the scalar
+// fields clear with `null`.
+export function validateRadarPrefs(body) {
+  requireObject(body);
+  const out = {};
+
+  if (body.interests !== undefined) {
+    out.interests = validateTopicList(body.interests, "interests");
+  }
+  if (body.avoid !== undefined) {
+    out.avoid = validateTopicList(body.avoid, "avoid");
+  }
+
+  if (body.default_platform !== undefined) {
+    if (body.default_platform === null || body.default_platform === "") {
+      out.defaultPlatform = null;
+    } else if (typeof body.default_platform !== "string" || !VOICE_PLATFORMS.includes(body.default_platform)) {
+      throw new BadRequestError(`default_platform must be null or one of: ${VOICE_PLATFORMS.join(", ")}`);
+    } else {
+      out.defaultPlatform = body.default_platform;
+    }
+  }
+
+  if (body.default_guidance !== undefined) {
+    if (body.default_guidance === null || (typeof body.default_guidance === "string" && body.default_guidance.trim().length === 0)) {
+      out.defaultGuidance = null;
+    } else if (typeof body.default_guidance !== "string" || body.default_guidance.length > GUIDANCE_MAX) {
+      throw new BadRequestError(`default_guidance must be a string of at most ${GUIDANCE_MAX} chars, or null`);
+    } else {
+      out.defaultGuidance = body.default_guidance.trim();
+    }
+  }
+
+  if (body.audience !== undefined) {
+    if (body.audience === null || (typeof body.audience === "string" && body.audience.trim().length === 0)) {
+      out.audience = null;
+    } else if (typeof body.audience !== "string" || body.audience.length > AUDIENCE_MAX) {
+      throw new BadRequestError(`audience must be a string of at most ${AUDIENCE_MAX} chars, or null`);
+    } else {
+      out.audience = body.audience.trim();
+    }
+  }
+
+  if (Object.keys(out).length === 0) {
+    throw new BadRequestError("provide at least one preference to update");
+  }
+  return out;
+}
+
+// The radar preferences singleton (defaults to empty lists / nulls when unset).
+export function formatRadarPrefs(row) {
+  return {
+    interests: Array.isArray(row?.interests) ? row.interests : [],
+    avoid: Array.isArray(row?.avoid) ? row.avoid : [],
+    default_platform: row?.defaultPlatform ?? null,
+    default_guidance: row?.defaultGuidance ?? null,
+    audience: row?.audience ?? null,
+    updated_at: row?.updatedAt ?? null,
+  };
 }
 
 // A stored feed source, including best-effort health (lastStatus / lastError /

@@ -1042,22 +1042,31 @@ Return your ideas by calling the record_content_angles tool. Do all of the follo
 - For each angle, give a working title in this creator's style, the specific take (what THEY would say that the feeds aren't already saying), a suggested format/platform they actually use, a rationale for why it's timely, and an on_voice_note on how to keep it sounding like them.
 - Ground every angle in the feeds: cite the [n] item numbers each idea builds on. An angle may connect items no single feed connected — that's the most valuable kind — but it should still trace back to what's being discussed.
 
+You may also be given the creator's stated preferences: topics they want to
+lean INTO, topics/sources to AVOID, and who they're writing for (their
+audience/goal). These are intent, and outrank the topics merely inferred from
+their recent work — prioritize angles that serve the interests and audience, and
+never propose an angle that centers on an avoided topic.
+
 Rules:
-- Follow the creator's voice and topics. An angle that's trending but nothing like what this creator makes is a weak angle; say so or leave it out. The best angles sit where the current conversation overlaps this creator's existing lane.
+- Follow the creator's voice and topics. An angle that's trending but nothing like what this creator makes is a weak angle; say so or leave it out. The best angles sit where the current conversation overlaps this creator's existing lane and stated interests.
+- Honor the stated preferences: lean into the interests, respect the audience/goal, and skip anything on the avoid list (drop it rather than reshaping it).
 - Propose fresh takes, not reposts. Never suggest simply resharing or summarizing a feed item.
 - Favor quality over quantity — 4 to 8 strong, distinct angles beat a long generic list.
-- If the voice portraits are absent, infer the creator's lane from their recent topics and keep angles general. If the feeds are empty, say so in the summary and return no angles.
+- If the voice portraits are absent, infer the creator's lane from their stated interests and recent topics and keep angles general. If the feeds are empty, say so in the summary and return no angles.
 - Do not write prose outside the tool — only call record_content_angles.`;
 
 // Proposes content angles from the live feed snapshot, grounded in the
-// creator's voice and topics. `items` is the aggregated feed items
-// ([{ title, summary, link, feedTitle, publishedAt }], newest first);
-// `voicePortraits` is [{ platform, portrait }] from the learned profiles;
-// `recentTopics` is a list of the creator's recent content titles; `platform`
+// creator's voice, topics, and stated preferences. `items` is the aggregated
+// feed items ([{ title, summary, link, feedTitle, publishedAt }], newest
+// first); `voicePortraits` is [{ platform, portrait }] from the learned
+// profiles; `recentTopics` is the creator's recent content titles (auto-derived
+// lane); `interests` / `avoid` are the creator's stated topics to lean into /
+// steer away from; `audience` is a who-they-write-for note; `platform`
 // (optional) pins the target platform; `guidance` (optional) is free-text
 // steering. Returns { summary, themes?, angles }.
-export async function suggestContentAngles({ items, voicePortraits, recentTopics, platform, guidance }) {
-  const contextBlock = formatContentAnglesContext({ items, voicePortraits, recentTopics, platform, guidance });
+export async function suggestContentAngles({ items, voicePortraits, recentTopics, interests, avoid, audience, platform, guidance }) {
+  const contextBlock = formatContentAnglesContext({ items, voicePortraits, recentTopics, interests, avoid, audience, platform, guidance });
   const userContent = [{
     text: `Propose content angles from the current feed snapshot by calling the record_content_angles tool.\n\n${contextBlock}`,
   }];
@@ -1076,7 +1085,7 @@ export async function suggestContentAngles({ items, voicePortraits, recentTopics
 // Renders the feed snapshot + creator context into the readable block the
 // content-angles prompt reasons over. Feed items are numbered so the model can
 // cite them by [n] in each angle's sources.
-function formatContentAnglesContext({ items, voicePortraits, recentTopics, platform, guidance }) {
+function formatContentAnglesContext({ items, voicePortraits, recentTopics, interests, avoid, audience, platform, guidance }) {
   const sections = [];
 
   const feedItems = Array.isArray(items) ? items : [];
@@ -1103,9 +1112,27 @@ function formatContentAnglesContext({ items, voicePortraits, recentTopics, platf
     );
   }
 
+  const interestList = Array.isArray(interests) ? interests.filter((t) => typeof t === "string" && t.trim()) : [];
+  if (interestList.length > 0) {
+    sections.push(
+      `=== TOPICS THE CREATOR WANTS TO LEAN INTO (stated intent — prioritize these) ===\n${interestList.map((t) => `- ${t}`).join("\n")}`,
+    );
+  }
+
+  const avoidList = Array.isArray(avoid) ? avoid.filter((t) => typeof t === "string" && t.trim()) : [];
+  if (avoidList.length > 0) {
+    sections.push(
+      `=== TOPICS/SOURCES TO AVOID (do not center an angle on these) ===\n${avoidList.map((t) => `- ${t}`).join("\n")}`,
+    );
+  }
+
+  if (typeof audience === "string" && audience.trim().length > 0) {
+    sections.push(`=== WHO THEY'RE WRITING FOR (audience/goal) ===\n${audience.trim()}`);
+  }
+
   const topics = Array.isArray(recentTopics) ? recentTopics.filter((t) => typeof t === "string" && t.trim()) : [];
   if (topics.length > 0) {
-    sections.push(`=== TOPICS THE CREATOR IS BUILDING ON (their recent work) ===\n${topics.map((t) => `- ${t}`).join("\n")}`);
+    sections.push(`=== TOPICS THE CREATOR IS BUILDING ON (their recent work — inferred lane) ===\n${topics.map((t) => `- ${t}`).join("\n")}`);
   }
 
   if (platform) {

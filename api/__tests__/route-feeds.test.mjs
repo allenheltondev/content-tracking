@@ -11,6 +11,8 @@ jest.unstable_mockModule("../domain/feed.mjs", () => ({
   updateFeedSource: jest.fn(),
   deleteFeedSource: jest.fn(),
   recordFeedFetch: jest.fn(),
+  getRadarPrefs: jest.fn(),
+  putRadarPrefs: jest.fn(),
 }));
 jest.unstable_mockModule("../services/rss.mjs", () => ({
   aggregateFeeds: jest.fn(),
@@ -27,6 +29,7 @@ jest.unstable_mockModule("../domain/content.mjs", () => ({
 
 const {
   createFeedSource, listFeedSources, updateFeedSource, deleteFeedSource, recordFeedFetch,
+  getRadarPrefs, putRadarPrefs,
 } = await import("../domain/feed.mjs");
 const { aggregateFeeds } = await import("../services/rss.mjs");
 const { suggestContentAngles } = await import("../services/bedrock.mjs");
@@ -39,6 +42,7 @@ function buildRouteTable() {
   const app = {
     post: (path, handler) => { routes[`POST ${path}`] = handler; },
     get: (path, handler) => { routes[`GET ${path}`] = handler; },
+    put: (path, handler) => { routes[`PUT ${path}`] = handler; },
     patch: (path, handler) => { routes[`PATCH ${path}`] = handler; },
     delete: (path, handler) => { routes[`DELETE ${path}`] = handler; },
   };
@@ -53,6 +57,8 @@ const patchFeed = routes["PATCH /content-radar/feeds/:feedId"];
 const deleteFeed = routes["DELETE /content-radar/feeds/:feedId"];
 const getFeed = routes["GET /content-radar/feed"];
 const postIdeas = routes["POST /content-radar/ideas"];
+const getPrefs = routes["GET /content-radar/preferences"];
+const putPrefs = routes["PUT /content-radar/preferences"];
 
 const AUTH = { requestContext: { authorizer: { authSource: "cognito", sub: "user-1" } } };
 
@@ -62,6 +68,7 @@ describe("routes/feeds", () => {
     recordFeedFetch.mockResolvedValue(undefined);
     listProfiles.mockResolvedValue([]);
     listContentByTenant.mockResolvedValue({ items: [] });
+    getRadarPrefs.mockResolvedValue(null);
   });
 
   test("registers all six routes", () => {
@@ -225,6 +232,81 @@ describe("routes/feeds", () => {
       aggregateFeeds.mockResolvedValue({ items: [{ title: "x" }], results: [] });
       suggestContentAngles.mockRejectedValue(new Error("bedrock boom"));
       await expect(postIdeas({ event: { body: null, ...AUTH } })).rejects.toThrow(/bedrock boom/);
+    });
+
+    test("feeds saved preferences into the agent and applies default platform/guidance", async () => {
+      listFeedSources.mockResolvedValue([{ feedId: "F1", url: "https://a.com/feed" }]);
+      aggregateFeeds.mockResolvedValue({ items: [{ title: "x" }], results: [] });
+      getRadarPrefs.mockResolvedValue({
+        interests: ["serverless"],
+        avoid: ["crypto"],
+        audience: "senior devs",
+        defaultPlatform: "blog",
+        defaultGuidance: "be contrarian",
+      });
+      suggestContentAngles.mockResolvedValue({ summary: "ok", angles: [] });
+
+      await postIdeas({ event: { body: null, ...AUTH } });
+
+      const arg = suggestContentAngles.mock.calls[0][0];
+      expect(arg.interests).toEqual(["serverless"]);
+      expect(arg.avoid).toEqual(["crypto"]);
+      expect(arg.audience).toBe("senior devs");
+      // Defaults apply when the request omits them.
+      expect(arg.platform).toBe("blog");
+      expect(arg.guidance).toBe("be contrarian");
+    });
+
+    test("request platform/guidance override the saved defaults", async () => {
+      listFeedSources.mockResolvedValue([{ feedId: "F1", url: "https://a.com/feed" }]);
+      aggregateFeeds.mockResolvedValue({ items: [{ title: "x" }], results: [] });
+      getRadarPrefs.mockResolvedValue({ defaultPlatform: "blog", defaultGuidance: "default steer" });
+      suggestContentAngles.mockResolvedValue({ summary: "ok", angles: [] });
+
+      await postIdeas({ event: { body: JSON.stringify({ platform: "x", guidance: "override" }), ...AUTH } });
+
+      const arg = suggestContentAngles.mock.calls[0][0];
+      expect(arg.platform).toBe("x");
+      expect(arg.guidance).toBe("override");
+    });
+
+    test("still generates when the preferences read fails", async () => {
+      listFeedSources.mockResolvedValue([{ feedId: "F1", url: "https://a.com/feed" }]);
+      aggregateFeeds.mockResolvedValue({ items: [{ title: "x" }], results: [] });
+      getRadarPrefs.mockRejectedValue(new Error("ddb down"));
+      suggestContentAngles.mockResolvedValue({ summary: "ok", angles: [] });
+
+      const res = await postIdeas({ event: { body: null, ...AUTH } });
+      expect(res.statusCode).toBe(200);
+      const arg = suggestContentAngles.mock.calls[0][0];
+      expect(arg.interests).toEqual([]);
+      expect(arg.avoid).toEqual([]);
+      expect(arg.audience).toBeNull();
+    });
+  });
+
+  describe("preferences", () => {
+    test("GET returns formatted prefs (defaults when unset)", async () => {
+      getRadarPrefs.mockResolvedValue(null);
+      const res = await getPrefs({ event: { ...AUTH } });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body)).toEqual({
+        interests: [], avoid: [], default_platform: null, default_guidance: null, audience: null, updated_at: null,
+      });
+    });
+
+    test("PUT validates and saves, returning the formatted result", async () => {
+      putRadarPrefs.mockResolvedValue({ interests: ["serverless"], defaultPlatform: "blog", updatedAt: "t" });
+      const res = await putPrefs({ event: { body: JSON.stringify({ interests: ["serverless"], default_platform: "blog" }), ...AUTH } });
+      expect(res.statusCode).toBe(200);
+      expect(putRadarPrefs).toHaveBeenCalledWith("user-1", { interests: ["serverless"], defaultPlatform: "blog" });
+      expect(JSON.parse(res.body).interests).toEqual(["serverless"]);
+    });
+
+    test("PUT 400 on an unknown default_platform", async () => {
+      await expect(putPrefs({ event: { body: JSON.stringify({ default_platform: "myspace" }), ...AUTH } }))
+        .rejects.toThrow(/default_platform/);
+      expect(putRadarPrefs).not.toHaveBeenCalled();
     });
   });
 });

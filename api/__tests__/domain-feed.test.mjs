@@ -6,12 +6,15 @@ const { DynamoDBDocumentClient } = await import("@aws-sdk/lib-dynamodb");
 const { ConditionalCheckFailedException } = await import("@aws-sdk/client-dynamodb");
 const {
   feedSourceKey,
+  radarPrefsKey,
   createFeedSource,
   listFeedSources,
   getFeedSource,
   updateFeedSource,
   deleteFeedSource,
   recordFeedFetch,
+  getRadarPrefs,
+  putRadarPrefs,
 } = await import("../domain/feed.mjs");
 const { NotFoundError } = await import("../services/errors.mjs");
 
@@ -108,5 +111,30 @@ describe("domain/feed", () => {
     const cmd = input(mockSend);
     expect(cmd.UpdateExpression).toMatch(/lastError = :error/);
     expect(cmd.ExpressionAttributeValues[":error"].length).toBe(500);
+  });
+
+  test("radarPrefsKey is the per-tenant singleton", () => {
+    expect(radarPrefsKey(TENANT)).toEqual({ pk: `TENANT#${TENANT}`, sk: "FEED#PREFS" });
+  });
+
+  test("getRadarPrefs returns null when unset", async () => {
+    mockSend.mockResolvedValue({});
+    expect(await getRadarPrefs(TENANT)).toBeNull();
+  });
+
+  test("putRadarPrefs upserts provided fields and clears nulls", async () => {
+    mockSend.mockResolvedValue({ Attributes: { interests: ["serverless"], defaultPlatform: null } });
+    const res = await putRadarPrefs(TENANT, {
+      interests: ["serverless"],
+      avoid: [],
+      defaultPlatform: null,
+      audience: "senior devs",
+    });
+    expect(res.interests).toEqual(["serverless"]);
+    const cmd = input(mockSend);
+    expect(cmd.Key).toEqual({ pk: `TENANT#${TENANT}`, sk: "FEED#PREFS" });
+    expect(cmd.UpdateExpression).toMatch(/#interests = :interests/);
+    expect(cmd.UpdateExpression).toMatch(/REMOVE #defaultPlatform/);
+    expect(cmd.ExpressionAttributeValues[":entity"]).toBe("ContentRadarPrefs");
   });
 });

@@ -79,6 +79,18 @@ The voice and topics reads are best-effort context: a cold-start creator with
 neither still gets general angles from the feeds. Only the feed read is
 required — with no sources, the endpoint returns `400` telling you to add feeds.
 
+**Stated preferences beat inferred ones.** The recent-title signal captures what
+a creator *has* written, which isn't always what they want to write *next* — and
+a creator pivoting to a new subject has no history for it. So the radar also
+persists an explicit preferences singleton (`sk = FEED#PREFS`): topics to lean
+**into**, topics/sources to **avoid**, a **default platform + guidance**, and an
+**audience/goal** note. On generation these are layered on top of the inferred
+topics — the prompt is told the stated interests outrank the inferred lane, to
+skip avoided topics outright, and to serve the audience — while
+`default_platform` / `default_guidance` fill in whatever the request didn't
+specify (an explicit request value always wins). Preferences are managed via
+`GET`/`PUT /content-radar/preferences` and are entirely optional.
+
 Like `POST /voice/compose`, nothing is persisted — regenerating is a fresh read.
 The prompt is explicit that trending-but-off-voice ideas are weak, that angles
 must be fresh takes (never "just reshare this item"), and favors 4-8 strong
@@ -103,6 +115,8 @@ and response shapes.
 | `GET /content-radar/feeds` | List feed sources (with health) |
 | `PATCH /content-radar/feeds/{feedId}` | Rename / mute a source |
 | `DELETE /content-radar/feeds/{feedId}` | Remove a source |
+| `GET /content-radar/preferences` | Read stated intent (topics, audience, defaults) |
+| `PUT /content-radar/preferences` | Set topics to lean into / avoid, audience, defaults |
 | `GET /content-radar/feed` | The live aggregated feed |
 | `POST /content-radar/ideas` | Generate content angles in your voice |
 

@@ -2,10 +2,12 @@ const {
   validateFeedCreate,
   validateFeedUpdate,
   validateIdeasRequest,
+  validateRadarPrefs,
   formatFeedSource,
   formatFeedItem,
   formatFeedResult,
   formatContentIdeas,
+  formatRadarPrefs,
   IDEAS_ITEM_MAX,
 } = await import("../validation/feed.mjs");
 
@@ -89,6 +91,66 @@ describe("validation/feed validateIdeasRequest", () => {
 
   test("rejects an over-long guidance", () => {
     expect(() => validateIdeasRequest({ guidance: "x".repeat(1001) })).toThrow(/at most 1000/);
+  });
+});
+
+describe("validation/feed validateRadarPrefs", () => {
+  test("normalizes topic lists: trims, dedupes case-insensitively, drops empties", () => {
+    const out = validateRadarPrefs({ interests: ["  Serverless ", "serverless", "", "Events"] });
+    expect(out.interests).toEqual(["Serverless", "Events"]);
+  });
+
+  test("accepts all fields", () => {
+    const out = validateRadarPrefs({
+      interests: ["a"],
+      avoid: ["b"],
+      default_platform: "blog",
+      default_guidance: "  contrarian  ",
+      audience: "  devs  ",
+    });
+    expect(out).toEqual({
+      interests: ["a"],
+      avoid: ["b"],
+      defaultPlatform: "blog",
+      defaultGuidance: "contrarian",
+      audience: "devs",
+    });
+  });
+
+  test("clears scalars with null / empty string", () => {
+    expect(validateRadarPrefs({ default_platform: null, default_guidance: "", audience: null }))
+      .toEqual({ defaultPlatform: null, defaultGuidance: null, audience: null });
+  });
+
+  test("clears topic lists with an empty array", () => {
+    expect(validateRadarPrefs({ interests: [], avoid: [] })).toEqual({ interests: [], avoid: [] });
+  });
+
+  test("rejects an unknown default_platform", () => {
+    expect(() => validateRadarPrefs({ default_platform: "myspace" })).toThrow(/default_platform/);
+  });
+
+  test("rejects a non-string topic and over-long entries", () => {
+    expect(() => validateRadarPrefs({ interests: [5] })).toThrow(/array of strings/);
+    expect(() => validateRadarPrefs({ interests: ["x".repeat(121)] })).toThrow(/at most 120/);
+  });
+
+  test("rejects too many topics", () => {
+    const many = Array.from({ length: 31 }, (_, i) => `t${i}`);
+    expect(() => validateRadarPrefs({ interests: many })).toThrow(/at most 30/);
+  });
+
+  test("requires at least one field", () => {
+    expect(() => validateRadarPrefs({})).toThrow(/at least one/);
+  });
+
+  test("formatRadarPrefs defaults to empty lists / nulls", () => {
+    expect(formatRadarPrefs(null)).toEqual({
+      interests: [], avoid: [], default_platform: null, default_guidance: null, audience: null, updated_at: null,
+    });
+    expect(formatRadarPrefs({ interests: ["a"], defaultPlatform: "x", updatedAt: "t" })).toEqual({
+      interests: ["a"], avoid: [], default_platform: "x", default_guidance: null, audience: null, updated_at: "t",
+    });
   });
 });
 

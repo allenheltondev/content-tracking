@@ -29,6 +29,13 @@ export function feedSourceKey(tenantId, feedId) {
   return { pk: tenantPartition(tenantId), sk: `FEED#SOURCE#${feedId}` };
 }
 
+// The radar's per-tenant preferences singleton — the creator's stated intent
+// that steers idea generation beyond what the auto-derived recent-title topics
+// capture (topics to lean into / avoid, default platform + guidance, audience).
+export function radarPrefsKey(tenantId) {
+  return { pk: tenantPartition(tenantId), sk: "FEED#PREFS" };
+}
+
 const SOURCE_PREFIX = "FEED#SOURCE#";
 
 // Creates a feed source. `url` is the feed URL (already validated as a public
@@ -144,6 +151,54 @@ export async function deleteFeedSource(tenantId, feedId) {
     }
     throw err;
   }
+}
+
+// Reads the radar preferences singleton. Returns null when the creator hasn't
+// set any (a cold-start radar still generates from feeds + voice + auto topics).
+export async function getRadarPrefs(tenantId) {
+  const result = await ddb.send(new GetCommand({
+    TableName: TABLE_NAME,
+    Key: radarPrefsKey(tenantId),
+  }));
+  return result.Item ?? null;
+}
+
+// Upserts the radar preferences singleton. `fields` is the validated,
+// camelCase preference set (interests, avoid, defaultPlatform, defaultGuidance,
+// audience); a null value clears that field. Creates the row on first save.
+// Returns the updated row.
+export async function putRadarPrefs(tenantId, fields = {}) {
+  const now = new Date().toISOString();
+  const names = { "#entity": "entity", "#updatedAt": "updatedAt" };
+  const values = { ":entity": "ContentRadarPrefs", ":updatedAt": now };
+  const setClauses = ["#entity = :entity", "#updatedAt = :updatedAt"];
+  const removeClauses = [];
+
+  for (const [key, value] of Object.entries(fields)) {
+    const namePlaceholder = `#${key}`;
+    names[namePlaceholder] = key;
+    if (value === null) {
+      removeClauses.push(namePlaceholder);
+    } else {
+      values[`:${key}`] = value;
+      setClauses.push(`${namePlaceholder} = :${key}`);
+    }
+  }
+
+  let updateExpression = `SET ${setClauses.join(", ")}`;
+  if (removeClauses.length > 0) {
+    updateExpression += ` REMOVE ${removeClauses.join(", ")}`;
+  }
+
+  const result = await ddb.send(new UpdateCommand({
+    TableName: TABLE_NAME,
+    Key: radarPrefsKey(tenantId),
+    UpdateExpression: updateExpression,
+    ExpressionAttributeNames: names,
+    ExpressionAttributeValues: values,
+    ReturnValues: "ALL_NEW",
+  }));
+  return result.Attributes;
 }
 
 // Best-effort health stamp written after an aggregation fetch, so the UI can

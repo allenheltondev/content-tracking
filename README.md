@@ -248,11 +248,16 @@ flowchart LR
   Nothing is stored, so the feed can't go stale; a broken source is isolated and
   reported rather than sinking the read. Feed URLs are SSRF-guarded and fetches
   are bounded.
-- **Get angles.** `POST /content-radar/ideas` grounds a Bedrock agent in three
-  signals — what the feeds are publishing now, your learned voice portraits, and
-  the topics you already cover — and returns themes with momentum plus concrete
-  content angles written in your voice, each citing the feed items it builds on.
-  Nothing is persisted; regenerating is a fresh read (like `/voice/compose`).
+- **Steer it.** `GET`/`PUT /content-radar/preferences` persist the creator's
+  stated intent — topics to lean **into**, topics to **avoid**, an audience/goal
+  note, and a default platform + guidance. These outrank the auto-derived
+  topics, so the radar tracks where you're *going*, not just where you've been.
+- **Get angles.** `POST /content-radar/ideas` grounds a Bedrock agent in what
+  the feeds are publishing now, your learned voice portraits, the topics you
+  already cover, and your stated preferences — and returns themes with momentum
+  plus concrete content angles written in your voice, each citing the feed items
+  it builds on. Nothing is persisted; regenerating is a fresh read (like
+  `/voice/compose`).
 
 ## Resources created
 

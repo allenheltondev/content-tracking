@@ -2,16 +2,20 @@ import type { ReactElement } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { useApiFetch } from '../auth/useApiFetch';
 import { VOICE_PLATFORMS, platformLabel } from '../api/voice';
+import TagsInput from '../components/TagsInput';
 import {
   addFeedSource,
   deleteFeedSource,
   generateContentIdeas,
+  getRadarPreferences,
   listFeedSources,
+  saveRadarPreferences,
   updateFeedSource,
 } from '../api/contentRadar';
 import type {
   ContentAngle,
   ContentIdeas,
+  ContentRadarPreferences,
   FeedItem,
   FeedSource,
 } from '../api/types';
@@ -31,6 +35,8 @@ export default function ContentRadar(): ReactElement {
   const [feedsLoading, setFeedsLoading] = useState(true);
   const [feedsError, setFeedsError] = useState<string | null>(null);
 
+  const [prefs, setPrefs] = useState<ContentRadarPreferences | null>(null);
+
   const [platform, setPlatform] = useState<string>('');
   const [guidance, setGuidance] = useState('');
   const [busy, setBusy] = useState(false);
@@ -49,7 +55,18 @@ export default function ContentRadar(): ReactElement {
     }
   }, [apiFetch]);
 
-  useEffect(() => { void loadFeeds(); }, [loadFeeds]);
+  // Load saved preferences and seed the run controls from the defaults, so
+  // "Inspire me" uses them out of the box (still overridable per run).
+  const applyPrefs = useCallback((p: ContentRadarPreferences) => {
+    setPrefs(p);
+    setPlatform(p.default_platform ?? '');
+    setGuidance(p.default_guidance ?? '');
+  }, []);
+
+  useEffect(() => {
+    void loadFeeds();
+    void getRadarPreferences(apiFetch).then(applyPrefs).catch(() => { /* prefs are optional */ });
+  }, [apiFetch, loadFeeds, applyPrefs]);
 
   const activeCount = feeds.filter((f) => !f.muted).length;
 
@@ -139,6 +156,8 @@ export default function ContentRadar(): ReactElement {
       )}
 
       {ideas && <IdeasView ideas={ideas} />}
+
+      <PreferencesEditor prefs={prefs} onSaved={applyPrefs} />
 
       <FeedManager
         feeds={feeds}
@@ -285,6 +304,163 @@ function FailedSources({ ideas }: { ideas: ContentIdeas }): ReactElement | null 
       {failed.some((f) => f.error) ? ` (${failed.find((f) => f.error)?.error})` : ''}. Check them below.
     </p>
   );
+}
+
+// The creator's stated intent for the radar: what to lean into, what to avoid,
+// who they're writing for, and default run settings. Blended into "Inspire me"
+// on top of the topics auto-derived from their recent work.
+function PreferencesEditor({
+  prefs,
+  onSaved,
+}: {
+  prefs: ContentRadarPreferences | null;
+  onSaved: (p: ContentRadarPreferences) => void;
+}): ReactElement {
+  const apiFetch = useApiFetch();
+  const [open, setOpen] = useState(false);
+  const [interests, setInterests] = useState<string[]>([]);
+  const [avoid, setAvoid] = useState<string[]>([]);
+  const [audience, setAudience] = useState('');
+  const [defaultPlatform, setDefaultPlatform] = useState('');
+  const [defaultGuidance, setDefaultGuidance] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  // Sync the form from the loaded prefs whenever they change.
+  useEffect(() => {
+    setInterests(prefs?.interests ?? []);
+    setAvoid(prefs?.avoid ?? []);
+    setAudience(prefs?.audience ?? '');
+    setDefaultPlatform(prefs?.default_platform ?? '');
+    setDefaultGuidance(prefs?.default_guidance ?? '');
+  }, [prefs]);
+
+  const save = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const res = await saveRadarPreferences(apiFetch, {
+        interests,
+        avoid,
+        audience: audience.trim() ? audience.trim() : null,
+        default_platform: defaultPlatform || null,
+        default_guidance: defaultGuidance.trim() ? defaultGuidance.trim() : null,
+      });
+      onSaved(res);
+      setSaved(true);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const summary = buildPrefsSummary(prefs);
+
+  return (
+    <div className="card card-body space-y-3">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full text-left flex items-start justify-between gap-3"
+        aria-expanded={open}
+      >
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold text-foreground">What you want to write about</h2>
+          <p className="text-sm text-muted-foreground">{summary}</p>
+        </div>
+        <span className="text-muted-foreground text-sm shrink-0">{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div className="space-y-4 border-t border-border pt-3">
+          <div>
+            <span className="field-label">Topics to lean into</span>
+            <TagsInput
+              tags={interests}
+              onChange={setInterests}
+              placeholder="e.g. serverless, developer experience, event-driven architecture"
+              disabled={busy}
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              The radar prioritizes angles on these — your intent, not just what you've already published.
+            </p>
+          </div>
+
+          <div>
+            <span className="field-label">Topics to avoid</span>
+            <TagsInput
+              tags={avoid}
+              onChange={setAvoid}
+              placeholder="e.g. crypto, hot takes on layoffs"
+              disabled={busy}
+            />
+          </div>
+
+          <label className="text-sm block">
+            <span className="field-label">Who you're writing for (audience / goal)</span>
+            <input
+              className="input"
+              placeholder="e.g. senior developers; drive newsletter signups"
+              value={audience}
+              maxLength={500}
+              onChange={(e) => setAudience(e.target.value)}
+              disabled={busy}
+            />
+          </label>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="text-sm">
+              <span className="field-label">Default platform</span>
+              <select
+                className="input"
+                value={defaultPlatform}
+                onChange={(e) => setDefaultPlatform(e.target.value)}
+                disabled={busy}
+              >
+                <option value="">Any / all</option>
+                {VOICE_PLATFORMS.map((p) => (
+                  <option key={p} value={p}>{platformLabel(p)}</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm">
+              <span className="field-label">Default steer</span>
+              <input
+                className="input"
+                placeholder="Pre-fills the steer box"
+                value={defaultGuidance}
+                maxLength={1000}
+                onChange={(e) => setDefaultGuidance(e.target.value)}
+                disabled={busy}
+              />
+            </label>
+          </div>
+
+          {error && <p className="form-error">{error}</p>}
+          <div className="flex items-center gap-3">
+            <button type="button" className="btn-primary btn-sm" onClick={() => void save()} disabled={busy}>
+              {busy ? 'Saving…' : 'Save preferences'}
+            </button>
+            {saved && <span className="text-xs text-success-700">Saved — the radar will use these next time.</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One-line summary of the saved preferences for the collapsed header.
+function buildPrefsSummary(prefs: ContentRadarPreferences | null): string {
+  if (!prefs) return 'Loading…';
+  const parts: string[] = [];
+  if (prefs.interests.length > 0) parts.push(`${prefs.interests.length} topic${prefs.interests.length === 1 ? '' : 's'} to lean into`);
+  if (prefs.avoid.length > 0) parts.push(`${prefs.avoid.length} to avoid`);
+  if (prefs.audience) parts.push('an audience note');
+  if (parts.length === 0) return 'Tell the radar which topics to lean into, what to avoid, and who you write for.';
+  return `Steering toward ${parts.join(', ')}.`;
 }
 
 // Manage the feed sources: add, rename, mute, remove — with per-source health.

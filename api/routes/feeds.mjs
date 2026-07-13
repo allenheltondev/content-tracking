@@ -7,7 +7,9 @@ import { logger } from "../services/logger.mjs";
 import {
   createFeedSource,
   deleteFeedSource,
+  getRadarPrefs,
   listFeedSources,
+  putRadarPrefs,
   recordFeedFetch,
   updateFeedSource,
 } from "../domain/feed.mjs";
@@ -19,9 +21,11 @@ import {
   formatFeedItem,
   formatFeedResult,
   formatFeedSource,
+  formatRadarPrefs,
   validateFeedCreate,
   validateFeedUpdate,
   validateIdeasRequest,
+  validateRadarPrefs,
 } from "../validation/feed.mjs";
 
 // Content Radar: a customizable RSS feed a creator curates, plus an AI agent
@@ -72,6 +76,25 @@ export function registerFeedRoutes(app) {
     return emptyResponse(204);
   });
 
+  // GET /content-radar/preferences — the creator's stated radar intent (topics
+  // to lean into / avoid, default platform + guidance, audience). Defaults to
+  // empty lists / nulls when nothing's been set.
+  app.get("/content-radar/preferences", async ({ event }) => {
+    const tenantId = requireTenantId(event);
+    const prefs = await getRadarPrefs(tenantId);
+    return jsonResponse(200, formatRadarPrefs(prefs));
+  });
+
+  // PUT /content-radar/preferences — set the radar preferences (partial: only
+  // provided keys are written). These steer idea generation beyond the
+  // auto-derived recent-title topics.
+  app.put("/content-radar/preferences", async ({ event }) => {
+    const tenantId = requireTenantId(event);
+    const fields = validateRadarPrefs(parseBody(event));
+    const updated = await putRadarPrefs(tenantId, fields);
+    return jsonResponse(200, formatRadarPrefs(updated));
+  });
+
   // GET /content-radar/feed — the live aggregated feed across all active
   // (non-muted) sources, newest first. This is the "customizable RSS feed":
   // one merged, de-duplicated stream the creator curates by managing sources.
@@ -96,11 +119,14 @@ export function registerFeedRoutes(app) {
   // POST /content-radar/ideas — read the live feed and propose content angles
   // in the creator's voice. Grounds the agent in what's being published now
   // (the feed items), how the creator writes (their learned voice portraits),
-  // and what they already build on (their recent content titles). Nothing is
-  // persisted — regenerating is a fresh read, like POST /voice/compose.
+  // what they already build on (their recent content titles), and their stated
+  // preferences (topics to lean into / avoid, audience). Request platform and
+  // guidance override the saved defaults for a one-off run. Nothing is persisted
+  // — regenerating is a fresh read, like POST /voice/compose.
   app.post("/content-radar/ideas", async ({ event }) => {
     const tenantId = requireTenantId(event);
-    const { platform, guidance, feedIds, limit } = validateIdeasRequest(parseBody(event, { optional: true }));
+    const { platform: reqPlatform, guidance: reqGuidance, feedIds, limit } =
+      validateIdeasRequest(parseBody(event, { optional: true }));
 
     const sources = await listFeedSources(tenantId);
     const active = selectActiveSources(sources, feedIds);
@@ -110,17 +136,21 @@ export function registerFeedRoutes(app) {
       );
     }
 
-    // Pull the feed snapshot alongside the creator's voice + topics so the
-    // agent has all three grounding signals. The voice/topics reads are
-    // best-effort context — a cold-start creator with neither still gets
+    // Pull the feed snapshot alongside the creator's voice, topics, and stated
+    // preferences so the agent has every grounding signal. The voice/topics/prefs
+    // reads are best-effort context — a cold-start creator with none still gets
     // general angles from the feeds.
-    const [{ items, results }, profiles, recentTopics] = await Promise.all([
+    const [{ items, results }, profiles, recentTopics, prefs] = await Promise.all([
       aggregateFeeds(active, { limit: limit ?? IDEAS_ITEM_DEFAULT }),
       listProfiles(tenantId).catch((err) => {
         logger.warn("Voice profiles unavailable for ideas (non-fatal)", { error: err?.message });
         return [];
       }),
       recentTopicTitles(tenantId),
+      getRadarPrefs(tenantId).catch((err) => {
+        logger.warn("Radar preferences unavailable for ideas (non-fatal)", { error: err?.message });
+        return null;
+      }),
     ]);
     await stampFeedHealth(tenantId, results);
 
@@ -128,11 +158,19 @@ export function registerFeedRoutes(app) {
       .map((p) => ({ platform: p.platform, portrait: p.profile?.portrait }))
       .filter((p) => typeof p.portrait === "string" && p.portrait.length > 0);
 
+    // Request values win over the saved defaults; the preferences fill in what
+    // the caller didn't specify and always contribute interests/avoid/audience.
+    const platform = reqPlatform ?? prefs?.defaultPlatform ?? undefined;
+    const guidance = reqGuidance ?? prefs?.defaultGuidance ?? undefined;
+
     // Bedrock errors propagate as UpstreamError → 502; nothing is persisted.
     const ideas = await suggestContentAngles({
       items,
       voicePortraits,
       recentTopics,
+      interests: prefs?.interests ?? [],
+      avoid: prefs?.avoid ?? [],
+      audience: prefs?.audience ?? null,
       platform,
       guidance,
     });

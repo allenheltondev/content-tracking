@@ -1,9 +1,11 @@
 import type { ApiFetch } from '../auth/useApiFetch';
 import type {
   ContentIdeas,
+  ContentRadarPreferences,
   FeedAggregate,
   FeedSource,
   GenerateContentIdeasParams,
+  UpdateRadarPreferencesParams,
 } from './types';
 
 // Content Radar client. The creator curates a set of RSS/Atom feed sources;
@@ -57,6 +59,23 @@ export async function getAggregatedFeed(
 ): Promise<FeedAggregate> {
   const qs = typeof limit === 'number' ? `?limit=${limit}` : '';
   return apiFetch<FeedAggregate>(`/content-radar/feed${qs}`);
+}
+
+// The creator's stated radar intent (topics to lean into / avoid, default
+// platform + guidance, audience). Defaults to empty lists / nulls when unset.
+export async function getRadarPreferences(apiFetch: ApiFetch): Promise<ContentRadarPreferences> {
+  return apiFetch<ContentRadarPreferences>('/content-radar/preferences');
+}
+
+// Saves radar preferences (partial — only the keys you pass are written).
+export async function saveRadarPreferences(
+  apiFetch: ApiFetch,
+  fields: UpdateRadarPreferencesParams,
+): Promise<ContentRadarPreferences> {
+  return apiFetch<ContentRadarPreferences>('/content-radar/preferences', {
+    method: 'PUT',
+    body: fields,
+  });
 }
 
 // Reads the live feed and proposes content angles in the creator's voice.

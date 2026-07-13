@@ -33,6 +33,9 @@ describe("services/bedrock suggestContentAngles", () => {
       ],
       voicePortraits: [{ platform: "blog", portrait: "You write blunt, example-first posts." }],
       recentTopics: ["Serverless event patterns"],
+      interests: ["developer experience"],
+      avoid: ["crypto"],
+      audience: "senior backend engineers",
       platform: "blog",
       guidance: "be contrarian",
     });
@@ -54,6 +57,10 @@ describe("services/bedrock suggestContentAngles", () => {
     expect(text).toMatch(/Serverless event patterns/);
     expect(text).toMatch(/Favor angles suited to: blog/);
     expect(text).toMatch(/be contrarian/);
+    // The stated preferences are rendered as their own labeled sections.
+    expect(text).toMatch(/LEAN INTO[\s\S]*developer experience/);
+    expect(text).toMatch(/AVOID[\s\S]*crypto/);
+    expect(text).toMatch(/WRITING FOR[\s\S]*senior backend engineers/);
   });
 
   test("notes an empty feed instead of inventing items", async () => {
