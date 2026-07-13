@@ -3,6 +3,7 @@ import { logger } from "../../api/services/logger.mjs";
 import {
   captureContentVoiceSample,
   isVoiceEligibleContent,
+  maybeReflect,
   recordVoiceSample,
   removeContentVoiceSample,
 } from "../../api/services/voice-memory.mjs";
@@ -26,12 +27,40 @@ import {
 // stream retries the batch, and exhausted retries land in the configured DLQ.
 // The per-sample idempotency sentinel (recordVoiceSample) keeps a retry from
 // double-counting toward the reflection threshold.
+// The function has two event sources: the DynamoDB table stream (captures +
+// per-sample reflection triggers) and an SQS delay queue (trailing reflection
+// catch-ups — see reflection-queue.mjs). A batch is homogeneous, but we branch
+// per record on eventSource so it doesn't matter.
 export const handler = async (event) => {
   const records = event?.Records ?? [];
   for (const record of records) {
-    await handleRecord(record);
+    if (record.eventSource === "aws:sqs") {
+      await handleCatchup(record);
+    } else {
+      await handleRecord(record);
+    }
   }
 };
+
+// A delayed catch-up: re-attempt a coalesced reflection so a burst's tail
+// converges after ingress goes quiet. maybeReflect is idempotent and cheap when
+// there's nothing new (the claim just fails), so a redelivered or spurious
+// catch-up is harmless.
+async function handleCatchup(record) {
+  let body;
+  try {
+    body = JSON.parse(record.body ?? "{}");
+  } catch {
+    logger.warn("Ignoring unparseable reflection catch-up message", { body: record.body });
+    return;
+  }
+  const { tenantId, platform } = body ?? {};
+  if (!tenantId || !platform) {
+    logger.warn("Ignoring reflection catch-up missing fields", { tenantId, platform });
+    return;
+  }
+  await maybeReflect(tenantId, platform);
+}
 
 async function handleRecord(record) {
   const eventName = record.eventName;

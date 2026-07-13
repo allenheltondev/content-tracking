@@ -146,6 +146,38 @@ controllable:
   `portrait`, so the reflection list doubles as a "your voice over time"
   timeline.
 
+## Bulk ingress: reflection debounce
+
+A reflection is a Bedrock Converse call. Left naive, reflecting "every N
+samples" turns a bulk load (e.g. importing 230 posts at once) into a stampede
+of dozens of reflections in minutes — throttling Bedrock and churning the
+profile version. The automatic (stream-driven) path therefore **coalesces**:
+
+- **Cooldown + atomic claim.** When a sample crosses the threshold, it tries to
+  `claimReflectionSlot` — a conditional write that succeeds only if the profile
+  is dirty (≥ threshold new samples), the cooldown since the last reflection has
+  elapsed (`VOICE_REFLECTION_COOLDOWN_SECONDS`, default 60), and no other claim
+  is live (a claim older than the lease is treated as abandoned). Only the
+  winner reflects; concurrent/rapid samples skip. So reflection runs at most
+  once per cooldown window no matter how fast samples arrive.
+
+- **Trailing catch-up.** A cooldown alone has a trailing-edge gap: if a burst
+  lands entirely inside one window and then ingress stops, the last window's
+  samples would never reflect. So each reflection enqueues one delayed message
+  on `VoiceReflectionQueue` (SQS, delay ≈ cooldown); when it fires,
+  `VoiceMemoryFunction` re-attempts a coalesced reflection. Still dirty →
+  reflects the tail and enqueues one more; converged → the claim fails and the
+  chain self-terminates. A backfill converges within ~one cooldown of its last
+  write, with **no manual reflect and no threshold change**.
+
+- **Failure isolation.** `maybeReflect` enqueues the catch-up before running the
+  reflection and swallows reflection errors, so a Bedrock throttle mid-burst
+  never fails a stream record — the catch-up simply retries later.
+
+Manual `POST /voice/profiles/{platform}/reflect` and curation-triggered
+reflections bypass the cooldown — they're explicit, low-volume, and run
+immediately.
+
 ## Tuning
 
 | Knob | Where | Default | Effect |
@@ -153,6 +185,7 @@ controllable:
 | `VoiceHalfLifeDays` | template parameter → `VOICE_HALF_LIFE_DAYS` | 90 | Lower = voice tracks recent posts more aggressively |
 | `VOICE_RECENCY_BLEND` | env (code default) | 0.35 | 0 = pure topical similarity, 1 = pure recency in compose ranking |
 | `ReflectionThreshold` | template parameter → `REFLECTION_THRESHOLD` | 5 | New samples per platform before an automatic re-reflection |
+| `VOICE_REFLECTION_COOLDOWN_SECONDS` | env (code default) | 60 | Min seconds between automatic reflections; caps the bulk-ingress reflection rate |
 
 ## Backfill
 

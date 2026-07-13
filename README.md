@@ -208,6 +208,13 @@ yours to control — and you can point the evolution where you want it to go.
 | `VoiceHalfLifeDays` | template parameter | 90 | Lower = the voice tracks recent posts more aggressively |
 | `VOICE_RECENCY_BLEND` | env var | 0.35 | 0 = rank compose examples purely by topic similarity, 1 = purely by recency |
 | `ReflectionThreshold` | template parameter | 5 | New samples per platform before an automatic re-reflection |
+| `VOICE_REFLECTION_COOLDOWN_SECONDS` | env var | 60 | Min seconds between automatic reflections — caps the reflection rate under bulk ingress |
+
+**Bulk ingress is self-throttling.** Adding hundreds of posts at once won't
+stampede Bedrock: automatic reflection coalesces to at most one per cooldown
+window (via an atomic claim) and a delayed SQS catch-up converges the tail once
+ingress goes quiet — no manual reflect, no threshold change. See
+[`docs/voice-recency.md`](docs/voice-recency.md#bulk-ingress-reflection-debounce).
 
 To backfill the voice from an existing catalog (with real publish dates), run
 [`scripts/seed-voice-from-content.mjs`](scripts/seed-voice-from-content.mjs)
