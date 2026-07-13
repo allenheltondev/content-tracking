@@ -3,7 +3,6 @@ import {
   createContent,
   deleteContent,
   detachCampaign,
-  findContent,
   getContent,
   listContentByTenant,
   listContentStats,
@@ -12,7 +11,6 @@ import {
   putStatsSnapshot,
   updateContent,
 } from "../domain/content.mjs";
-import { deleteBlog, findBlog, getBlog, listBlogsByTenant } from "../domain/blog.mjs";
 import { createCampaign, findCampaign } from "../domain/campaign.mjs";
 import { getTenant } from "../domain/tenant.mjs";
 import { getBlogCredentials } from "../services/blog-credentials.mjs";
@@ -21,7 +19,7 @@ import { getAdapter } from "../services/blog-platforms/index.mjs";
 import { validateCrosspostRequest } from "../validation/blog.mjs";
 import { requireTenantId } from "../services/identity.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
-import { parseLimit } from "../services/pagination.mjs";
+import { decodeCursor, encodeCursor, parseLimit } from "../services/pagination.mjs";
 import { emptyResponse, jsonResponse } from "../services/http-handler.mjs";
 import { BadRequestError, ConflictError, NotFoundError } from "../services/errors.mjs";
 import { embedText } from "../services/embeddings.mjs";
@@ -95,67 +93,31 @@ export function registerContentRoutes(app) {
     }));
   });
 
-  // GET /content — the single content catalog now that the Blogs surface is
-  // retired. It merges the unified Content rows with any legacy Blog-only rows
-  // that were never migrated (writes to those stopped when the Blogs UI was
-  // removed, but the reads must still surface them). Content wins on id
-  // collision. This mirrors the merge the old GET /blogs did, inverted onto the
-  // content side; a two-source merge can't resume from one opaque cursor, so at
-  // personal scale this branch is unpaginated (nextStartKey: null) and an
-  // explicit ?limit= trims the merged, newest-first result. type/source/status
-  // filter the merged set in memory (legacy blogs read as type="blog").
+  // GET /content — the single content catalog. Content is the sole entity now,
+  // so this is a straight paginated Query on the tenant's content, newest-first,
+  // with optional type/source/status filters.
   app.get("/content", async ({ event }) => {
     const tenantId = requireTenantId(event);
     const qs = event.queryStringParameters ?? {};
-    const limit = qs.limit !== undefined ? parseLimit(qs.limit) : undefined;
-
-    const contentRows = await fetchAllContent(tenantId);
-    const blogRows = await fetchAllBlogs(tenantId);
-
-    const byId = new Map();
-    for (const row of blogRows) {
-      byId.set(row.blogId, asContentRow(row));
-    }
-    // Content wins on collision: overwrite any legacy Blog row with the same id.
-    for (const row of contentRows) {
-      byId.set(row.contentId, row);
-    }
-
-    let merged = [...byId.values()]
-      .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
-
-    merged = merged.filter((row) => {
-      if (qs.type !== undefined && (row.type ?? null) !== qs.type) return false;
-      if (qs.source !== undefined && (row.source ?? null) !== qs.source) return false;
-      if (qs.status !== undefined && (row.status ?? null) !== qs.status) return false;
-      return true;
+    const limit = parseLimit(qs.limit);
+    const exclusiveStartKey = decodeCursor(qs.startKey);
+    const { items, lastEvaluatedKey } = await listContentByTenant(tenantId, {
+      limit,
+      exclusiveStartKey,
+      type: qs.type,
+      source: qs.source,
+      status: qs.status,
     });
-
-    const trimmed = limit ? merged.slice(0, limit) : merged;
     return jsonResponse(200, {
-      content: trimmed.map(formatContentSummary),
-      nextStartKey: null,
+      content: items.map(formatContentSummary),
+      nextStartKey: encodeCursor(lastEvaluatedKey),
     });
   });
 
   app.get("/content/:contentId", async ({ event, params }) => {
     const tenantId = requireTenantId(event);
-    // Content is authoritative; fall back to a legacy Blog row so a blog that
-    // was never migrated still resolves from the unified content detail page.
-    //
-    // The response carries two backing flags so the UI can gate controls that
-    // don't apply to every piece:
-    //   content_backed — a real Content row exists, so Content-only mutations
-    //     (status edit, sponsorship, and the primary DELETE path) work.
-    //   blog_backed — a legacy Blog row exists, so cross-post (which reads the
-    //     Blog entity) works. Content-native pieces have no Blog row.
-    const content = await findContent(tenantId, params.contentId);
-    if (content) {
-      const blogBacked = Boolean(await findBlog(tenantId, params.contentId));
-      return jsonResponse(200, { ...formatContent(content), content_backed: true, blog_backed: blogBacked });
-    }
-    const blog = await getBlog(tenantId, params.contentId);
-    return jsonResponse(200, { ...formatContent(asContentRow(blog)), content_backed: false, blog_backed: true });
+    const content = await getContent(tenantId, params.contentId);
+    return jsonResponse(200, formatContent(content));
   });
 
   app.patch("/content/:contentId", async ({ event, params }) => {
@@ -186,13 +148,7 @@ export function registerContentRoutes(app) {
 
   app.delete("/content/:contentId", async ({ event, params }) => {
     const tenantId = requireTenantId(event);
-    // Fall back to the legacy Blog delete for an un-migrated blog surfaced in
-    // the unified catalog (it has no Content row, so deleteContent would 404).
-    if (await findContent(tenantId, params.contentId)) {
-      await deleteContent(tenantId, params.contentId);
-    } else {
-      await deleteBlog(tenantId, params.contentId);
-    }
+    await deleteContent(tenantId, params.contentId);
     return emptyResponse(204);
   });
 
@@ -370,40 +326,6 @@ export function registerContentRoutes(app) {
         .sort((a, b) => a.platform.localeCompare(b.platform)),
     });
   });
-}
-
-// Normalizes a legacy Blog row into the shape the content formatters expect:
-// they read row.contentId, so alias blogId onto it, and default type="blog"
-// (Blog rows predate the type discriminator) so blogs read as blog content.
-function asContentRow(blogRow) {
-  return { ...blogRow, contentId: blogRow.blogId, type: blogRow.type ?? "blog" };
-}
-
-// Consumes every page of the unified Content list for the tenant. Personal
-// scale, so walking all pages is cheap; the merged GET /content read is
-// unpaginated.
-async function fetchAllContent(tenantId) {
-  const items = [];
-  let exclusiveStartKey;
-  do {
-    const page = await listContentByTenant(tenantId, { exclusiveStartKey });
-    items.push(...page.items);
-    exclusiveStartKey = page.lastEvaluatedKey;
-  } while (exclusiveStartKey);
-  return items;
-}
-
-// Consumes every page of the legacy Blog list for the tenant, so blogs that
-// were never migrated to Content still appear in the unified catalog.
-async function fetchAllBlogs(tenantId) {
-  const items = [];
-  let exclusiveStartKey;
-  do {
-    const page = await listBlogsByTenant(tenantId, { exclusiveStartKey });
-    items.push(...page.items);
-    exclusiveStartKey = page.lastEvaluatedKey;
-  } while (exclusiveStartKey);
-  return items;
 }
 
 // Maps the model's 1-based source_used numbers back to the pieces they point
