@@ -65,15 +65,40 @@ describe("domain/voice", () => {
     expect(undated).not.toHaveProperty("publishedAt");
   });
 
-  test("listRecentSamples queries begins_with newest-first with a limit", async () => {
-    mockSend.mockResolvedValue({ Items: [{ sampleId: "S2" }] });
+  test("listRecentSamples reads the whole prefix and sorts by the recency anchor", async () => {
+    // Two pages: sk order interleaves deterministic (CONTENT-...) and ULID ids,
+    // so recency must come from publishedAt ?? createdAt, not the Query order.
+    mockSend.mockResolvedValueOnce({
+      Items: [
+        { sampleId: "CONTENT-OLD", publishedAt: "2024-01-01" },
+        { sampleId: "CONTENT-NEW", publishedAt: "2026-07-10" },
+      ],
+      LastEvaluatedKey: { pk: "p", sk: "s" },
+    });
+    mockSend.mockResolvedValueOnce({
+      Items: [{ sampleId: "MANUAL", createdAt: "2026-06-01T00:00:00.000Z" }],
+    });
+
     const out = await listRecentSamples(TENANT, "linkedin", 7);
-    const cmd = input(mockSend);
-    expect(cmd.KeyConditionExpression).toContain("begins_with(sk, :prefix)");
-    expect(cmd.ExpressionAttributeValues[":prefix"]).toBe("VOICE#SAMPLE#linkedin#");
-    expect(cmd.ScanIndexForward).toBe(false);
-    expect(cmd.Limit).toBe(7);
-    expect(out).toEqual([{ sampleId: "S2" }]);
+
+    const first = input(mockSend, 0);
+    expect(first.KeyConditionExpression).toContain("begins_with(sk, :prefix)");
+    expect(first.ExpressionAttributeValues[":prefix"]).toBe("VOICE#SAMPLE#linkedin#");
+    expect(first.Limit).toBeUndefined();
+    expect(input(mockSend, 1).ExclusiveStartKey).toEqual({ pk: "p", sk: "s" });
+    expect(out.map((s) => s.sampleId)).toEqual(["CONTENT-NEW", "MANUAL", "CONTENT-OLD"]);
+  });
+
+  test("listRecentSamples slices to the limit after sorting", async () => {
+    mockSend.mockResolvedValueOnce({
+      Items: [
+        { sampleId: "A", publishedAt: "2024-01-01" },
+        { sampleId: "B", publishedAt: "2026-07-01" },
+        { sampleId: "C", publishedAt: "2025-06-01" },
+      ],
+    });
+    const out = await listRecentSamples(TENANT, "x", 2);
+    expect(out.map((s) => s.sampleId)).toEqual(["B", "C"]);
   });
 
   test("countSampleOnce marks + counts atomically and returns the new count", async () => {

@@ -20,9 +20,11 @@ import { tenantPartition } from "./blog.mjs";
 //   Voice reflection  pk=TENANT#{tenantId}  sk=VOICE#REFLECTION#{platform}#{ulid}
 //
 // The sample sk embeds the platform so "recent N for a platform" is a
-// begins_with Query, ULID-ordered (newest first with ScanIndexForward:false) —
-// no GSI needed. Sample / reflection ids are ULIDs (time-ordered); the profile
-// is a singleton per platform.
+// begins_with Query — no GSI needed. Sample ids are ULIDs for API-created
+// samples but deterministic (CONTENT-{id}) for auto-captured ones, so the sk
+// is NOT reliably time-ordered; listRecentSamples sorts by the recency anchor
+// (publishedAt ?? createdAt) in code instead. Reflection ids are ULIDs
+// (time-ordered); the profile is a singleton per platform.
 //
 // Only VoiceSample is watched by the stream consumer (VoiceMemoryFunction);
 // VoiceProfile / VoiceReflection carry different entity values so the
@@ -71,20 +73,41 @@ export async function createVoiceSample(tenantId, { text, platform, format, sour
   return item;
 }
 
-// Most-recent samples for a platform, newest first. Used both by the GET route
-// (bounded list) and the reflection window.
+// Most-recent samples for a platform, newest first by the recency anchor
+// (publishedAt, falling back to createdAt). Used both by the GET route
+// (bounded list) and the reflection candidate pool.
+//
+// Reads the platform's whole sample prefix and sorts in code: deterministic
+// auto-capture ids (CONTENT-...) don't interleave with ULIDs in sk order, and
+// publish dates don't follow capture order anyway, so a Limit on the Query
+// would silently drop genuinely recent samples. A tenant's per-platform corpus
+// is personal-scale (mirrors listContentStats), so consuming all pages is fine.
 export async function listRecentSamples(tenantId, platform, limit = 50) {
-  const result = await ddb.send(new QueryCommand({
-    TableName: TABLE_NAME,
-    KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
-    ExpressionAttributeValues: {
-      ":pk": tenantPartition(tenantId),
-      ":prefix": SAMPLE_PREFIX(platform),
-    },
-    ScanIndexForward: false,
-    Limit: limit,
-  }));
-  return result.Items ?? [];
+  const items = [];
+  let exclusiveStartKey;
+  do {
+    const result = await ddb.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+      ExpressionAttributeValues: {
+        ":pk": tenantPartition(tenantId),
+        ":prefix": SAMPLE_PREFIX(platform),
+      },
+      ExclusiveStartKey: exclusiveStartKey,
+    }));
+    for (const it of result.Items ?? []) items.push(it);
+    exclusiveStartKey = result.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+
+  items.sort((a, b) => sampleRecencyTimestamp(b) - sampleRecencyTimestamp(a));
+  return items.slice(0, limit);
+}
+
+// Millisecond timestamp of a sample's recency anchor; unparseable/missing
+// dates sort oldest.
+function sampleRecencyTimestamp(item) {
+  const t = Date.parse(item.publishedAt ?? item.createdAt ?? "");
+  return Number.isNaN(t) ? 0 : t;
 }
 
 export async function getVoiceSample(tenantId, platform, sampleId) {

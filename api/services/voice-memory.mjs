@@ -48,14 +48,20 @@ const CONTENT_SAMPLE_MAX_CHARS = 4000;
 //     reset, so it stays >= threshold and the next sample re-triggers it (and
 //     the manual /reflect route is always available) — no work is lost.
 export async function recordVoiceSample(sample) {
-  const { tenantId, platform, sampleId, format, text, publishedAt } = sample;
+  const { tenantId, platform, sampleId, format, text, publishedAt, createdAt } = sample;
   if (!tenantId || !platform || !sampleId || !text) {
     logger.warn("Skipping voice sample: missing fields", { tenantId, platform, sampleId });
     return { skipped: true, reason: "missing-fields" };
   }
 
   const embedding = await embedText(text);
-  await putVoiceSample({ tenantId, platform, format, sampleId, text, embedding, publishedAt });
+  // The vector's recency anchor mirrors effectiveSampleDate: publish date when
+  // known, capture time otherwise — so undated manual samples still rank by
+  // their real freshness at compose time instead of the neutral fallback.
+  await putVoiceSample({
+    tenantId, platform, format, sampleId, text, embedding,
+    publishedAt: publishedAt ?? createdAt,
+  });
 
   const { counted, count } = await countSampleOnce(tenantId, platform, sampleId);
   if (!counted) {

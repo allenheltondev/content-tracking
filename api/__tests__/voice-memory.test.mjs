@@ -71,6 +71,16 @@ describe("recordVoiceSample", () => {
     expect(reflectVoiceProfile).not.toHaveBeenCalled();
   });
 
+  test("anchors undated samples on their capture time so compose recency still sees them", async () => {
+    await recordVoiceSample({
+      tenantId: "T1", platform: "x", sampleId: "S2", format: "social",
+      text: "hi", createdAt: "2026-07-12T09:00:00.000Z",
+    });
+    expect(putVoiceSample).toHaveBeenCalledWith(expect.objectContaining({
+      sampleId: "S2", publishedAt: "2026-07-12T09:00:00.000Z",
+    }));
+  });
+
   test("triggers reflection once the counter reaches the threshold", async () => {
     countSampleOnce.mockResolvedValue({ counted: true, count: 3 });
     await recordVoiceSample(sample);

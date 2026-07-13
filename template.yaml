@@ -882,13 +882,17 @@ Resources:
             # count + reflect; MODIFYs included so an edited sample re-embeds —
             # the handler skips text-unchanged MODIFYs like the vectorizedAt
             # stamp) and blog Content roots (auto-capture of published posts as
-            # voice samples; REMOVE cleans the derived sample up). The profile/
-            # reflection rows it writes carry other entity values and never
-            # match.
+            # voice samples; REMOVE cleans the derived sample up). Content
+            # MODIFYs match on the type in EITHER image: new (capture, incl.
+            # retype INTO blog) or old (cleanup when a blog is retyped away —
+            # the handler sees the old image was eligible and removes its
+            # sample). The profile/reflection rows it writes carry other entity
+            # values and never match.
             FilterCriteria:
               Filters:
                 - Pattern: '{"eventName":["INSERT","MODIFY"],"dynamodb":{"NewImage":{"entity":{"S":["VoiceSample"]}}}}'
                 - Pattern: '{"eventName":["INSERT","MODIFY"],"dynamodb":{"NewImage":{"entity":{"S":["Content"]},"type":{"S":["blog"]}}}}'
+                - Pattern: '{"eventName":["MODIFY"],"dynamodb":{"OldImage":{"entity":{"S":["Content"]},"type":{"S":["blog"]}}}}'
                 - Pattern: '{"eventName":["REMOVE"],"dynamodb":{"OldImage":{"entity":{"S":["Content"]},"type":{"S":["blog"]}}}}'
             DestinationConfig:
               OnFailure:

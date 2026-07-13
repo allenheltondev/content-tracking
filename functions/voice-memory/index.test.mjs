@@ -115,6 +115,14 @@ describe("Content records (blog auto-capture)", () => {
     expect(removeContentVoiceSample).toHaveBeenCalledTimes(1);
   });
 
+  test("retyping a published blog away from blog removes the derived sample", async () => {
+    captureContentVoiceSample.mockResolvedValue({ skipped: true, reason: "not-eligible" });
+    await handler({ Records: [
+      record("MODIFY", { ...contentImage, type: "video" }, contentImage),
+    ] });
+    expect(removeContentVoiceSample).toHaveBeenCalledTimes(1);
+  });
+
   test("a skipped capture on never-eligible content does not attempt removal", async () => {
     captureContentVoiceSample.mockResolvedValue({ skipped: true, reason: "not-eligible" });
     await handler({ Records: [
