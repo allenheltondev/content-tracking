@@ -26,6 +26,18 @@ function fmtDate(iso: string | null): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
 }
 
+// Only http(s) URLs are safe to render as an anchor href. A feed-supplied
+// javascript:/data: link would otherwise be a stored-XSS/phishing vector.
+function safeHref(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 // Content Radar: curate a set of RSS/Atom feeds, then hit "Inspire me" to get
 // content angles written in your voice and backed by the real articles driving
 // them. The feed itself is read live server-side; nothing here is stored.
@@ -259,16 +271,21 @@ function AngleCard({ angle, items }: { angle: ContentAngle; items: FeedItem[] })
           <>
             <span className="field-label">Backed by</span>
             <ul className="space-y-1">
-              {backing.map((it, idx) => (
+              {backing.map((it, idx) => {
+                // Defense in depth: the backend already drops non-http(s) item
+                // links, but never render one as an anchor without re-checking
+                // — a javascript:/data: href would be an XSS/phishing vector.
+                const href = safeHref(it.link);
+                return (
                 <li key={`${it.link ?? it.title ?? idx}`} className="text-sm">
-                  {it.link ? (
+                  {href ? (
                     <a
-                      href={it.link}
+                      href={href}
                       target="_blank"
                       rel="noreferrer"
                       className="btn-link"
                     >
-                      {it.title ?? it.link}
+                      {it.title ?? href}
                     </a>
                   ) : (
                     <span className="text-foreground">{it.title ?? '(untitled)'}</span>
@@ -280,7 +297,8 @@ function AngleCard({ angle, items }: { angle: ContentAngle; items: FeedItem[] })
                     <span className="text-muted-foreground"> · {fmtDate(it.published_at)}</span>
                   )}
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </>
         ) : (

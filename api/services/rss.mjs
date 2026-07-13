@@ -18,6 +18,7 @@ const MAX_ITEMS_PER_FEED = 50;
 const MAX_SUMMARY_CHARS = 2_000;
 const MAX_TITLE_CHARS = 500;
 const FETCH_TIMEOUT_MS = 8_000;
+const MAX_REDIRECTS = 5;
 
 // Some feed hosts / CDNs reject the default undici agent string. We're
 // fetching a public feed the user explicitly subscribed to, so identifying as
@@ -41,19 +42,10 @@ export async function fetchFeed(url) {
     throw new Error(`Refusing to fetch non-public feed URL: ${url}`);
   }
 
-  let response;
-  try {
-    response = await fetch(url, {
-      redirect: "follow",
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      headers: {
-        "user-agent": USER_AGENT,
-        accept: "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.5",
-      },
-    });
-  } catch (err) {
-    throw new Error(`Feed fetch failed: ${err?.message ?? "network error"}`, { cause: err });
-  }
+  // One deadline covers the whole operation — every redirect hop plus the
+  // streamed body read — so a slow host or a redirect loop can't hang us.
+  const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+  const response = await fetchFollowingRedirects(url, signal);
 
   if (!response.ok) {
     throw new Error(`Feed responded ${response.status}`);
@@ -67,15 +59,19 @@ export async function fetchFeed(url) {
     throw new Error(`Feed returned unexpected content-type: ${contentType}`);
   }
 
-  let xml;
-  try {
-    xml = await response.text();
-  } catch (err) {
-    throw new Error(`Reading feed body failed: ${err?.message ?? "unknown"}`, { cause: err });
+  // Reject an over-cap body up front when the server declares its size, then
+  // cap while streaming so a large or chunked (undeclared) response never gets
+  // buffered in full — protecting the Lambda from memory pressure/timeouts.
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_FEED_BYTES) {
+    throw new Error(`Feed too large: ${declared} bytes (cap ${MAX_FEED_BYTES})`);
   }
 
-  if (xml.length > MAX_FEED_BYTES) {
-    xml = xml.slice(0, MAX_FEED_BYTES);
+  let xml;
+  try {
+    xml = await readBodyCapped(response, MAX_FEED_BYTES);
+  } catch (err) {
+    throw new Error(`Reading feed body failed: ${err?.message ?? "unknown"}`, { cause: err });
   }
 
   const parsed = parseFeed(xml);
@@ -83,6 +79,86 @@ export async function fetchFeed(url) {
     throw new Error("Response did not look like an RSS or Atom feed");
   }
   return parsed;
+}
+
+// Follows redirects by hand so every hop's target is re-checked against the
+// SSRF guard. fetch's built-in redirect:"follow" only validates the ORIGINAL
+// url, so a public feed that 3xx-redirects to an internal address (cloud
+// metadata, private services) would otherwise be fetched through the guard.
+// redirect:"manual" in Node exposes the Location header (a basic, not opaque,
+// response), so we validate each hop and re-request it ourselves.
+async function fetchFollowingRedirects(startUrl, signal) {
+  let current = startUrl;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    let response;
+    try {
+      response = await fetch(current, {
+        redirect: "manual",
+        signal,
+        headers: {
+          "user-agent": USER_AGENT,
+          accept: "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.5",
+        },
+      });
+    } catch (err) {
+      throw new Error(`Feed fetch failed: ${err?.message ?? "network error"}`, { cause: err });
+    }
+
+    if (!isRedirectStatus(response.status)) {
+      return response;
+    }
+
+    const location = response.headers.get("location");
+    if (!location) {
+      throw new Error(`Feed redirect (${response.status}) with no Location header`);
+    }
+    let next;
+    try {
+      next = new URL(location, current).toString();
+    } catch {
+      throw new Error(`Feed redirect to an invalid URL: ${location}`);
+    }
+    // Re-run the SSRF guard on the resolved hop before touching it.
+    if (!isPublicHttpUrl(next)) {
+      throw new Error(`Feed redirect to a non-public URL blocked: ${next}`);
+    }
+    current = next;
+  }
+  throw new Error(`Feed exceeded ${MAX_REDIRECTS} redirects`);
+}
+
+function isRedirectStatus(status) {
+  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+}
+
+// Reads the response body but stops at maxBytes, so an unbounded or chunked
+// (no content-length) response can't be buffered in full. Streams via the body
+// reader when available and cancels once the cap is hit; falls back to a
+// buffered read + slice when the response isn't a stream (e.g. in tests).
+async function readBodyCapped(response, maxBytes) {
+  const body = response.body;
+  if (!body || typeof body.getReader !== "function") {
+    const text = await response.text();
+    return text.length > maxBytes ? text.slice(0, maxBytes) : text;
+  }
+
+  const reader = body.getReader();
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value || value.length === 0) continue;
+    const remaining = maxBytes - total;
+    if (value.length >= remaining) {
+      chunks.push(value.subarray(0, remaining));
+      await reader.cancel();
+      break;
+    }
+    chunks.push(value);
+    total += value.length;
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 // Parses an RSS 2.0 / RDF / Atom document string into { feedTitle, items }.
@@ -117,7 +193,7 @@ export function parseFeed(xml) {
 
 function parseRssItem(block) {
   const title = clip(tagText(block, "title"), MAX_TITLE_CHARS);
-  const link = firstNonEmpty(tagText(block, "link"), attrOf(block, "link", "href"));
+  const link = sanitizeLink(firstNonEmpty(tagText(block, "link"), attrOf(block, "link", "href")));
   // Prefer the short description; fall back to the full content:encoded body
   // (strip its HTML). Either way we clip so a giant post can't dominate.
   const summarySource = firstNonEmpty(
@@ -138,11 +214,11 @@ function parseAtomEntry(block) {
   const title = clip(tagText(block, "title"), MAX_TITLE_CHARS);
   // Atom links are attributes. Prefer rel="alternate" (the human page); fall
   // back to the first link, then the raw <link> text some feeds still use.
-  const link = firstNonEmpty(
+  const link = sanitizeLink(firstNonEmpty(
     atomAlternateHref(block),
     attrOf(block, "link", "href"),
     tagText(block, "link"),
-  );
+  ));
   const summarySource = firstNonEmpty(tagText(block, "summary"), tagText(block, "content"));
   const summary = clip(stripHtml(summarySource), MAX_SUMMARY_CHARS);
   // Author name is nested: <author><name>…</name></author>.
@@ -251,6 +327,23 @@ function atomAlternateHref(block) {
     if (!fallback) fallback = decodeXml(href).trim();
   }
   return fallback;
+}
+
+// Item links are rendered to users as citation anchors, so restrict them to
+// http(s). A malicious or compromised feed can put a `javascript:` or `data:`
+// URL in an item link; dropping any non-http(s) scheme here keeps
+// attacker-controlled script/data links out of the aggregate and the UI.
+// Relative or unparseable links are dropped too (an item link should be
+// absolute). Returns the url when safe, else null.
+function sanitizeLink(url) {
+  if (typeof url !== "string" || url.length === 0) return null;
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  return parsed.protocol === "http:" || parsed.protocol === "https:" ? url : null;
 }
 
 function unwrapCdata(s) {

@@ -54,9 +54,21 @@ are noisy but their item structure is simple and stable.
 Everything is best-effort. A feed that 404s, times out, returns HTML instead of
 XML, or is malformed contributes nothing to the aggregate and is reported as
 failed (`sources[n].ok = false`) so the UI can flag it — one broken source never
-sinks the read (`Promise.allSettled`). Fetches are bounded (8s timeout, ~5 MB
-cap, 50 items/feed) and reuse the SSRF guard (`isPublicHttpUrl`) so a
-user-supplied feed URL can't be pointed at an internal/metadata target.
+sinks the read (`Promise.allSettled`). Fetches are bounded (8s timeout across
+all hops, 50 items/feed) and hardened against a hostile feed on several fronts:
+
+- **SSRF, including via redirects.** The initial URL passes `isPublicHttpUrl`,
+  and — because a public feed can 3xx-redirect to an internal target — redirects
+  are followed **by hand** (`redirect: "manual"`), re-validating every hop
+  against the same guard before it's requested (capped at 5 hops). fetch's
+  built-in `redirect: "follow"` only checks the original URL, so it isn't used.
+- **Unbounded bodies.** The ~5 MB cap is enforced *while reading* — an over-cap
+  `content-length` is rejected up front, and an undeclared/chunked body is
+  streamed and cut off at the cap rather than buffered in full, so a giant
+  response can't pressure Lambda memory.
+- **Malicious links.** Item links are restricted to `http(s)` at parse time, so
+  a `javascript:`/`data:` link in a feed never becomes a clickable citation; the
+  UI re-checks the scheme before rendering an anchor (defense in depth).
 
 Items are de-duplicated (the same story often appears in overlapping feeds,
 keyed by guid → link → title) and sorted newest-first by publish date.

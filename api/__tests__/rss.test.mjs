@@ -81,6 +81,18 @@ describe("services/rss parseFeed", () => {
     expect(parseFeed(null)).toBeNull();
   });
 
+  test("drops item links that aren't http(s) (javascript:/data:)", () => {
+    const malicious = `<rss version="2.0"><channel><title>Bad</title>
+      <item><title>XSS</title><link>javascript:alert(1)</link><description>hi</description></item>
+      <item><title>Data</title><link>data:text/html,&lt;script&gt;</link><description>hi</description></item>
+      <item><title>OK</title><link>https://safe.example.com/post</link><description>hi</description></item>
+    </channel></rss>`;
+    const parsed = parseFeed(malicious);
+    expect(parsed.items[0].link).toBeNull();
+    expect(parsed.items[1].link).toBeNull();
+    expect(parsed.items[2].link).toBe("https://safe.example.com/post");
+  });
+
   test("does not mistake an item title for the feed title", () => {
     const noChannelTitle = RSS_SAMPLE.replace("<title>Ready Set Cloud</title>", "");
     const parsed = parseFeed(noChannelTitle);
@@ -96,13 +108,21 @@ describe("services/rss fetchFeed", () => {
     jest.restoreAllMocks();
   });
 
-  function mockFetchResponse({ ok = true, status = 200, contentType = "application/rss+xml", body = RSS_SAMPLE } = {}) {
-    global.fetch = jest.fn().mockResolvedValue({
-      ok,
+  // Builds a fetch-like Response whose headers.get is case-insensitive.
+  function makeResp({ ok, status = 200, headers = {}, body = RSS_SAMPLE } = {}) {
+    const lower = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
+    return {
+      ok: ok ?? (status >= 200 && status < 300),
       status,
-      headers: { get: (h) => (h.toLowerCase() === "content-type" ? contentType : null) },
+      headers: { get: (h) => lower[h.toLowerCase()] ?? null },
       text: async () => body,
-    });
+    };
+  }
+
+  function mockFetchResponse({ ok = true, status = 200, contentType = "application/rss+xml", body = RSS_SAMPLE, headers = {} } = {}) {
+    global.fetch = jest.fn().mockResolvedValue(
+      makeResp({ ok, status, body, headers: { "content-type": contentType, ...headers } }),
+    );
   }
 
   test("rejects non-public URLs before making a request (SSRF guard)", async () => {
@@ -133,6 +153,81 @@ describe("services/rss fetchFeed", () => {
   test("throws on obviously wrong content-type", async () => {
     mockFetchResponse({ contentType: "image/png" });
     await expect(fetchFeed("https://example.com/feed")).rejects.toThrow(/content-type/i);
+  });
+
+  test("follows a redirect to another public host and parses it", async () => {
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(makeResp({ status: 301, headers: { location: "https://b.example.com/feed.xml" } }))
+      .mockResolvedValueOnce(makeResp({ status: 200, headers: { "content-type": "application/rss+xml" }, body: RSS_SAMPLE }));
+
+    const parsed = await fetchFeed("https://a.example.com/feed");
+    expect(parsed.items).toHaveLength(2);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    // Redirects are followed manually so each hop can be revalidated.
+    expect(global.fetch.mock.calls[0][1].redirect).toBe("manual");
+  });
+
+  test("blocks a redirect that points at an internal target (SSRF via redirect)", async () => {
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(makeResp({ status: 302, headers: { location: "http://169.254.169.254/latest/meta-data" } }));
+
+    await expect(fetchFeed("https://a.example.com/feed")).rejects.toThrow(/non-public URL blocked/i);
+    // The internal hop is never actually requested.
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  test("resolves and revalidates a relative redirect", async () => {
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(makeResp({ status: 307, headers: { location: "/moved/feed.xml" } }))
+      .mockResolvedValueOnce(makeResp({ status: 200, headers: { "content-type": "application/rss+xml" }, body: RSS_SAMPLE }));
+
+    await fetchFeed("https://a.example.com/feed");
+    expect(global.fetch.mock.calls[1][0]).toBe("https://a.example.com/moved/feed.xml");
+  });
+
+  test("stops after too many redirects", async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      makeResp({ status: 302, headers: { location: "https://a.example.com/loop" } }),
+    );
+    await expect(fetchFeed("https://a.example.com/feed")).rejects.toThrow(/exceeded .* redirects/i);
+  });
+
+  test("rejects a feed whose declared content-length exceeds the cap", async () => {
+    mockFetchResponse({ headers: { "content-length": String(6_000_000) } });
+    await expect(fetchFeed("https://example.com/feed")).rejects.toThrow(/too large/i);
+  });
+
+  test("caps a streamed (chunked) body at the byte limit", async () => {
+    // A body larger than the 5 MB cap, delivered as a stream with no
+    // content-length, must be truncated rather than fully buffered.
+    const head = "<rss version=\"2.0\"><channel><title>Big</title><item><title>x</title><description>hi</description></item>";
+    const oversized = `${head}${"y".repeat(6_000_000)}</channel></rss>`;
+    const encoded = new TextEncoder().encode(oversized);
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: (h) => (h.toLowerCase() === "content-type" ? "application/rss+xml" : null) },
+      body: {
+        getReader() {
+          let offset = 0;
+          const CHUNK = 1_000_000;
+          return {
+            async read() {
+              if (offset >= encoded.length) return { done: true, value: undefined };
+              const value = encoded.subarray(offset, offset + CHUNK);
+              offset += CHUNK;
+              return { done: false, value };
+            },
+            async cancel() { offset = encoded.length; },
+          };
+        },
+      },
+    });
+
+    // It still parses (the <item> is within the first 5 MB) without buffering
+    // the whole 6 MB body.
+    const parsed = await fetchFeed("https://example.com/feed");
+    expect(parsed.feedTitle).toBe("Big");
   });
 });
 
