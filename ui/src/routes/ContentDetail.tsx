@@ -1,5 +1,5 @@
 import type { FormEvent, ReactElement } from 'react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useApiFetch } from '../auth/useApiFetch';
 import {
@@ -12,8 +12,10 @@ import {
   updateContent,
 } from '../api/content';
 import { createVoiceSample } from '../api/voice';
-import type { Content, ContentAnswer, ContentStatus } from '../api/types';
+import { CROSSPOST_PLATFORMS, crosspostBlog, getCrosspostStatus } from '../api/blogs';
+import type { Content, ContentAnswer, ContentStatus, CrosspostPlatform, CrosspostStatus } from '../api/types';
 import Markdown from '../components/MarkdownLazy';
+import CampaignDetail from './CampaignDetail';
 
 const CONTENT_STATUSES: ContentStatus[] = ['draft', 'scheduled', 'published', 'archived'];
 
@@ -50,57 +52,80 @@ export default function ContentDetail(): ReactElement {
   if (error) return <p className="form-error">Could not load content: {error}</p>;
   if (!content) return <p className="text-muted-foreground">Not found.</p>;
 
+  // A legacy Blog-only row surfaced in the unified catalog has no Content row,
+  // so Content-only controls (status, sponsorship) don't apply. Cross-post
+  // reads the Blog entity, so it's only offered when a Blog row backs the piece.
+  const contentBacked = content.content_backed !== false;
+  const blogBacked = Boolean(content.blog_backed);
+
   return (
-    <section className="space-y-6 max-w-3xl">
-      <div>
-        <Link to="/content" className="btn-link text-sm">← All content</Link>
+    <section className="space-y-8">
+      {/* The content itself reads best in a narrow column; the embedded
+          sponsorship workspace below gets full width for its tables/charts. */}
+      <div className="max-w-3xl space-y-6">
+        <div>
+          <Link to="/content" className="btn-link text-sm">← All content</Link>
+        </div>
+
+        <header className="space-y-2">
+          <h1 className="text-2xl font-semibold text-foreground">{content.title}</h1>
+          <p className="text-xs text-muted-foreground">
+            {content.slug} · created {fmtDate(content.created_at)}
+            {content.updated_at && content.updated_at !== content.created_at && ` · updated ${fmtDate(content.updated_at)}`}
+          </p>
+          <div className="flex flex-wrap items-center gap-1">
+            {content.type && (
+              <span className="px-2 py-0.5 rounded-full text-xs bg-primary-100 text-primary-700">{content.type}</span>
+            )}
+            {content.status && (
+              <span className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">{content.status}</span>
+            )}
+            {content.source && (
+              <span className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">{content.source}</span>
+            )}
+          </div>
+          {content.canonical_url && (
+            <div className="flex flex-wrap gap-3 text-sm pt-1">
+              <a href={content.canonical_url} target="_blank" rel="noreferrer noopener" className="btn-link">Canonical ↗</a>
+            </div>
+          )}
+        </header>
+
+        <ActionsRow
+          content={content}
+          apiFetch={apiFetch}
+          canEditStatus={contentBacked}
+          onChanged={setContent}
+          onDeleted={() => navigate('/content')}
+        />
+
+        {content.content_markdown ? (
+          <article className="card card-body text-sm">
+            <Markdown>{content.content_markdown}</Markdown>
+          </article>
+        ) : (
+          <p className="text-sm text-muted-foreground">This piece has no stored body.</p>
+        )}
+
+        {blogBacked && (
+          <CrosspostPanel contentId={content.content_id} apiFetch={apiFetch} />
+        )}
+
+        <AskPanel contentId={content.content_id} apiFetch={apiFetch} />
       </div>
 
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold text-foreground">{content.title}</h1>
-        <p className="text-xs text-muted-foreground">
-          {content.slug} · created {fmtDate(content.created_at)}
-          {content.updated_at && content.updated_at !== content.created_at && ` · updated ${fmtDate(content.updated_at)}`}
-        </p>
-        <div className="flex flex-wrap items-center gap-1">
-          {content.type && (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-primary-100 text-primary-700">{content.type}</span>
-          )}
-          {content.status && (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">{content.status}</span>
-          )}
-          {content.source && (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">{content.source}</span>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-3 text-sm pt-1">
-          {content.canonical_url && (
-            <a href={content.canonical_url} target="_blank" rel="noreferrer noopener" className="btn-link">Canonical ↗</a>
-          )}
-          {content.campaign_id && (
-            <Link to={`/campaigns/${content.campaign_id}`} className="btn-link">Sponsorship ↗</Link>
-          )}
-        </div>
-      </header>
-
-      <SponsorshipRow content={content} apiFetch={apiFetch} onChanged={setContent} />
-
-      <ActionsRow
-        content={content}
-        apiFetch={apiFetch}
-        onChanged={setContent}
-        onDeleted={() => navigate('/content')}
-      />
-
-      {content.content_markdown ? (
-        <article className="card card-body text-sm">
-          <Markdown>{content.content_markdown}</Markdown>
-        </article>
-      ) : (
-        <p className="text-sm text-muted-foreground">This piece has no stored body.</p>
+      {/* Sponsorship: attach/create/detach, and — when attached — the full
+          campaign workspace hangs off the content piece right here. Hidden for
+          legacy Blog-only rows, whose /content mutation routes don't apply. */}
+      {contentBacked && (
+        <SponsorshipRow content={content} apiFetch={apiFetch} onChanged={setContent} />
       )}
 
-      <AskPanel contentId={content.content_id} apiFetch={apiFetch} />
+      {contentBacked && content.campaign_id && (
+        <div className="border-t border-border pt-6">
+          <CampaignDetail campaignId={content.campaign_id} />
+        </div>
+      )}
     </section>
   );
 }
@@ -223,10 +248,11 @@ function SponsorshipRow({
 }
 
 function ActionsRow({
-  content, apiFetch, onChanged, onDeleted,
+  content, apiFetch, canEditStatus, onChanged, onDeleted,
 }: {
   content: Content;
   apiFetch: ReturnType<typeof useApiFetch>;
+  canEditStatus: boolean;
   onChanged: (c: Content) => void;
   onDeleted: () => void;
 }): ReactElement {
@@ -279,19 +305,21 @@ function ActionsRow({
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          Status
-          <select
-            className="input w-auto py-1"
-            value={content.status ?? 'draft'}
-            onChange={(e) => void changeStatus(e.target.value as ContentStatus)}
-            disabled={statusBusy}
-          >
-            {CONTENT_STATUSES.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-        </label>
+        {canEditStatus && (
+          <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            Status
+            <select
+              className="input w-auto py-1"
+              value={content.status ?? 'draft'}
+              onChange={(e) => void changeStatus(e.target.value as ContentStatus)}
+              disabled={statusBusy}
+            >
+              {CONTENT_STATUSES.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <button type="button" className="btn-secondary btn-sm" onClick={() => void saveToVoice()} disabled={saveState !== 'idle'}>
           {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved to voice ✓' : 'Save to voice'}
         </button>
@@ -309,6 +337,107 @@ function ActionsRow({
         )}
       </div>
       {error && <p className="form-error">{error}</p>}
+    </div>
+  );
+}
+
+// Cross-post a blog-type piece to dev.to / Medium / Hashnode. Reuses the
+// blog crosspost endpoints (keyed by id; a blog piece's content_id is its
+// blog id), folded in here now that the standalone Blogs page is retired.
+function CrosspostPanel({ contentId, apiFetch }: { contentId: string; apiFetch: ReturnType<typeof useApiFetch> }): ReactElement {
+  const [selected, setSelected] = useState<Set<CrosspostPlatform>>(new Set());
+  const [staggerDays, setStaggerDays] = useState('');
+  const [status, setStatus] = useState<CrosspostStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadStatus = useCallback(async () => {
+    try {
+      setStatus(await getCrosspostStatus(apiFetch, contentId));
+    } catch {
+      // No run yet / not found — leave status null.
+    }
+  }, [apiFetch, contentId]);
+
+  useEffect(() => { void loadStatus(); }, [loadStatus]);
+
+  const toggle = (p: CrosspostPlatform): void => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(p)) next.delete(p); else next.add(p);
+      return next;
+    });
+  };
+
+  const submit = async (e: FormEvent): Promise<void> => {
+    e.preventDefault();
+    if (busy || selected.size === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const days = staggerDays.trim() ? Number(staggerDays) : undefined;
+      await crosspostBlog(apiFetch, contentId, [...selected], days);
+      await loadStatus();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card card-body space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-foreground">Cross-post</h2>
+        <button type="button" className="btn-link text-xs" onClick={() => void loadStatus()}>Refresh status</button>
+      </div>
+
+      <form onSubmit={submit} className="space-y-3">
+        <div className="flex flex-wrap gap-3">
+          {CROSSPOST_PLATFORMS.map((p) => (
+            <label key={p} className="flex items-center gap-1.5 text-sm capitalize">
+              <input type="checkbox" checked={selected.has(p)} onChange={() => toggle(p)} disabled={busy} />
+              {p === 'dev' ? 'DEV' : p}
+            </label>
+          ))}
+          <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            stagger
+            <input
+              type="number" min={0} max={28} className="input w-16 py-1"
+              value={staggerDays} onChange={(e) => setStaggerDays(e.target.value)} placeholder="0" disabled={busy}
+            />
+            days
+          </label>
+          <button type="submit" className="btn-secondary btn-sm" disabled={busy || selected.size === 0}>
+            {busy ? 'Starting…' : 'Cross-post'}
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Requires platform credentials configured in Settings. Staggering spaces the publishes apart.
+        </p>
+      </form>
+
+      {error && <p className="form-error">{error}</p>}
+
+      {status?.platforms && status.platforms.length > 0 && (
+        <div className="space-y-1 border-t border-border pt-3">
+          <h3 className="field-label">Status{status.run ? ` · ${status.run.status}` : ''}</h3>
+          <ul className="space-y-1 text-sm">
+            {status.platforms.map((c) => (
+              <li key={c.platform} className="flex items-center justify-between gap-3">
+                <span className="capitalize text-foreground">{c.platform}</span>
+                <span className="text-muted-foreground">
+                  {c.url ? (
+                    <a href={c.url} target="_blank" rel="noreferrer noopener" className="btn-link">{c.status} ↗</a>
+                  ) : (
+                    c.error ? `error: ${c.error}` : c.status
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

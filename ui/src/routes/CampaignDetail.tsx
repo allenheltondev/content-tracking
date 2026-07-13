@@ -75,8 +75,14 @@ interface CampaignBundle {
   draft: CampaignDraft | null;
 }
 
-export default function CampaignDetail(): ReactElement {
-  const { campaignId } = useParams<{ campaignId: string }>();
+// Renders the campaign workspace (header editors + Overview/Brief/Draft/
+// Promotion/Analytics/Reports tabs). Normally a route keyed off the URL's
+// :campaignId, but it also accepts an explicit `campaignId` prop so the
+// content detail page can embed the same workspace inline for the sponsorship
+// that hangs off a piece of content — no duplicated orchestration.
+export default function CampaignDetail({ campaignId: campaignIdProp }: { campaignId?: string } = {}): ReactElement {
+  const routeParams = useParams<{ campaignId: string }>();
+  const campaignId = campaignIdProp ?? routeParams.campaignId;
   const [searchParams, setSearchParams] = useSearchParams();
   const apiFetch = useApiFetch();
 
