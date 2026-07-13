@@ -127,6 +127,14 @@ describe("domain/content", () => {
         contentMarkdown: "b", campaignId: "MISSING",
       })).rejects.toThrow(/Campaign MISSING not found/);
     });
+
+    test("404s a campaign owned by another tenant (no existence leak)", async () => {
+      mockSend.mockResolvedValueOnce({ Item: { campaignId: "CMP1", tenantId: "other-tenant" } }); // findCampaign
+      await expect(createContent(TENANT, {
+        title: "x", type: "blog", slug: "x", canonicalUrl: "https://x/y",
+        contentMarkdown: "b", campaignId: "CMP1",
+      })).rejects.toThrow(/Campaign CMP1 not found/);
+    });
   });
 
   describe("attachCampaign / detachCampaign", () => {

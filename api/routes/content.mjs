@@ -233,7 +233,9 @@ export function registerContentRoutes(app) {
     }
 
     const fields = validateCampaignCreate(parseBody(event));
-    const campaign = await createCampaign(fields);
+    // Stamp the owner so the campaign is tenant-scoped from creation; the
+    // content↔campaign guard enforces ownership on subsequent attaches.
+    const campaign = await createCampaign({ ...fields, tenantId });
     await attachCampaign(tenantId, contentId, campaign.campaignId);
     return jsonResponse(201, formatCampaign({ ...campaign, contentId }));
   }));

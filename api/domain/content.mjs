@@ -129,7 +129,7 @@ export async function createContent(tenantId, fields) {
   // campaign's contentId/tenantId back-pointer atomically so the 1:1 link can
   // never be half-created. The campaign must exist and must not already be
   // attached to a different content piece.
-  await assertCampaignAvailable(campaignId);
+  await assertCampaignAvailable(campaignId, tenantId);
   item.campaignId = campaignId;
   try {
     await ddb.send(new TransactWriteCommand({
@@ -144,12 +144,20 @@ export async function createContent(tenantId, fields) {
   return item;
 }
 
-// Reads the campaign and rejects a missing one (404) or one already attached
-// to another content piece (409) before an attach transaction runs, so the
-// caller gets a precise error instead of an opaque TransactionCanceled.
-async function assertCampaignAvailable(campaignId, forContentId) {
+// Reads the campaign and rejects a missing one (404), one owned by another
+// tenant (404 — don't leak existence), or one already attached to another
+// content piece (409), before an attach transaction runs, so the caller gets a
+// precise error instead of an opaque TransactionCanceled.
+//
+// Ownership: campaigns are stamped with `tenantId` at creation via the content
+// sponsorship flow. Legacy campaigns created before that carry no tenantId and
+// are grandfathered (existence-only), matching the app's no-backfill stance.
+async function assertCampaignAvailable(campaignId, tenantId, forContentId) {
   const campaign = await findCampaign(campaignId);
   if (!campaign) {
+    throw new NotFoundError("Campaign", campaignId);
+  }
+  if (campaign.tenantId && campaign.tenantId !== tenantId) {
     throw new NotFoundError("Campaign", campaignId);
   }
   if (campaign.contentId && campaign.contentId !== forContentId) {
@@ -338,7 +346,7 @@ export async function updateContent(tenantId, contentId, fields) {
 // pair. Returns the updated content root.
 export async function attachCampaign(tenantId, contentId, campaignId) {
   await getContent(tenantId, contentId); // 404 if the content doesn't exist
-  await assertCampaignAvailable(campaignId, contentId);
+  await assertCampaignAvailable(campaignId, tenantId, contentId);
 
   try {
     await ddb.send(new TransactWriteCommand({
