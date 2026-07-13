@@ -5,11 +5,12 @@ jest.unstable_mockModule("../../api/services/voice-memory.mjs", () => ({
   recordVoiceSample: jest.fn(),
   captureContentVoiceSample: jest.fn(),
   removeContentVoiceSample: jest.fn(),
+  maybeReflect: jest.fn(),
   // The real eligibility gate: published blogs with text feed the voice.
   isVoiceEligibleContent: (c) => c?.type === "blog" && c?.status === "published" && Boolean(c?.title),
 }));
 
-const { recordVoiceSample, captureContentVoiceSample, removeContentVoiceSample } =
+const { recordVoiceSample, captureContentVoiceSample, removeContentVoiceSample, maybeReflect } =
   await import("../../api/services/voice-memory.mjs");
 const { handler } = await import("./index.mjs");
 
@@ -49,6 +50,7 @@ beforeEach(() => {
   recordVoiceSample.mockResolvedValue({ count: 1 });
   captureContentVoiceSample.mockResolvedValue({ sampleId: "CONTENT-C1" });
   removeContentVoiceSample.mockResolvedValue({ sampleId: "CONTENT-C1" });
+  maybeReflect.mockResolvedValue({ reflected: true });
 });
 
 describe("VoiceSample records", () => {
@@ -143,4 +145,28 @@ test("ignores unexpected entities (defense behind the stream filter)", async () 
   await handler({ Records: [record("INSERT", { ...sampleImage, entity: "Blog" })] });
   expect(recordVoiceSample).not.toHaveBeenCalled();
   expect(captureContentVoiceSample).not.toHaveBeenCalled();
+});
+
+describe("SQS reflection catch-ups", () => {
+  const sqsRecord = (body) => ({ eventSource: "aws:sqs", body: typeof body === "string" ? body : JSON.stringify(body) });
+
+  test("routes a catch-up to a coalesced reflection", async () => {
+    await handler({ Records: [sqsRecord({ type: "reflection-catchup", tenantId: "T1", platform: "blog" })] });
+    expect(maybeReflect).toHaveBeenCalledWith("T1", "blog");
+    expect(recordVoiceSample).not.toHaveBeenCalled();
+  });
+
+  test("ignores an unparseable or incomplete catch-up", async () => {
+    await handler({ Records: [sqsRecord("not json"), sqsRecord({ tenantId: "T1" })] });
+    expect(maybeReflect).not.toHaveBeenCalled();
+  });
+
+  test("a mixed batch dispatches each record by its event source", async () => {
+    await handler({ Records: [
+      record("INSERT", sampleImage),
+      sqsRecord({ tenantId: "T1", platform: "x" }),
+    ] });
+    expect(recordVoiceSample).toHaveBeenCalledTimes(1);
+    expect(maybeReflect).toHaveBeenCalledWith("T1", "x");
+  });
 });

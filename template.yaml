@@ -848,6 +848,23 @@ Resources:
       QueueName: !Sub "content-tracking-voice-memory-dlq-${Environment}"
       MessageRetentionPeriod: 1209600 # 14 days
 
+  # Trailing-reflection timer. Under bursty ingress (e.g. a backfill) the voice
+  # pipeline coalesces reflections to at most one per cooldown window; each
+  # reflection enqueues one delayed catch-up here so the burst's tail still
+  # converges after ingress goes quiet — no manual reflect, no threshold change.
+  # VisibilityTimeout covers the function timeout; short retention because a
+  # catch-up is only relevant for a few minutes; poison messages fall through to
+  # the shared VoiceMemoryDLQ.
+  VoiceReflectionQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "content-tracking-voice-reflection-${Environment}"
+      VisibilityTimeout: 360
+      MessageRetentionPeriod: 3600 # 1 hour
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt VoiceMemoryDLQ.Arn
+        maxReceiveCount: 3
+
   # Second consumer on the SAME table stream (its own event-source mapping +
   # iterator), filtered to VoiceSample rows and blog Content roots. Published
   # blog content is auto-captured as a recency-anchored voice sample; each
@@ -871,6 +888,10 @@ Resources:
       Timeout: 300
       # EMBEDDING_MODEL_ID / BEDROCK_MODEL_ID / VECTOR_BUCKET_NAME /
       # VOICE_VECTOR_INDEX_NAME / REFLECTION_THRESHOLD inherited from Globals.
+      Environment:
+        Variables:
+          # Where reflection catch-ups are enqueued (the trailing-edge timer).
+          VOICE_REFLECTION_QUEUE_URL: !Ref VoiceReflectionQueue
       Events:
         VoiceStream:
           Type: DynamoDB
@@ -899,6 +920,15 @@ Resources:
             DestinationConfig:
               OnFailure:
                 Destination: !GetAtt VoiceMemoryDLQ.Arn
+        # Trailing-reflection catch-ups. Delivered from the delay queue after a
+        # burst's cooldown so the tail converges without a manual reflect.
+        # BatchSize 1 keeps each catch-up independent; SAM grants the poller the
+        # Receive/Delete/GetQueueAttributes permissions automatically.
+        ReflectionCatchup:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt VoiceReflectionQueue.Arn
+            BatchSize: 1
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: 2012-10-17
@@ -913,6 +943,12 @@ Resources:
               Resource:
                 - !GetAtt ContentTrackingTable.StreamArn
                 - !Sub "${ContentTrackingTable.StreamArn}/*"
+            # Enqueue trailing-reflection catch-ups onto the delay queue.
+            - Effect: Allow
+              Action:
+                - sqs:SendMessage
+              Resource:
+                - !GetAtt VoiceReflectionQueue.Arn
             # Sentinel mark on the sample, counter bump + profile + reflection
             # rows, the recent-samples Query that feeds the reflection, the
             # auto-captured VoiceSample rows derived from blog Content, and

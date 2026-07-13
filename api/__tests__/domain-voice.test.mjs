@@ -13,6 +13,7 @@ const {
   deleteVoiceSampleRow,
   setVoiceSampleMuted,
   setVoiceSteering,
+  claimReflectionSlot,
   countSampleOnce,
   getVoiceProfile,
   listProfiles,
@@ -158,6 +159,43 @@ describe("domain/voice", () => {
     await setVoiceSampleMuted(TENANT, "x", "S1", false);
     expect(input(mockSend, 1).UpdateExpression).toBe("REMOVE muted");
     expect(input(mockSend, 1).ExpressionAttributeValues).toBeUndefined();
+  });
+
+  test("putVoiceProfile stamps lastReflectionAtMs for the cooldown gate", async () => {
+    mockSend.mockResolvedValue({});
+    const item = await putVoiceProfile(TENANT, "x", { profile: {}, version: 1 });
+    expect(typeof item.lastReflectionAtMs).toBe("number");
+  });
+
+  describe("claimReflectionSlot", () => {
+    const opts = { now: 1_000_000, cooldownMs: 60_000, leaseMs: 300_000, threshold: 5 };
+
+    test("claims by conditionally stamping reflectionClaimedAt", async () => {
+      mockSend.mockResolvedValueOnce({});
+      expect(await claimReflectionSlot(TENANT, "x", opts)).toBe(true);
+      const cmd = input(mockSend, 0);
+      expect(cmd.UpdateExpression).toBe("SET reflectionClaimedAt = :now");
+      // Dirty + cooldown-elapsed + not-currently-leased are all required.
+      expect(cmd.ConditionExpression).toContain("samplesSinceReflection >= :threshold");
+      expect(cmd.ConditionExpression).toContain("lastReflectionAtMs <= :cooldownCutoff");
+      expect(cmd.ConditionExpression).toContain("reflectionClaimedAt <= :leaseCutoff");
+      expect(cmd.ExpressionAttributeValues).toEqual({
+        ":now": 1_000_000,
+        ":threshold": 5,
+        ":cooldownCutoff": 1_000_000 - 60_000,
+        ":leaseCutoff": 1_000_000 - 300_000,
+      });
+    });
+
+    test("returns false (coalesced) when the condition fails", async () => {
+      mockSend.mockRejectedValueOnce(new ConditionalCheckFailedException({ $metadata: {}, message: "no" }));
+      expect(await claimReflectionSlot(TENANT, "x", opts)).toBe(false);
+    });
+
+    test("rethrows non-conditional errors", async () => {
+      mockSend.mockRejectedValueOnce(new Error("throttled"));
+      await expect(claimReflectionSlot(TENANT, "x", opts)).rejects.toThrow("throttled");
+    });
   });
 
   test("setVoiceSampleMuted throws NotFound when the sample is absent", async () => {

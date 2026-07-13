@@ -275,7 +275,8 @@ export async function listProfiles(tenantId) {
 // intent note) is preserved too — this Put overwrites the whole row, so the
 // caller passes the current note back in or it would be lost.
 export async function putVoiceProfile(tenantId, platform, { profile, version, createdAt, steering }) {
-  const now = new Date().toISOString();
+  const nowIso = new Date().toISOString();
+  const nowMs = Date.now();
   const item = {
     ...voiceProfileKey(tenantId, platform),
     entity: "VoiceProfile",
@@ -284,14 +285,50 @@ export async function putVoiceProfile(tenantId, platform, { profile, version, cr
     profile,
     samplesSinceReflection: 0,
     version,
-    createdAt: createdAt ?? now,
-    updatedAt: now,
+    createdAt: createdAt ?? nowIso,
+    updatedAt: nowIso,
+    // Stamp the reflection time (epoch ms) for the cooldown gate, and — because
+    // this Put replaces the whole row — implicitly release any reflection claim.
+    lastReflectionAtMs: nowMs,
   };
   if (steering) {
     item.steering = steering;
   }
   await ddb.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
   return item;
+}
+
+// Atomically claims the right to run a reflection for this platform, gating the
+// automatic (stream-driven) path so bursty ingress can't stampede Bedrock. The
+// claim succeeds only when the profile is dirty (>= threshold new samples), the
+// cooldown since the last reflection has elapsed, and no other claim is live
+// (a claim older than the lease is considered abandoned — e.g. a crashed
+// reflection — and can be re-taken). Returns true iff this caller won the slot
+// and should run the reflection; concurrent/rapid callers get false and skip.
+export async function claimReflectionSlot(tenantId, platform, { now, cooldownMs, leaseMs, threshold }) {
+  try {
+    await ddb.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: voiceProfileKey(tenantId, platform),
+      UpdateExpression: "SET reflectionClaimedAt = :now",
+      ConditionExpression:
+        "attribute_exists(sk) AND samplesSinceReflection >= :threshold "
+        + "AND (attribute_not_exists(lastReflectionAtMs) OR lastReflectionAtMs <= :cooldownCutoff) "
+        + "AND (attribute_not_exists(reflectionClaimedAt) OR reflectionClaimedAt <= :leaseCutoff)",
+      ExpressionAttributeValues: {
+        ":now": now,
+        ":threshold": threshold,
+        ":cooldownCutoff": now - cooldownMs,
+        ":leaseCutoff": now - leaseMs,
+      },
+    }));
+    return true;
+  } catch (err) {
+    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
+      return false;
+    }
+    throw err;
+  }
 }
 
 // Records a reflection in the audit trail (one row per profile update).

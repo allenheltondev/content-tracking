@@ -11,7 +11,9 @@ jest.unstable_mockModule("../services/voice-vectors.mjs", () => ({
   deleteVoiceSample: jest.fn(),
 }));
 jest.unstable_mockModule("../services/bedrock.mjs", () => ({ reflectVoiceProfile: jest.fn() }));
+jest.unstable_mockModule("../services/reflection-queue.mjs", () => ({ enqueueReflectionCatchup: jest.fn() }));
 jest.unstable_mockModule("../domain/voice.mjs", () => ({
+  claimReflectionSlot: jest.fn(),
   countSampleOnce: jest.fn(),
   createVoiceSample: jest.fn(),
   deleteVoiceSampleRow: jest.fn(),
@@ -25,13 +27,14 @@ jest.unstable_mockModule("../domain/voice.mjs", () => ({
 const { embedText } = await import("../services/embeddings.mjs");
 const { putVoiceSample, deleteVoiceSample } = await import("../services/voice-vectors.mjs");
 const { reflectVoiceProfile } = await import("../services/bedrock.mjs");
+const { enqueueReflectionCatchup } = await import("../services/reflection-queue.mjs");
 const { NotFoundError } = await import("../services/errors.mjs");
 const {
-  countSampleOnce, createVoiceSample, deleteVoiceSampleRow, listRecentSamples,
+  claimReflectionSlot, countSampleOnce, createVoiceSample, deleteVoiceSampleRow, listRecentSamples,
   getVoiceProfile, getVoiceSample, putVoiceProfile, createReflection,
 } = await import("../domain/voice.mjs");
 const {
-  recordVoiceSample, runReflection,
+  recordVoiceSample, runReflection, maybeReflect,
   captureContentVoiceSample, removeContentVoiceSample,
   buildContentSampleText, contentVoiceSampleId, isVoiceEligibleContent,
 } = await import("../services/voice-memory.mjs");
@@ -55,6 +58,8 @@ beforeEach(() => {
   ]);
   getVoiceProfile.mockResolvedValue(null);
   getVoiceSample.mockResolvedValue(null);
+  claimReflectionSlot.mockResolvedValue(true);
+  enqueueReflectionCatchup.mockResolvedValue({ enqueued: true });
   reflectVoiceProfile.mockResolvedValue({ profile: { tone: "wry", portrait: "You write plainly." }, change_summary: "built it" });
   putVoiceProfile.mockResolvedValue({});
   createReflection.mockResolvedValue({});
@@ -91,12 +96,22 @@ describe("recordVoiceSample", () => {
     expect(countSampleOnce).not.toHaveBeenCalled();
   });
 
-  test("triggers reflection once the counter reaches the threshold", async () => {
+  test("triggers a coalesced reflection once the counter reaches the threshold", async () => {
     countSampleOnce.mockResolvedValue({ counted: true, count: 3 });
     await recordVoiceSample(sample);
+    expect(claimReflectionSlot).toHaveBeenCalledWith("T1", "x", expect.objectContaining({ threshold: 3 }));
     expect(reflectVoiceProfile).toHaveBeenCalledTimes(1);
     expect(putVoiceProfile).toHaveBeenCalledWith("T1", "x", expect.objectContaining({ version: 1 }));
     expect(createReflection).toHaveBeenCalledTimes(1);
+  });
+
+  test("coalesces: when the reflection slot is taken, it skips Bedrock entirely", async () => {
+    countSampleOnce.mockResolvedValue({ counted: true, count: 9 });
+    claimReflectionSlot.mockResolvedValue(false); // another reflection ran recently / in flight
+    const res = await recordVoiceSample(sample);
+    expect(res).toEqual({ count: 9 });
+    expect(reflectVoiceProfile).not.toHaveBeenCalled();
+    expect(enqueueReflectionCatchup).not.toHaveBeenCalled();
   });
 
   test("redelivery (already counted) skips reflection but re-puts the vector", async () => {
@@ -199,6 +214,39 @@ describe("runReflection", () => {
     listRecentSamples.mockResolvedValue([]);
     expect(await runReflection("T1", "x")).toBeNull();
     expect(reflectVoiceProfile).not.toHaveBeenCalled();
+  });
+});
+
+describe("maybeReflect (coalescing)", () => {
+  test("on a won claim, enqueues the trailing catch-up BEFORE reflecting", async () => {
+    const order = [];
+    enqueueReflectionCatchup.mockImplementation(async () => { order.push("enqueue"); return {}; });
+    reflectVoiceProfile.mockImplementation(async () => { order.push("reflect"); return { profile: {}, change_summary: "s" }; });
+    const res = await maybeReflect("T1", "x");
+    expect(res.reflected).toBe(true);
+    expect(order).toEqual(["enqueue", "reflect"]); // catch-up guaranteed even if reflect then throttles
+  });
+
+  test("on a lost claim, does not enqueue or reflect", async () => {
+    claimReflectionSlot.mockResolvedValue(false);
+    const res = await maybeReflect("T1", "x");
+    expect(res).toEqual({ reflected: false, reason: "coalesced" });
+    expect(enqueueReflectionCatchup).not.toHaveBeenCalled();
+    expect(reflectVoiceProfile).not.toHaveBeenCalled();
+  });
+
+  test("a reflection failure is swallowed (the catch-up will retry)", async () => {
+    reflectVoiceProfile.mockRejectedValue(new Error("bedrock throttled"));
+    const res = await maybeReflect("T1", "x");
+    expect(res).toEqual({ reflected: false, reason: "error" });
+    expect(enqueueReflectionCatchup).toHaveBeenCalledTimes(1); // enqueued before the failure
+  });
+
+  test("a catch-up enqueue failure does not block the reflection", async () => {
+    enqueueReflectionCatchup.mockRejectedValue(new Error("sqs down"));
+    const res = await maybeReflect("T1", "x");
+    expect(res.reflected).toBe(true);
+    expect(reflectVoiceProfile).toHaveBeenCalledTimes(1);
   });
 });
 

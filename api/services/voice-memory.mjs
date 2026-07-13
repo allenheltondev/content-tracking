@@ -4,7 +4,9 @@ import { reflectVoiceProfile } from "./bedrock.mjs";
 import { logger } from "./logger.mjs";
 import { NotFoundError } from "./errors.mjs";
 import { isEligibleSample, selectRecencyWeighted, voiceHalfLifeDays } from "./voice-recency.mjs";
+import { enqueueReflectionCatchup } from "./reflection-queue.mjs";
 import {
+  claimReflectionSlot,
   countSampleOnce,
   createReflection,
   createVoiceSample,
@@ -30,6 +32,21 @@ import {
 const REFLECTION_THRESHOLD = Number(process.env.REFLECTION_THRESHOLD ?? 5);
 const WINDOW = Math.max(REFLECTION_THRESHOLD, 10);
 const CANDIDATE_POOL = Math.max(WINDOW * 3, 30);
+
+// Automatic-reflection debounce. Under a burst (e.g. a 230-post backfill) a
+// naive "reflect every N samples" would fire dozens of Bedrock reflections in
+// minutes — a stampede that throttles and churns the profile. Instead the
+// stream path COALESCES: it reflects at most once per cooldown window (an
+// atomic claim picks a single winner), and each reflection enqueues a delayed
+// catch-up so the burst's tail still converges once ingress goes quiet. The
+// cooldown is the only knob; it does not need touching for bulk loads.
+const REFLECTION_COOLDOWN_SECONDS = Number(process.env.VOICE_REFLECTION_COOLDOWN_SECONDS ?? 60);
+const REFLECTION_COOLDOWN_MS = REFLECTION_COOLDOWN_SECONDS * 1000;
+// A claim older than the lease is treated as abandoned (a crashed reflection),
+// so a stuck claim can't block reflection forever.
+const REFLECTION_LEASE_MS = Number(process.env.VOICE_REFLECTION_LEASE_SECONDS ?? 300) * 1000;
+// Fire the catch-up just after the cooldown expires (SQS delay caps at 900s).
+const REFLECTION_CATCHUP_DELAY_SECONDS = Math.min(900, REFLECTION_COOLDOWN_SECONDS + 15);
 
 // A blog "voice sample" should be representative prose, not the whole (up to
 // 300KB) body — title + description + a leading excerpt captures the voice
@@ -82,9 +99,43 @@ export async function recordVoiceSample(sample) {
   logger.info("Recorded voice sample", { platform, sampleId, count });
 
   if (count >= REFLECTION_THRESHOLD) {
-    await runReflection(tenantId, platform);
+    await maybeReflect(tenantId, platform);
   }
   return { count };
+}
+
+// The COALESCED reflection entry point for the automatic (stream) path — both
+// the per-sample trigger and the SQS catch-up call this. It claims the single
+// reflection slot for the cooldown window; if it loses the claim (another
+// reflection ran recently, or is in flight, or the profile isn't dirty) it
+// simply skips — the pending catch-up or the next sample will cover it. On a
+// win it enqueues the next catch-up FIRST (so the tail still converges even if
+// the reflection then throttles) and runs the reflection best-effort. Never
+// throws, so a reflection hiccup never fails the caller's stream record.
+export async function maybeReflect(tenantId, platform) {
+  const claimed = await claimReflectionSlot(tenantId, platform, {
+    now: Date.now(),
+    cooldownMs: REFLECTION_COOLDOWN_MS,
+    leaseMs: REFLECTION_LEASE_MS,
+    threshold: REFLECTION_THRESHOLD,
+  });
+  if (!claimed) {
+    logger.info("Reflection coalesced — cooldown/claim not available", { platform });
+    return { reflected: false, reason: "coalesced" };
+  }
+
+  // Guarantee the trailing edge: even if ingress goes silent right after this,
+  // a catch-up will re-attempt a reflection once the cooldown expires.
+  await enqueueReflectionCatchup({ tenantId, platform, delaySeconds: REFLECTION_CATCHUP_DELAY_SECONDS })
+    .catch((err) => logger.warn("Failed to enqueue reflection catch-up (non-fatal)", { platform, error: err?.message }));
+
+  try {
+    const profile = await runReflection(tenantId, platform);
+    return { reflected: true, profile };
+  } catch (err) {
+    logger.warn("Reflection failed (will retry via catch-up)", { platform, error: err?.message });
+    return { reflected: false, reason: "error" };
+  }
 }
 
 // (Re)derives the platform's style profile from its recent samples. Called
