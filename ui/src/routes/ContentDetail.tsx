@@ -211,6 +211,7 @@ function EditContentForm({
   const [canonicalUrl, setCanonicalUrl] = useState(content.canonical_url ?? '');
   const [tags, setTags] = useState(content.tags.join(', '));
   const [categories, setCategories] = useState(content.categories.join(', '));
+  const [publishDate, setPublishDate] = useState(content.publish_date ?? '');
   const [markdown, setMarkdown] = useState(content.content_markdown ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -228,6 +229,7 @@ function EditContentForm({
         source,
         description: description.trim() ? description.trim() : null,
         canonical_url: canonicalUrl.trim() ? canonicalUrl.trim() : null,
+        publish_date: publishDate.trim() ? publishDate.trim() : null,
         tags: parseList(tags),
         categories: parseList(categories),
         ...(markdown.trim() ? { content_markdown: markdown } : {}),
@@ -285,10 +287,16 @@ function EditContentForm({
           <input className="input" value={categories} onChange={(e) => setCategories(e.target.value)} disabled={busy} />
         </label>
       </div>
-      <label className="block">
-        <span className="field-label">Canonical URL</span>
-        <input className="input" value={canonicalUrl} onChange={(e) => setCanonicalUrl(e.target.value)} placeholder="https://…" disabled={busy} />
-      </label>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="field-label">Canonical URL</span>
+          <input className="input" value={canonicalUrl} onChange={(e) => setCanonicalUrl(e.target.value)} placeholder="https://…" disabled={busy} />
+        </label>
+        <label className="block">
+          <span className="field-label">Publish date</span>
+          <input type="date" className="input" value={publishDate} onChange={(e) => setPublishDate(e.target.value)} disabled={busy} />
+        </label>
+      </div>
       {error && <p className="form-error">{error}</p>}
       <button type="submit" className="btn-primary" disabled={busy || !title.trim()}>
         {busy ? 'Saving…' : 'Save changes'}

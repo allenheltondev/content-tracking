@@ -74,6 +74,13 @@ describe("validation/content", () => {
       expect(() => validateContentCreate({ ...base, slug: "UPPER" })).toThrow(/kebab-case/);
     });
 
+    test("accepts and validates publish_date", () => {
+      const base = { title: "t", type: "blog", slug: "x", content_markdown: "b" };
+      expect(validateContentCreate({ ...base, publish_date: "2026-07-13" }).publishDate).toBe("2026-07-13");
+      expect(() => validateContentCreate({ ...base, publish_date: "07/13/2026" })).toThrow(/publish_date must be/);
+      expect(() => validateContentCreate({ ...base, publish_date: "2026-13-40" })).toThrow(/publish_date must be/);
+    });
+
     test("enumerations expose the documented values", () => {
       expect(CONTENT_TYPES).toEqual(["blog", "social", "video"]);
       expect(CONTENT_SOURCES).toEqual(["owned", "sponsored"]);
@@ -130,6 +137,7 @@ describe("validation/content", () => {
         canonical_url: "https://x/y",
         content_markdown: "# body",
         campaign_id: "camp-1",
+        publish_date: null,
         links: { url: "https://x/y" },
         created_at: "t0",
         updated_at: "t1",
