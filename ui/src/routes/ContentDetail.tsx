@@ -154,14 +154,16 @@ export default function ContentDetail(): ReactElement {
               <p className="text-sm text-muted-foreground">This piece has no stored body.</p>
             )}
 
-            {/* Content-backed blog pieces cross-post off the Content row
-                (works for content-native pieces too). Legacy Blog-only rows
-                keep the durable /blogs crosspost path. */}
-            {contentBacked && content.type === 'blog' && (
-              <ContentCrosspostPanel contentId={content.content_id} apiFetch={apiFetch} />
-            )}
-            {!contentBacked && blogBacked && (
+            {/* Any piece backed by a Blog row (legacy-only or migrated) uses
+                the durable /blogs crosspost path, whose dedupe accounts for the
+                existing blog crosspost history — so an article already published
+                there isn't offered for a duplicate repost. Only a content-native
+                blog piece (no Blog row) uses the synchronous content path. */}
+            {blogBacked && (
               <CrosspostPanel contentId={content.content_id} apiFetch={apiFetch} />
+            )}
+            {!blogBacked && contentBacked && content.type === 'blog' && (
+              <ContentCrosspostPanel contentId={content.content_id} apiFetch={apiFetch} />
             )}
 
             {contentBacked && (

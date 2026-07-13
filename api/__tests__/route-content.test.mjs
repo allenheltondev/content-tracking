@@ -301,6 +301,7 @@ describe("content publishing + analytics routes", () => {
   });
 
   test("PUT /stats records a snapshot for the day", async () => {
+    getContent.mockResolvedValue({ contentId: "C1" });
     putStatsSnapshot.mockResolvedValue({ platform: "devto", date: "2026-06-02", metrics: { views: 10 } });
     const res = await routes["PUT /content/:contentId/stats/:platform"](ctx({
       params: { contentId: "C1", platform: "devto" }, body: { metrics: { views: 10 }, captured_at: "2026-06-02T09:00:00Z" },
@@ -310,7 +311,16 @@ describe("content publishing + analytics routes", () => {
     expect(JSON.parse(res.body).metrics).toEqual({ views: 10 });
   });
 
+  test("PUT /stats 404s for content that does not exist (no orphan rows)", async () => {
+    getContent.mockRejectedValue(new Error("Content bad not found"));
+    await expect(routes["PUT /content/:contentId/stats/:platform"](ctx({
+      params: { contentId: "bad", platform: "devto" }, body: { metrics: { views: 1 } },
+    }))).rejects.toThrow(/Content bad not found/);
+    expect(putStatsSnapshot).not.toHaveBeenCalled();
+  });
+
   test("PUT /stats rejects non-numeric metrics", async () => {
+    getContent.mockResolvedValue({ contentId: "C1" });
     await expect(routes["PUT /content/:contentId/stats/:platform"](ctx({
       params: { contentId: "C1", platform: "devto" }, body: { metrics: { views: "lots" } },
     }))).rejects.toThrow(/non-negative finite number/);

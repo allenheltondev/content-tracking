@@ -277,6 +277,7 @@ export function registerContentRoutes(app) {
   // but for a piece of content's own performance.
   app.put("/content/:contentId/stats/:platform", async ({ event, params }) => {
     const tenantId = requireTenantId(event);
+    await getContent(tenantId, params.contentId); // 404 so stats can't orphan
     const platform = validatePlatform(params.platform);
     const { metrics, capturedAt } = validateStatsUpdate(parseBody(event));
     const date = (capturedAt ? new Date(capturedAt) : new Date()).toISOString().slice(0, 10);
