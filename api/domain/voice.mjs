@@ -26,8 +26,8 @@ import { tenantPartition } from "./blog.mjs";
 //
 // Only VoiceSample is watched by the stream consumer (VoiceMemoryFunction);
 // VoiceProfile / VoiceReflection carry different entity values so the
-// function's own writes never re-trigger it (mirrors the Blog / BlogVectorIndex
-// split in blog.mjs).
+// function's own writes never re-trigger it (mirrors the Content / content
+// vector-state split in content.mjs).
 
 export function voiceSampleKey(tenantId, platform, sampleId) {
   return { pk: tenantPartition(tenantId), sk: `VOICE#SAMPLE#${platform}#${sampleId}` };

@@ -38,7 +38,7 @@ if (!args.table || !args.bucket || !args.index) {
 // time (TABLE_NAME, VECTOR_BUCKET_NAME, CONTENT_VECTOR_INDEX_NAME,
 // EMBEDDING_MODEL_ID, BEDROCK_REGION), so set them BEFORE importing the core
 // below. Note the index env var is CONTENT_VECTOR_INDEX_NAME (the content
-// service's name), not the blog backfill's VECTOR_INDEX_NAME.
+// service's name), distinct from the voice service's VOICE_VECTOR_INDEX_NAME.
 process.env.TABLE_NAME = args.table;
 process.env.VECTOR_BUCKET_NAME = args.bucket;
 process.env.CONTENT_VECTOR_INDEX_NAME = args.index;

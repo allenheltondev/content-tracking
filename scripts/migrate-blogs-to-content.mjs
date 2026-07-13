@@ -28,7 +28,7 @@
 // is no domain helper that lists blog roots table-wide (listBlogsByTenant is
 // per-tenant via GSI1), so the lowest-risk approach is a one-shot paginated
 // ScanCommand filtered on entity = "Blog" — exactly the idiom established by
-// scripts/backfill-gsi1.mjs and scripts/backfill-blog-vectors.mjs. A one-shot
+// scripts/backfill-gsi1.mjs and scripts/backfill-content-vectors.mjs. A one-shot
 // Scan is acceptable precisely because this runs once.
 
 import { DynamoDBClient, paginateScan } from "@aws-sdk/client-dynamodb";

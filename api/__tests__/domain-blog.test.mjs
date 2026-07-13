@@ -7,20 +7,12 @@ const { DynamoDBDocumentClient } = await import("@aws-sdk/lib-dynamodb");
 const {
   createBlog,
   getBlog,
-  findBlog,
   listBlogsByTenant,
   listBlogsForCampaign,
   updateBlog,
   deleteBlog,
   blogKey,
-  crosspostCopyKey,
-  crosspostRunKey,
-  viewSnapshotKey,
   campaignRefKey,
-  startCrosspostRun,
-  recordCrosspostResult,
-  completeCrosspostRun,
-  getCrosspostStatus,
 } = await import("../domain/blog.mjs");
 
 // Pulls the typed command (TransactWrite / BatchWrite / etc.) out of a
@@ -44,9 +36,6 @@ describe("domain/blog", () => {
     test("scope every key under the tenant partition", () => {
       const pk = `TENANT#${TENANT}`;
       expect(blogKey(TENANT, "B1")).toEqual({ pk, sk: "BLOG#B1" });
-      expect(crosspostCopyKey(TENANT, "B1", "dev")).toEqual({ pk, sk: "BLOG#B1#CROSSPOST#dev" });
-      expect(crosspostRunKey(TENANT, "B1", "R1")).toEqual({ pk, sk: "BLOG#B1#RUN#R1" });
-      expect(viewSnapshotKey(TENANT, "B1", "2026-06-22")).toEqual({ pk, sk: "BLOG#B1#VIEWCOUNT#2026-06-22" });
       expect(campaignRefKey(TENANT, "C1", "B1")).toEqual({ pk, sk: "CAMPAIGNREF#C1#B1" });
     });
   });
@@ -90,7 +79,7 @@ describe("domain/blog", () => {
     });
   });
 
-  describe("getBlog / findBlog", () => {
+  describe("getBlog", () => {
     test("getBlog returns the item", async () => {
       mockSend.mockResolvedValue({ Item: { blogId: "B1", title: "Hi" } });
       expect(await getBlog(TENANT, "B1")).toEqual({ blogId: "B1", title: "Hi" });
@@ -100,11 +89,6 @@ describe("domain/blog", () => {
     test("getBlog throws NotFoundError when missing", async () => {
       mockSend.mockResolvedValue({});
       await expect(getBlog(TENANT, "B1")).rejects.toThrow(/Blog B1 not found/);
-    });
-
-    test("findBlog returns null when missing (does not throw)", async () => {
-      mockSend.mockResolvedValue({});
-      expect(await findBlog(TENANT, "B1")).toBeNull();
     });
   });
 
@@ -309,115 +293,6 @@ describe("domain/blog", () => {
         expect(await listBlogsForCampaign(TENANT, "camp-A")).toEqual([]);
         expect(mockSend).toHaveBeenCalledTimes(1);
       });
-    });
-  });
-
-  describe("cross-post writers", () => {
-    test("startCrosspostRun seeds the run + pending/scheduled copies", async () => {
-      mockSend
-        .mockResolvedValueOnce({ Items: [] }) // existing-copies query (none)
-        .mockResolvedValue({}); // batch write
-      const result = await startCrosspostRun(TENANT, "B1", {
-        runId: "R1",
-        platforms: [{ platform: "dev", delaySeconds: 0 }, { platform: "medium", delaySeconds: 259200 }],
-      });
-
-      const puts = callInput(mockSend, 1).RequestItems["test-booked"].map((r) => r.PutRequest.Item);
-      const run = puts.find((i) => i.entity === "BlogCrosspostRun");
-      expect(run).toMatchObject({ sk: "BLOG#B1#RUN#R1", status: "in progress", platforms: ["dev", "medium"] });
-      const dev = puts.find((i) => i.sk === "BLOG#B1#CROSSPOST#dev");
-      const medium = puts.find((i) => i.sk === "BLOG#B1#CROSSPOST#medium");
-      expect(dev.status).toBe("pending");
-      expect(medium.status).toBe("scheduled");
-      expect(medium.scheduledFor).toBeDefined();
-      expect(result.alreadySucceeded).toEqual({});
-    });
-
-    test("startCrosspostRun preserves an already-succeeded copy (re-trigger dedup)", async () => {
-      mockSend
-        .mockResolvedValueOnce({ Items: [
-          { platform: "dev", status: "succeeded", url: "https://dev/x", id: 7 },
-          { platform: "medium", status: "failed" },
-        ] }) // existing copies
-        .mockResolvedValue({}); // batch write
-      const result = await startCrosspostRun(TENANT, "B1", {
-        runId: "R2",
-        platforms: [{ platform: "dev", delaySeconds: 0 }, { platform: "medium", delaySeconds: 0 }],
-      });
-
-      // dev is preserved + returned for skipping; only medium is re-seeded.
-      expect(result.alreadySucceeded).toEqual({ dev: { url: "https://dev/x", id: 7, slug: undefined } });
-      const puts = callInput(mockSend, 1).RequestItems["test-booked"].map((r) => r.PutRequest.Item);
-      expect(puts.find((i) => i.sk === "BLOG#B1#CROSSPOST#dev")).toBeUndefined();
-      expect(puts.find((i) => i.sk === "BLOG#B1#CROSSPOST#medium")).toBeDefined();
-    });
-
-    test("recordCrosspostResult success updates the copy and mirrors onto the blog root", async () => {
-      mockSend.mockResolvedValue({});
-      await recordCrosspostResult(TENANT, "B1", "dev", { runId: "R1", status: "succeeded", url: "https://dev/x", id: 99 });
-
-      const tx = callInput(mockSend, 0).TransactItems;
-      const copy = tx.find((i) => i.Update.Key.sk === "BLOG#B1#CROSSPOST#dev").Update;
-      expect(copy.ExpressionAttributeValues[":status"]).toBe("succeeded");
-      expect(copy.ExpressionAttributeValues[":url"]).toBe("https://dev/x");
-      expect(copy.UpdateExpression).toMatch(/REMOVE #error/);
-
-      const root = tx.find((i) => i.Update.Key.sk === "BLOG#B1").Update;
-      expect(root.ExpressionAttributeNames["#p"]).toBe("dev");
-      expect(root.UpdateExpression).toMatch(/#links\.#p = :url/);
-      expect(root.UpdateExpression).toMatch(/#ids\.#p = :id/);
-    });
-
-    test("recordCrosspostResult failure marks the copy failed (no root write)", async () => {
-      mockSend.mockResolvedValue({});
-      await recordCrosspostResult(TENANT, "B1", "medium", { runId: "R1", status: "failed", error: "401" });
-
-      const input = callInput(mockSend, 0);
-      expect(input.Key.sk).toBe("BLOG#B1#CROSSPOST#medium");
-      expect(input.ExpressionAttributeValues[":status"]).toBe("failed");
-      expect(input.ExpressionAttributeValues[":error"]).toBe("401");
-      expect(input.TransactItems).toBeUndefined();
-    });
-
-    test("completeCrosspostRun sets the run status + completedAt", async () => {
-      mockSend.mockResolvedValue({});
-      await completeCrosspostRun(TENANT, "B1", "R1", "succeeded");
-
-      const input = callInput(mockSend, 0);
-      expect(input.Key.sk).toBe("BLOG#B1#RUN#R1");
-      expect(input.ExpressionAttributeValues[":status"]).toBe("succeeded");
-      expect(input.ExpressionAttributeValues[":now"]).toBeDefined();
-    });
-
-    test("getCrosspostStatus returns the copies + latest run", async () => {
-      mockSend
-        .mockResolvedValueOnce({ Items: [{ platform: "dev", status: "succeeded" }] }) // copies query
-        .mockResolvedValueOnce({ Items: [{ runId: "R1", status: "succeeded" }] }); // latest run query
-
-      const status = await getCrosspostStatus(TENANT, "B1");
-
-      expect(callInput(mockSend, 0).ExpressionAttributeValues[":prefix"]).toBe("BLOG#B1#CROSSPOST#");
-      const runInput = callInput(mockSend, 1);
-      expect(runInput.ExpressionAttributeValues[":prefix"]).toBe("BLOG#B1#RUN#");
-      expect(runInput.ScanIndexForward).toBe(false);
-      expect(runInput.Limit).toBe(1);
-      expect(status).toEqual({ copies: [{ platform: "dev", status: "succeeded" }], run: { runId: "R1", status: "succeeded" } });
-    });
-
-    test("getCrosspostStatus by runId reads that run and filters copies to it", async () => {
-      mockSend
-        .mockResolvedValueOnce({ Items: [
-          { platform: "dev", status: "succeeded", runId: "R2" },
-          { platform: "medium", status: "succeeded", runId: "R1" }, // stale, previous run
-        ] }) // copies query
-        .mockResolvedValueOnce({ Item: { runId: "R2", status: "in progress" } }); // GetItem by runId
-
-      const status = await getCrosspostStatus(TENANT, "B1", { runId: "R2" });
-
-      // run fetched by exact key, not the latest-run query
-      expect(callInput(mockSend, 1).Key.sk).toBe("BLOG#B1#RUN#R2");
-      expect(status.run).toEqual({ runId: "R2", status: "in progress" });
-      expect(status.copies).toEqual([{ platform: "dev", status: "succeeded", runId: "R2" }]);
     });
   });
 });
