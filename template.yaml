@@ -463,12 +463,6 @@ Resources:
       # calls are the heaviest paths.
       MemorySize: 1024
       Timeout: 30
-      Environment:
-        Variables:
-          # Qualified alias ARN of the cross-post durable function. The
-          # blog cross-post trigger starts an execution by async-invoking
-          # this. Merged with the shared Globals env.
-          CROSSPOST_FUNCTION_ARN: !Ref CrosspostFunction.Alias
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: 2012-10-17
@@ -585,14 +579,6 @@ Resources:
               Resource:
                 - !GetAtt BlogVectorBucket.VectorBucketArn
                 - !GetAtt BlogVoiceIndex.IndexArn
-            # Start cross-post durable executions by async-invoking the
-            # crosspost function alias. The :* qualifier covers the alias.
-            - Effect: Allow
-              Action:
-                - lambda:InvokeFunction
-              Resource:
-                - !GetAtt CrosspostFunction.Arn
-                - !Sub "${CrosspostFunction.Arn}:*"
       Events:
         ProxyAny:
           Type: Api
@@ -686,62 +672,6 @@ Resources:
         - AWSLambdaBasicExecutionRole
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicDurableExecutionRolePolicy
 
-  # On-demand cross-post orchestration. Reads the blog + tenant config +
-  # catalog, publishes to each requested platform (optionally staggered),
-  # and records the per-platform copy back. ExecutionTimeout is generous so
-  # a staggered rollout can span weeks while the function is suspended.
-  CrosspostFunction:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        <<: *esbuild-properties
-        EntryPoints:
-          - index.mjs
-    Properties:
-      CodeUri: functions/crosspost
-      Handler: index.handler
-      MemorySize: 512
-      Timeout: 60
-      DurableConfig:
-        # 30 days: covers a multi-day/week staggered publish. No compute is
-        # billed while suspended in a wait.
-        ExecutionTimeout: 2592000
-        RetentionPeriodInDays: 30
-      AutoPublishAlias: live
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicDurableExecutionRolePolicy
-        - Version: 2012-10-17
-          Statement:
-            # Read blog/tenant/catalog and write run + copy rows.
-            - Effect: Allow
-              Action:
-                - dynamodb:GetItem
-                - dynamodb:PutItem
-                - dynamodb:UpdateItem
-                - dynamodb:Query
-                - dynamodb:BatchGetItem
-                - dynamodb:BatchWriteItem
-                - dynamodb:TransactWriteItems
-              Resource:
-                - !GetAtt ContentTrackingTable.Arn
-                - !Sub "${ContentTrackingTable.Arn}/index/*"
-            # Read the tenant's platform credentials (SecureString).
-            - Effect: Allow
-              Action:
-                - ssm:GetParameter
-              Resource:
-                - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/booked/${Environment}/tenants/*"
-            # Decrypt those SecureStrings via the SSM service.
-            - Effect: Allow
-              Action:
-                - kms:Decrypt
-              Resource: "*"
-              Condition:
-                StringEquals:
-                  kms:ViaService: !Sub "ssm.${AWS::Region}.amazonaws.com"
-
   # ---------------------------------------------------------------------
   # Blog vectorization: S3 Vectors store + the stream-driven embedder.
   #
@@ -819,100 +749,6 @@ Resources:
         NonFilterableMetadataKeys:
           - text
 
-  # Poison-record sink for the stream consumer. A record that still fails after
-  # the configured retries is sent here instead of blocking the shard.
-  VectorizeBlogDLQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "content-tracking-vectorize-blog-dlq-${Environment}"
-      MessageRetentionPeriod: 1209600 # 14 days
-
-  # Consumes the DynamoDB stream (filtered to Blog roots) and (re)embeds each
-  # post into BlogVectorIndex. Idempotent via a content-hash guard, so MODIFY
-  # events that don't change the text (e.g. cross-post link mirroring) are
-  # no-ops. Timeout is generous because a long post embeds many chunks.
-  VectorizeBlogFunction:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        <<: *esbuild-properties
-        EntryPoints:
-          - index.mjs
-    Properties:
-      CodeUri: functions/vectorize-blog
-      Handler: index.handler
-      MemorySize: 512
-      Timeout: 300
-      # EMBEDDING_MODEL_ID / VECTOR_BUCKET_NAME / VECTOR_INDEX_NAME are
-      # inherited from Globals (shared with the API Lambda).
-      Events:
-        BlogStream:
-          Type: DynamoDB
-          Properties:
-            Stream: !GetAtt ContentTrackingTable.StreamArn
-            StartingPosition: LATEST
-            BatchSize: 5
-            MaximumRetryAttempts: 3
-            BisectBatchOnFunctionError: true
-            # Only blog ROOT changes reach the function. Two patterns: the
-            # create/edit path keys off NewImage.entity, the delete path off
-            # OldImage.entity (REMOVE has no NewImage).
-            FilterCriteria:
-              Filters:
-                - Pattern: '{"eventName":["INSERT","MODIFY"],"dynamodb":{"NewImage":{"entity":{"S":["Blog"]}}}}'
-                - Pattern: '{"eventName":["REMOVE"],"dynamodb":{"OldImage":{"entity":{"S":["Blog"]}}}}'
-            DestinationConfig:
-              OnFailure:
-                Destination: !GetAtt VectorizeBlogDLQ.Arn
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - Version: 2012-10-17
-          Statement:
-            # Read the stream.
-            - Effect: Allow
-              Action:
-                - dynamodb:DescribeStream
-                - dynamodb:GetRecords
-                - dynamodb:GetShardIterator
-                - dynamodb:ListStreams
-              Resource:
-                - !GetAtt ContentTrackingTable.StreamArn
-                - !Sub "${ContentTrackingTable.StreamArn}/*"
-            # Read/write the per-blog vector-state row.
-            - Effect: Allow
-              Action:
-                - dynamodb:GetItem
-                - dynamodb:PutItem
-              Resource:
-                - !GetAtt ContentTrackingTable.Arn
-            # Embed via Titan. Wildcard region/model mirrors ApiFunction so a
-            # cross-region inference profile or a model swap doesn't need an
-            # IAM change.
-            - Effect: Allow
-              Action:
-                - bedrock:InvokeModel
-              Resource:
-                - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
-            # Read/write vectors in the index (Query/Get included for the
-            # follow-up retrieval feature so it won't need a policy change).
-            - Effect: Allow
-              Action:
-                - s3vectors:PutVectors
-                - s3vectors:DeleteVectors
-                - s3vectors:GetVectors
-                - s3vectors:ListVectors
-                - s3vectors:QueryVectors
-              Resource:
-                - !GetAtt BlogVectorBucket.VectorBucketArn
-                - !GetAtt BlogVectorIndex.IndexArn
-            # Deliver poison records to the DLQ.
-            - Effect: Allow
-              Action:
-                - sqs:SendMessage
-              Resource:
-                - !GetAtt VectorizeBlogDLQ.Arn
-
   # Poison-record sink for the content stream consumer. A record that still
   # fails after the configured retries is sent here instead of blocking the
   # shard.
@@ -925,8 +761,8 @@ Resources:
   # Consumes the DynamoDB stream (filtered to Content roots) and (re)embeds each
   # piece into ContentVectorIndex. Idempotent via a content-hash guard, so
   # MODIFY events that don't change the text (e.g. publish link mirroring) are
-  # no-ops. Timeout is generous because a long piece embeds many chunks. Runs
-  # side by side with VectorizeBlogFunction over the same stream.
+  # no-ops. Timeout is generous because a long piece embeds many chunks. It is
+  # the sole stream vectorizer for content now (the Blog one was retired).
   VectorizeContentFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -1680,13 +1516,6 @@ Outputs:
       real crosspost/weekly-analytics functions will surface their own
       alias ARNs the same way.
     Value: !Ref HelloDurableFunction.Alias
-
-  CrosspostFunctionAliasArn:
-    Description: |
-      Qualified ARN (alias) of the cross-post durable function. The API
-      trigger (POST /blogs/{id}/crosspost) starts an execution against this
-      alias. Wired into the API Lambda's env in a later change.
-    Value: !Ref CrosspostFunction.Alias
 
   ContentTrackingApiBaseUrl:
     Description: |

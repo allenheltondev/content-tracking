@@ -6,6 +6,7 @@ process.env.NEWSLETTER_MINT_API_KEY = "test-mint-key";
 
 const { DynamoDBDocumentClient } = await import("@aws-sdk/lib-dynamodb");
 const {
+  assertCampaignOwned,
   createCampaign,
   getCampaignWithLinks,
   listCampaigns,
@@ -237,23 +238,70 @@ describe("domain/campaign", () => {
   });
 
   describe("listCampaigns", () => {
-    test("Queries GSI1 with CAMPAIGNS partition", async () => {
+    test("Queries GSI1 with CAMPAIGNS partition, scoped to the tenant", async () => {
       mockSend.mockResolvedValue({ Items: [] });
-      await listCampaigns({ limit: 50 });
+      await listCampaigns({ limit: 50, tenantId: "t1" });
 
       const input = mockSend.mock.calls[0][0].input;
       expect(input.IndexName).toBe("GSI1");
       expect(input.KeyConditionExpression).toBe("gsi1pk = :pk");
-      expect(input.ExpressionAttributeValues).toEqual({ ":pk": "CAMPAIGNS" });
+      expect(input.FilterExpression).toContain("tenantId = :tenantId");
+      expect(input.ExpressionAttributeValues).toMatchObject({ ":pk": "CAMPAIGNS", ":tenantId": "t1" });
       expect(input.ScanIndexForward).toBe(false);
     });
 
-    test("adds status filter when provided", async () => {
+    test("ANDs a status filter with the tenant scope when provided", async () => {
       mockSend.mockResolvedValue({ Items: [] });
-      await listCampaigns({ limit: 50, status: "active" });
+      await listCampaigns({ limit: 50, status: "active", tenantId: "t1" });
       const input = mockSend.mock.calls[0][0].input;
-      expect(input.FilterExpression).toBe("#status = :status");
+      expect(input.FilterExpression).toContain("#status = :status");
+      expect(input.FilterExpression).toContain("tenantId = :tenantId");
       expect(input.ExpressionAttributeValues[":status"]).toBe("active");
+    });
+
+    test("pages past a foreign-row-only first page to fill the limit", async () => {
+      // DynamoDB applies the tenant FilterExpression after Limit, so the first
+      // page can come back empty (all newer rows belong to other tenants) with
+      // only a cursor. We must follow that cursor instead of returning nothing.
+      mockSend.mockResolvedValueOnce({ Items: [], LastEvaluatedKey: { pk: "CAMPAIGN#OTHER", sk: "METADATA", gsi1pk: "CAMPAIGNS", gsi1sk: "z" } });
+      mockSend.mockResolvedValueOnce({ Items: [{ campaignId: "C1", tenantId: "t1" }] });
+
+      const { items, lastEvaluatedKey } = await listCampaigns({ limit: 50, tenantId: "t1" });
+      expect(mockSend).toHaveBeenCalledTimes(2);
+      expect(mockSend.mock.calls[1][0].input.ExclusiveStartKey).toEqual({ pk: "CAMPAIGN#OTHER", sk: "METADATA", gsi1pk: "CAMPAIGNS", gsi1sk: "z" });
+      expect(items.map((c) => c.campaignId)).toEqual(["C1"]);
+      expect(lastEvaluatedKey).toBeUndefined();
+    });
+
+    test("trims an overshoot and returns a cursor at the last kept row", async () => {
+      mockSend.mockResolvedValueOnce({
+        Items: [
+          { campaignId: "C1", pk: "CAMPAIGN#C1", sk: "METADATA", gsi1pk: "CAMPAIGNS", gsi1sk: "b" },
+          { campaignId: "C2", pk: "CAMPAIGN#C2", sk: "METADATA", gsi1pk: "CAMPAIGNS", gsi1sk: "a" },
+        ],
+        LastEvaluatedKey: { pk: "CAMPAIGN#C2", sk: "METADATA", gsi1pk: "CAMPAIGNS", gsi1sk: "a" },
+      });
+
+      const { items, lastEvaluatedKey } = await listCampaigns({ limit: 1, tenantId: "t1" });
+      expect(items.map((c) => c.campaignId)).toEqual(["C1"]);
+      // Cursor is the last KEPT row (C1), not DynamoDB's scanned position (C2).
+      expect(lastEvaluatedKey).toEqual({ pk: "CAMPAIGN#C1", sk: "METADATA", gsi1pk: "CAMPAIGNS", gsi1sk: "b" });
+    });
+  });
+
+  describe("assertCampaignOwned", () => {
+    test("returns the campaign when the tenant matches or it's legacy (no owner)", async () => {
+      mockSend.mockResolvedValueOnce({ Item: { campaignId: "C1", tenantId: "t1" } });
+      expect(await assertCampaignOwned("C1", "t1")).toMatchObject({ campaignId: "C1" });
+      mockSend.mockResolvedValueOnce({ Item: { campaignId: "C2" } }); // legacy, no tenantId
+      expect(await assertCampaignOwned("C2", "t1")).toMatchObject({ campaignId: "C2" });
+    });
+
+    test("404s a missing campaign or one owned by another tenant", async () => {
+      mockSend.mockResolvedValueOnce({}); // missing
+      await expect(assertCampaignOwned("C1", "t1")).rejects.toThrow(/Campaign C1 not found/);
+      mockSend.mockResolvedValueOnce({ Item: { campaignId: "C1", tenantId: "other" } });
+      await expect(assertCampaignOwned("C1", "t1")).rejects.toThrow(/Campaign C1 not found/);
     });
   });
 

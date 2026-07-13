@@ -4,12 +4,11 @@ import type {
   BlogAnswer,
   BlogListResponse,
   CrosspostPlatform,
-  CrosspostRun,
-  CrosspostStatus,
 } from './types';
 
-// Blog catalog: management (CRUD + cross-post) plus RAG Q&A (askBlog). All
-// scoped server-side to the signed-in creator's partition.
+// Blog catalog: management (CRUD) plus RAG Q&A (askBlog). All scoped
+// server-side to the signed-in creator's partition. Cross-post is now the
+// content-native POST /content/:id/crosspost (see api/content.ts).
 
 export const CROSSPOST_PLATFORMS: CrosspostPlatform[] = ['dev', 'medium', 'hashnode'];
 
@@ -38,27 +37,6 @@ export async function deleteBlogPost(apiFetch: ApiFetch, blogId: string): Promis
   await apiFetch(`/blogs/${blogId}`, { method: 'DELETE' });
 }
 
-export async function crosspostBlog(
-  apiFetch: ApiFetch,
-  blogId: string,
-  platforms: CrosspostPlatform[],
-  staggerDays?: number,
-): Promise<Pick<CrosspostRun, 'run_id' | 'status' | 'platforms'>> {
-  return apiFetch(`/blogs/${blogId}/crosspost`, {
-    method: 'POST',
-    body: { platforms, ...(staggerDays ? { stagger_days: staggerDays } : {}) },
-  });
-}
-
-export async function getCrosspostStatus(
-  apiFetch: ApiFetch,
-  blogId: string,
-  runId?: string,
-): Promise<CrosspostStatus> {
-  return apiFetch<CrosspostStatus>(`/blogs/${blogId}/crosspost-status`, {
-    query: runId ? { run_id: runId } : {},
-  });
-}
 
 // --- RAG Q&A -----------------------------------------------------------------
 

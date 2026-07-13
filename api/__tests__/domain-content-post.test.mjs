@@ -163,8 +163,8 @@ describe("domain/content-post", () => {
         .mockResolvedValueOnce({ Items: [{ postId: "P1", campaignId: "C1" }] })
         .mockResolvedValueOnce({ Items: [{ postId: "P2", campaignId: "C2" }] });
 
-      const rows = await listMonitoringContentPosts();
-      expect(campaignDomain.listCampaignsByStatus).toHaveBeenCalledWith("monitoring");
+      const rows = await listMonitoringContentPosts("t1");
+      expect(campaignDomain.listCampaignsByStatus).toHaveBeenCalledWith("monitoring", "t1");
       expect(rows).toHaveLength(2);
       expect(rows.map((r) => r.post.postId).sort()).toEqual(["P1", "P2"]);
       expect(rows.every((r) => r.campaign.name)).toBe(true);

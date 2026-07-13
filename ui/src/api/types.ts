@@ -884,16 +884,9 @@ export interface ContentSummary {
   updated_at: string;
 }
 
-// Full representation (single-content reads) — adds the markdown body plus the
-// backing flags. content_backed is false for a legacy Blog-only row surfaced in
-// the unified catalog (Content-only controls — status, sponsorship — don't
-// apply to it); blog_backed is true when a legacy Blog row exists, which is
-// what cross-post reads. Both are absent on older responses; treat a missing
-// content_backed as true (a real Content row) and a missing blog_backed as false.
+// Full representation (single-content reads) — adds the markdown body.
 export interface Content extends ContentSummary {
   content_markdown: string | null;
-  content_backed?: boolean;
-  blog_backed?: boolean;
 }
 
 export interface ContentListResponse {

@@ -2,6 +2,7 @@ import { ulid } from "ulid";
 import { jsonResponse } from "../services/http-handler.mjs";
 import { logger } from "../services/logger.mjs";
 import { buildMediaKitSnapshot } from "../domain/media-kit.mjs";
+import { requireTenantId } from "../services/identity.mjs";
 import { renderMediaKitHtml } from "../services/media-kit-renderer.mjs";
 import { putMediaKitHtml } from "../services/media-kit-store.mjs";
 // Signing is generic (keyed off the object key) so we reuse it straight from
@@ -47,10 +48,12 @@ export function registerMediaKitRoutes(app) {
   // + aggregate performance, renders the HTML (with avatar/logo image URLs
   // signed for the kit's full lifetime), stores it in the private reports
   // bucket, persists a record, and returns a signed CloudFront share link.
-  app.post("/media-kit", async () => {
+  app.post("/media-kit", async ({ event }) => {
+    const tenantId = requireTenantId(event);
     const reportId = ulid();
     const snapshot = await buildMediaKitSnapshot({
       assetUrlTtlSeconds: MEDIA_KIT_TTL_SECONDS,
+      tenantId,
     });
     snapshot.report.id = reportId;
 

@@ -1,5 +1,5 @@
 import { queryCampaignsByDateRange } from "./campaign.mjs";
-import { getVendor } from "./vendor.mjs";
+import { assertVendorOwned } from "./vendor.mjs";
 import { AGGREGATION_CURRENCY } from "../validation/payout.mjs";
 
 // Builds a frozen, vendor-facing snapshot of revenue for a single vendor
@@ -11,12 +11,13 @@ import { AGGREGATION_CURRENCY } from "../validation/payout.mjs";
 // queryCampaignsByDateRange (a GSI1 Query), then everything is aggregated
 // in memory.
 
-export async function buildVendorReportSnapshot({ vendorId, startDate, endDate }) {
-  // Throws NotFoundError when the vendor doesn't exist — let it propagate
-  // so the report agrees with every other vendor-scoped endpoint.
-  const vendor = await getVendor(vendorId);
+export async function buildVendorReportSnapshot({ vendorId, startDate, endDate, tenantId }) {
+  // Throws NotFoundError when the vendor doesn't exist or isn't the caller's —
+  // let it propagate so the report agrees with every other vendor-scoped
+  // endpoint.
+  const vendor = await assertVendorOwned(vendorId, tenantId);
 
-  const campaigns = await queryCampaignsByDateRange({ startDate, endDate });
+  const campaigns = await queryCampaignsByDateRange({ startDate, endDate, tenantId });
 
   const skipped = [];
   const matching = [];

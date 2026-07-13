@@ -1,6 +1,7 @@
 import { BadRequestError } from "../services/errors.mjs";
 import { jsonResponse } from "../services/http-handler.mjs";
 import { queryCampaignsByDateRange } from "../domain/campaign.mjs";
+import { requireTenantId } from "../services/identity.mjs";
 import { AGGREGATION_CURRENCY } from "../validation/payout.mjs";
 import { VENDOR_ID_RE } from "../validation/vendor.mjs";
 
@@ -15,10 +16,11 @@ export function registerRevenueRoutes(app) {
   // the vendor filter + paid/booked split + grouping happen in memory.
   // No Scan.
   app.get("/revenue", async ({ event }) => {
+    const tenantId = requireTenantId(event);
     const { startDate, endDate, vendorId, grouping, paidOnly } =
       parseQueryParams(event.queryStringParameters ?? {});
 
-    const campaigns = await queryCampaignsByDateRange({ startDate, endDate });
+    const campaigns = await queryCampaignsByDateRange({ startDate, endDate, tenantId });
 
     const skipped = [];
     const matching = [];

@@ -14,6 +14,7 @@ jest.unstable_mockModule("../services/content-fetch.mjs", () => ({
 }));
 jest.unstable_mockModule("../domain/campaign.mjs", () => ({
   getCampaignWithLinks: jest.fn(),
+  assertCampaignOwned: jest.fn(),
 }));
 jest.unstable_mockModule("../domain/profile.mjs", () => ({
   getProfileSettings: jest.fn(),
@@ -25,7 +26,7 @@ jest.unstable_mockModule("../domain/engagement-recommendation.mjs", () => ({
 
 const { recommendEngagement } = await import("../services/bedrock.mjs");
 const { fetchContentText } = await import("../services/content-fetch.mjs");
-const { getCampaignWithLinks } = await import("../domain/campaign.mjs");
+const { getCampaignWithLinks, assertCampaignOwned } = await import("../domain/campaign.mjs");
 const { getProfileSettings } = await import("../domain/profile.mjs");
 const { saveEngagementRecommendation, getEngagementRecommendation } = await import(
   "../domain/engagement-recommendation.mjs"
@@ -49,6 +50,9 @@ const getRecs = routes["GET /campaigns/:campaignId/content-posts/:postId/recomme
 
 const CAMPAIGN_ID = "01HV0AABBCCDDEEFFGGHHJJKKM";
 const POST_ID = "01HV0CONTENTPOST0000000001";
+
+// The route guard reads the caller's tenant from the authorizer context.
+const AUTH = { requestContext: { authorizer: { authSource: "cognito", sub: "user-1" } } };
 
 function makeCampaignBundle(overrides = {}) {
   return {
@@ -77,6 +81,8 @@ describe("routes/content-recommendations", () => {
     fetchContentText.mockResolvedValue("The full blog post body.");
     // Default: a personal site is configured.
     getProfileSettings.mockResolvedValue({ personalSiteUrl: "https://www.readysetcloud.io" });
+    // Default: the campaign is owned by the caller (guard passes).
+    assertCampaignOwned.mockResolvedValue({});
   });
 
   test("registers the POST and GET routes", () => {
@@ -106,7 +112,7 @@ describe("routes/content-recommendations", () => {
       });
 
       const res = await postRecs({
-        event: { body: JSON.stringify({ goal: "developer signups" }) },
+        event: { body: JSON.stringify({ goal: "developer signups" }), ...AUTH },
         params: { campaignId: CAMPAIGN_ID, postId: POST_ID },
       });
 
@@ -149,7 +155,7 @@ describe("routes/content-recommendations", () => {
         campaignId: CAMPAIGN_ID, postId: POST_ID, summary: "x", recommendations: [], alreadyCovered: [], generatedAt: "t",
       });
 
-      const res = await postRecs({ event: { body: null }, params: { campaignId: CAMPAIGN_ID, postId: POST_ID } });
+      const res = await postRecs({ event: { body: null, ...AUTH }, params: { campaignId: CAMPAIGN_ID, postId: POST_ID } });
 
       expect(res.statusCode).toBe(201);
       expect(recommendEngagement.mock.calls[0][0].goal).toBeUndefined();
@@ -163,7 +169,7 @@ describe("routes/content-recommendations", () => {
         campaignId: CAMPAIGN_ID, postId: POST_ID, summary: "x", recommendations: [], alreadyCovered: [], generatedAt: "t",
       });
 
-      await postRecs({ event: { body: null }, params: { campaignId: CAMPAIGN_ID, postId: POST_ID } });
+      await postRecs({ event: { body: null, ...AUTH }, params: { campaignId: CAMPAIGN_ID, postId: POST_ID } });
 
       expect(fetchContentText).toHaveBeenCalledWith("https://medium.com/p/abc", {
         plaintextHosts: [],
@@ -178,7 +184,7 @@ describe("routes/content-recommendations", () => {
         campaignId: CAMPAIGN_ID, postId: POST_ID, summary: "x", recommendations: [], alreadyCovered: [], generatedAt: "t",
       });
 
-      const res = await postRecs({ event: { body: null }, params: { campaignId: CAMPAIGN_ID, postId: POST_ID } });
+      const res = await postRecs({ event: { body: null, ...AUTH }, params: { campaignId: CAMPAIGN_ID, postId: POST_ID } });
 
       expect(res.statusCode).toBe(201);
       // Null body is passed through; the agent falls back to URL + brief.
@@ -189,7 +195,7 @@ describe("routes/content-recommendations", () => {
       getCampaignWithLinks.mockResolvedValue(makeCampaignBundle({ contentPosts: [] }));
 
       await expect(
-        postRecs({ event: { body: null }, params: { campaignId: CAMPAIGN_ID, postId: POST_ID } }),
+        postRecs({ event: { body: null, ...AUTH }, params: { campaignId: CAMPAIGN_ID, postId: POST_ID } }),
       ).rejects.toThrow(/ContentPost .* not found/);
       expect(recommendEngagement).not.toHaveBeenCalled();
       expect(saveEngagementRecommendation).not.toHaveBeenCalled();
@@ -198,7 +204,7 @@ describe("routes/content-recommendations", () => {
     test("propagates NotFound from the campaign read", async () => {
       getCampaignWithLinks.mockRejectedValue(new NotFoundError("Campaign", CAMPAIGN_ID));
       await expect(
-        postRecs({ event: { body: null }, params: { campaignId: CAMPAIGN_ID, postId: POST_ID } }),
+        postRecs({ event: { body: null, ...AUTH }, params: { campaignId: CAMPAIGN_ID, postId: POST_ID } }),
       ).rejects.toThrow(/Campaign .* not found/);
       expect(recommendEngagement).not.toHaveBeenCalled();
     });
@@ -208,7 +214,7 @@ describe("routes/content-recommendations", () => {
       recommendEngagement.mockRejectedValue(new Error("bedrock boom"));
 
       await expect(
-        postRecs({ event: { body: null }, params: { campaignId: CAMPAIGN_ID, postId: POST_ID } }),
+        postRecs({ event: { body: null, ...AUTH }, params: { campaignId: CAMPAIGN_ID, postId: POST_ID } }),
       ).rejects.toThrow(/bedrock boom/);
       expect(saveEngagementRecommendation).not.toHaveBeenCalled();
     });
@@ -216,7 +222,7 @@ describe("routes/content-recommendations", () => {
     test("400 on an invalid goal", async () => {
       await expect(
         postRecs({
-          event: { body: JSON.stringify({ goal: "x".repeat(501) }) },
+          event: { body: JSON.stringify({ goal: "x".repeat(501) }), ...AUTH },
           params: { campaignId: CAMPAIGN_ID, postId: POST_ID },
         }),
       ).rejects.toThrow(/up to 500/);
@@ -235,7 +241,7 @@ describe("routes/content-recommendations", () => {
         generatedAt: "2026-06-01T00:00:00.000Z",
       });
 
-      const res = await getRecs({ params: { campaignId: CAMPAIGN_ID, postId: POST_ID } });
+      const res = await getRecs({ event: { ...AUTH }, params: { campaignId: CAMPAIGN_ID, postId: POST_ID } });
 
       expect(res.statusCode).toBe(200);
       expect(JSON.parse(res.body).summary).toBe("stored");
@@ -245,7 +251,7 @@ describe("routes/content-recommendations", () => {
     test("404 when nothing has been generated yet", async () => {
       getEngagementRecommendation.mockResolvedValue(null);
       await expect(
-        getRecs({ params: { campaignId: CAMPAIGN_ID, postId: POST_ID } }),
+        getRecs({ event: { ...AUTH }, params: { campaignId: CAMPAIGN_ID, postId: POST_ID } }),
       ).rejects.toThrow(/ContentPostRecommendation .* not found/);
     });
   });

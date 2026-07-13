@@ -3,6 +3,8 @@ import { BadRequestError } from "../services/errors.mjs";
 import { jsonResponse } from "../services/http-handler.mjs";
 import { logger } from "../services/logger.mjs";
 import { buildCampaignReportSnapshot } from "../domain/campaign-report.mjs";
+import { assertCampaignOwned } from "../domain/campaign.mjs";
+import { requireTenantId } from "../services/identity.mjs";
 import { renderCampaignReportHtml } from "../services/campaign-report-renderer.mjs";
 import { putCampaignReportHtml } from "../services/campaign-report-store.mjs";
 // Signing is generic (keyed off the object key, not the vendor) so we
@@ -59,8 +61,10 @@ export function registerCampaignReportRoutes(app) {
   // returns a signed CloudFront link valid for the report's full lifetime.
   // Campaign analytics is all-time, so there is NO period — the request body
   // is ignored.
-  app.post("/campaigns/:campaignId/report", async ({ params }) => {
+  app.post("/campaigns/:campaignId/report", async ({ event, params }) => {
     const campaignId = requireValidCampaignId(params.campaignId);
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
 
     const snapshot = await buildCampaignReportSnapshot({ campaignId });
 
@@ -100,8 +104,10 @@ export function registerCampaignReportRoutes(app) {
   // link for each that lasts exactly as long as the report's S3 object. Any
   // record whose object has already aged out is skipped — re-signing one
   // would just hand back a URL that 404s at the CloudFront edge.
-  app.get("/campaigns/:campaignId/reports", async ({ params }) => {
+  app.get("/campaigns/:campaignId/reports", async ({ event, params }) => {
     const campaignId = requireValidCampaignId(params.campaignId);
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     const records = await listCampaignReportRecords(campaignId);
 
     const nowMs = Date.now();

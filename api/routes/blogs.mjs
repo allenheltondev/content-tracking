@@ -1,21 +1,22 @@
-import { ulid } from "ulid";
 import {
-  createBlog,
   deleteBlog,
-  findBlog,
   getBlog,
-  getCrosspostStatus,
   listBlogsByTenant,
   listBlogsForCampaign,
   updateBlog,
 } from "../domain/blog.mjs";
-import { findContent, listContentByTenant } from "../domain/content.mjs";
+import {
+  createContent,
+  deleteContent,
+  findContent,
+  listContentByTenant,
+  updateContent,
+} from "../domain/content.mjs";
 import { requireTenantId } from "../services/identity.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import { parseLimit } from "../services/pagination.mjs";
-import { startCrosspostExecution } from "../services/crosspost-invoker.mjs";
 import { emptyResponse, jsonResponse } from "../services/http-handler.mjs";
-import { BadRequestError, NotFoundError } from "../services/errors.mjs";
+import { BadRequestError } from "../services/errors.mjs";
 import { embedText } from "../services/embeddings.mjs";
 import { queryContentChunks } from "../services/content-vectors.mjs";
 import { answerContentQuestion } from "../services/bedrock.mjs";
@@ -23,14 +24,10 @@ import {
   formatBlog,
   formatBlogAnswer,
   formatBlogSummary,
-  formatCrosspostStatus,
   validateBlogCreate,
   validateBlogQuestion,
   validateBlogUpdate,
-  validateCrosspostRequest,
 } from "../validation/blog.mjs";
-
-const SECONDS_PER_DAY = 24 * 60 * 60;
 
 // Blog catalog CRUD. Every route resolves the tenant from the authorizer
 // sub (requireTenantId) and passes it as the first argument to the domain,
@@ -49,11 +46,20 @@ const SECONDS_PER_DAY = 24 * 60 * 60;
 // to type="blog" so it never pulls sponsored/other content.
 
 export function registerBlogRoutes(app) {
+  // Writes now target the unified Content entity (type="blog"), not a legacy
+  // Blog row, so blog creation no longer forks the write path. Reads already
+  // merge Content + un-migrated Blog rows, so this is transparent to GET /blogs
+  // and the response shape is unchanged (asBlogRow aliases contentId→blogId).
   app.post("/blogs", withIdempotency(async ({ event }) => {
     const tenantId = requireTenantId(event);
     const fields = validateBlogCreate(parseBody(event));
-    const item = await createBlog(tenantId, fields);
-    return jsonResponse(201, formatBlog(item));
+    const item = await createContent(tenantId, {
+      ...fields,
+      type: "blog",
+      source: "owned",
+      status: "published",
+    });
+    return jsonResponse(201, formatBlog(asBlogRow(item)));
   }));
 
   // POST /blogs/ask — RAG Q&A over the tenant's blog catalog. Now aliased onto
@@ -152,58 +158,34 @@ export function registerBlogRoutes(app) {
     return jsonResponse(200, formatBlog(blog));
   });
 
+  // Content-first: edit the unified row when it exists, else fall back to the
+  // legacy Blog row for a post that hasn't been migrated yet.
   app.patch("/blogs/:blogId", async ({ event, params }) => {
     const tenantId = requireTenantId(event);
     const fields = validateBlogUpdate(parseBody(event));
     if (Object.keys(fields).length === 0) {
       throw new BadRequestError("request body must contain at least one updatable field");
     }
-    const updated = await updateBlog(tenantId, params.blogId, fields);
-    return jsonResponse(200, formatBlog(updated));
+    const onContent = await findContent(tenantId, params.blogId);
+    const updated = onContent
+      ? await updateContent(tenantId, params.blogId, fields)
+      : await updateBlog(tenantId, params.blogId, fields);
+    return jsonResponse(200, formatBlog(onContent ? asBlogRow(updated) : updated));
   });
 
   app.delete("/blogs/:blogId", async ({ event, params }) => {
     const tenantId = requireTenantId(event);
-    await deleteBlog(tenantId, params.blogId);
+    // Content-first with a legacy fallback, mirroring DELETE /content/:id.
+    if (await findContent(tenantId, params.blogId)) {
+      await deleteContent(tenantId, params.blogId);
+    } else {
+      await deleteBlog(tenantId, params.blogId);
+    }
     return emptyResponse(204);
   });
 
-  // On-demand cross-post: validate, generate a runId, and start the durable
-  // execution (async). Returns immediately; the client polls the status
-  // route below. Wrapped in withIdempotency so a client retry with the same
-  // Idempotency-Key returns the original runId instead of starting a second
-  // run (the durable execution name + per-platform guard dedupe the rest).
-  app.post("/blogs/:blogId/crosspost", withIdempotency(async ({ event, params }) => {
-    const tenantId = requireTenantId(event);
-    const blog = await findBlog(tenantId, params.blogId);
-    if (!blog) {
-      throw new NotFoundError("Blog", params.blogId);
-    }
-
-    const { platforms, staggerDays } = validateCrosspostRequest(parseBody(event));
-    const runId = ulid();
-    const withDelays = platforms.map((platform, i) => ({
-      platform,
-      delaySeconds: staggerDays ? i * staggerDays * SECONDS_PER_DAY : 0,
-    }));
-
-    await startCrosspostExecution({ tenantId, blogId: params.blogId, runId, platforms: withDelays });
-
-    return jsonResponse(202, {
-      run_id: runId,
-      status: "in progress",
-      platforms: withDelays.map((p) => ({ platform: p.platform, delay_seconds: p.delaySeconds })),
-    });
-  }));
-
-  app.get("/blogs/:blogId/crosspost-status", async ({ event, params }) => {
-    const tenantId = requireTenantId(event);
-    // Pass ?run_id=… to correlate the poll to a specific (just-started) run
-    // rather than whatever the latest persisted run happens to be.
-    const runId = event.queryStringParameters?.run_id;
-    const status = await getCrosspostStatus(tenantId, params.blogId, { runId });
-    return jsonResponse(200, formatCrosspostStatus(status));
-  });
+  // Cross-post is now the synchronous, content-native POST /content/:id/crosspost
+  // (the durable /blogs crosspost pipeline has been retired).
 }
 
 // Normalizes a unified Content row into the shape the Blog formatters expect:

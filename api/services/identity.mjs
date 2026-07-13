@@ -19,3 +19,16 @@ export function requireTenantId(event) {
   }
   return auth.sub;
 }
+
+// Resolves the calling tenant from EITHER auth path — the dashboard (Cognito)
+// or the Chrome extension (HMAC pairing token). Both carry the same Cognito
+// `sub`, so this is the identity to scope shared data (campaigns/vendors) by on
+// endpoints the extension is allowed to hit (e.g. the working-set feeds), where
+// requireTenantId's cognito-only gate would wrongly reject the extension.
+export function resolveTenantId(event) {
+  const auth = event?.requestContext?.authorizer ?? {};
+  if (!auth.sub) {
+    throw new UnauthorizedError("Missing caller identity.");
+  }
+  return auth.sub;
+}

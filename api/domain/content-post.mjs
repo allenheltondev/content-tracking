@@ -197,8 +197,8 @@ export async function deleteContentPost(campaignId, postId) {
 // /monitoring/working-set call.
 const FANOUT_CONCURRENCY = 10;
 
-export async function listMonitoringContentPosts() {
-  const campaigns = await listCampaignsByStatus("monitoring");
+export async function listMonitoringContentPosts(tenantId) {
+  const campaigns = await listCampaignsByStatus("monitoring", tenantId);
   const results = await runInBatches(
     campaigns.map((campaign) => async () => {
       const posts = await listContentPosts(campaign.campaignId);

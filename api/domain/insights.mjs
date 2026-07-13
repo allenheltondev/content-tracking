@@ -47,8 +47,8 @@ const zero = () => ({ views: 0, impressions: 0, engagements: 0 });
  * @param {string} args.endDate   - inclusive ISO date (YYYY-MM-DD).
  * @param {number} [args.topLimit=10] - max top-performing posts to return.
  */
-export async function buildInsightsSummary({ startDate, endDate, topLimit = 10 }) {
-  const campaigns = await listAllCampaigns();
+export async function buildInsightsSummary({ startDate, endDate, topLimit = 10, tenantId }) {
+  const campaigns = await listAllCampaigns(tenantId);
   const campaignName = new Map(campaigns.map((c) => [c.campaignId, c.name]));
 
   // Fan out to every tracked post, then to each post's snapshot history.
@@ -239,13 +239,14 @@ function pctChange(current, prior) {
 // Drains the paginated campaign list into a flat array. Insights span every
 // campaign regardless of status. Personal-scale, so fully consuming the
 // pages is fine. (Mirrors the media-kit helper.)
-async function listAllCampaigns() {
+async function listAllCampaigns(tenantId) {
   const all = [];
   let exclusiveStartKey;
   do {
     const { items, lastEvaluatedKey } = await listCampaigns({
       limit: 500,
       exclusiveStartKey,
+      tenantId,
     });
     for (const item of items) all.push(item);
     exclusiveStartKey = lastEvaluatedKey;

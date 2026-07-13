@@ -2,6 +2,8 @@ import { ulid } from "ulid";
 import { BadRequestError } from "../services/errors.mjs";
 import { jsonResponse } from "../services/http-handler.mjs";
 import { buildVendorReportSnapshot } from "../domain/vendor-report.mjs";
+import { assertVendorOwned } from "../domain/vendor.mjs";
+import { requireTenantId } from "../services/identity.mjs";
 import { renderVendorReportHtml } from "../services/report-renderer.mjs";
 import { putReportHtml, signReportUrl, SIGNED_URL_TTL_SECONDS } from "../services/vendor-report-store.mjs";
 import {
@@ -23,9 +25,10 @@ export function registerVendorReportRoutes(app) {
   // either `year` or `startDate`/`endDate`, defaulting to the current year.
   app.post("/vendors/:vendorId/report", async ({ event, params }) => {
     const vendorId = requireValidVendorId(params.vendorId);
+    const tenantId = requireTenantId(event);
     const { startDate, endDate } = parsePeriod(periodSource(event));
 
-    const snapshot = await buildVendorReportSnapshot({ vendorId, startDate, endDate });
+    const snapshot = await buildVendorReportSnapshot({ vendorId, startDate, endDate, tenantId });
 
     const reportId = ulid();
     snapshot.report.id = reportId;
@@ -67,8 +70,10 @@ export function registerVendorReportRoutes(app) {
   // lag, so we also skip any record whose object would be gone before a
   // link minted now would expire — re-signing one would just hand the
   // vendor a URL that 403s/404s at the CloudFront edge.
-  app.get("/vendors/:vendorId/reports", async ({ params }) => {
+  app.get("/vendors/:vendorId/reports", async ({ event, params }) => {
     const vendorId = requireValidVendorId(params.vendorId);
+    const tenantId = requireTenantId(event);
+    await assertVendorOwned(vendorId, tenantId);
     const records = await listReportRecords(vendorId);
 
     const linkExpiryMs = Date.now() + SIGNED_URL_TTL_SECONDS * 1000;

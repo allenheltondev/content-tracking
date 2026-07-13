@@ -14,17 +14,23 @@ import {
   listSocialPosts,
   updateSocialPostAnalytics,
 } from "../domain/social-post.mjs";
+import { assertCampaignOwned } from "../domain/campaign.mjs";
+import { requireTenantId, resolveTenantId } from "../services/identity.mjs";
 
 export function registerSocialPostRoutes(app) {
   app.post("/campaigns/:campaignId/social-posts", withIdempotency(async ({ event, params }) => {
     const { campaignId } = params;
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     const fields = validateSocialPostCreate(parseBody(event));
     const item = await createSocialPost(campaignId, fields);
     return jsonResponse(201, formatSocialPost(item));
   }));
 
-  app.get("/campaigns/:campaignId/social-posts", async ({ params }) => {
+  app.get("/campaigns/:campaignId/social-posts", async ({ event, params }) => {
     const { campaignId } = params;
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     const items = await listSocialPosts(campaignId);
     return jsonResponse(200, {
       campaign_id: campaignId,
@@ -35,9 +41,14 @@ export function registerSocialPostRoutes(app) {
   });
 
   // PUT .../analytics — the Chrome extension's write path. Replaces the
-  // post's metrics and stamps `last_fetched` server-side.
+  // post's metrics and stamps `last_fetched` server-side. The extension
+  // authenticates with a pairing token (authSource="extension"), so resolve
+  // the tenant from EITHER auth path — requireTenantId's cognito-only gate
+  // would reject the extension and 401 every captured metric write.
   app.put("/campaigns/:campaignId/social-posts/:postId/analytics", async ({ event, params }) => {
     const { campaignId, postId } = params;
+    const tenantId = resolveTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     const fields = validateAnalyticsUpdate(parseBody(event));
     const updated = await updateSocialPostAnalytics(campaignId, postId, fields);
     return jsonResponse(200, formatSocialPost(updated));
@@ -46,8 +57,10 @@ export function registerSocialPostRoutes(app) {
   // Per-day engagement history. Each snapshot is the final analytics map
   // recorded for the post on that calendar day (UTC). Used by the campaign
   // analytics UI to plot daily series.
-  app.get("/campaigns/:campaignId/social-posts/:postId/snapshots", async ({ params }) => {
+  app.get("/campaigns/:campaignId/social-posts/:postId/snapshots", async ({ event, params }) => {
     const { campaignId, postId } = params;
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     const snapshots = await listSocialPostSnapshots(campaignId, postId);
     return jsonResponse(200, {
       campaign_id: campaignId,
@@ -61,8 +74,10 @@ export function registerSocialPostRoutes(app) {
     });
   });
 
-  app.delete("/campaigns/:campaignId/social-posts/:postId", async ({ params }) => {
+  app.delete("/campaigns/:campaignId/social-posts/:postId", async ({ event, params }) => {
     const { campaignId, postId } = params;
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     await deleteSocialPost(campaignId, postId);
     return emptyResponse(204);
   });
@@ -70,8 +85,9 @@ export function registerSocialPostRoutes(app) {
   // Feed for the extension: every social post under a currently-active
   // campaign, with the campaign name for display and the current metrics
   // so the extension can skip re-writing unchanged numbers.
-  app.get("/social-posts/active", async () => {
-    const rows = await listActiveCampaignSocialPosts();
+  app.get("/social-posts/active", async ({ event }) => {
+    const tenantId = resolveTenantId(event);
+    const rows = await listActiveCampaignSocialPosts(tenantId);
     return jsonResponse(200, {
       social_posts: rows.map(({ campaign, post }) => ({
         campaign_id: campaign.campaignId,

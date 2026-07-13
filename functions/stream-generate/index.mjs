@@ -4,7 +4,7 @@
 import { CognitoJwtVerifier } from "aws-jwt-verify";
 import { embedText } from "../../api/services/embeddings.mjs";
 import { queryVoiceSamples } from "../../api/services/voice-vectors.mjs";
-import { queryBlogChunks } from "../../api/services/blog-vectors.mjs";
+import { queryContentChunks } from "../../api/services/content-vectors.mjs";
 import { getVoiceProfile } from "../../api/domain/voice.mjs";
 import { streamVoicePost, streamBlogAnswer } from "../../api/services/bedrock-stream.mjs";
 import { validateComposeRequest } from "../../api/validation/voice.mjs";
@@ -82,7 +82,9 @@ async function runCompose(sub, { params }, write) {
 async function runAsk(sub, { params }, write) {
   const { question, topK, blogId } = params;
   const queryEmbedding = await embedText(question);
-  const chunks = await queryBlogChunks({ tenantId: sub, queryEmbedding, topK, blogId });
+  // Reads the unified content vector index (type="blog"), matching POST
+  // /blogs/ask and /content/ask. blogId maps to contentId (equal for a blog).
+  const chunks = await queryContentChunks({ tenantId: sub, queryEmbedding, topK, contentId: blogId, type: "blog" });
 
   if (chunks.length === 0) {
     write({ type: "delta", text: "I couldn't find anything in your blog catalog relevant to that question." });
@@ -96,15 +98,18 @@ async function runAsk(sub, { params }, write) {
   write({ type: "done", sources: dedupeSources(chunks) });
 }
 
-// One citation per blog (a post can contribute several chunks). The streamed
+// One citation per piece (a post can contribute several chunks). The streamed
 // answer carries no tool output, so sources come from what retrieval surfaced.
+// Content chunks carry contentId (equal to the blog id for a blog); the
+// response contract still emits blog_id.
 function dedupeSources(chunks) {
   const seen = new Set();
   const sources = [];
   for (const c of chunks) {
-    if (!c.blogId || seen.has(c.blogId)) continue;
-    seen.add(c.blogId);
-    sources.push({ blog_id: c.blogId, title: c.title ?? null, slug: c.slug ?? null });
+    const id = c.contentId ?? c.blogId;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    sources.push({ blog_id: id, title: c.title ?? null, slug: c.slug ?? null });
   }
   return sources;
 }

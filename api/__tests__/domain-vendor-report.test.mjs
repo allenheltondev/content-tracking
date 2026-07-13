@@ -8,6 +8,7 @@ process.env.ENVIRONMENT = "staging";
 // the other domain tests.
 jest.unstable_mockModule("../domain/vendor.mjs", () => ({
   getVendor: jest.fn(),
+  assertVendorOwned: jest.fn(),
 }));
 jest.unstable_mockModule("../domain/campaign.mjs", () => ({
   queryCampaignsByDateRange: jest.fn(),
@@ -51,14 +52,14 @@ function campaign({
 describe("domain/vendor-report buildVendorReportSnapshot", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    vendorDomain.getVendor.mockReset();
+    vendorDomain.assertVendorOwned.mockReset();
     campaignDomain.queryCampaignsByDateRange.mockReset();
-    vendorDomain.getVendor.mockResolvedValue(vendorItem());
+    vendorDomain.assertVendorOwned.mockResolvedValue(vendorItem());
   });
 
   describe("not-found propagation", () => {
-    test("propagates NotFoundError from getVendor", async () => {
-      vendorDomain.getVendor.mockRejectedValue(new NotFoundError("Vendor", "V1"));
+    test("propagates NotFoundError from assertVendorOwned", async () => {
+      vendorDomain.assertVendorOwned.mockRejectedValue(new NotFoundError("Vendor", "V1"));
       await expect(
         buildVendorReportSnapshot({ vendorId: "V1", startDate: "2026-01-01", endDate: "2026-12-31" }),
       ).rejects.toThrow(/Vendor V1 not found/);
@@ -93,7 +94,7 @@ describe("domain/vendor-report buildVendorReportSnapshot", () => {
     });
 
     test("missing optional vendor fields become null", async () => {
-      vendorDomain.getVendor.mockResolvedValue({ vendorId: "V2", name: "Beta" });
+      vendorDomain.assertVendorOwned.mockResolvedValue({ vendorId: "V2", name: "Beta" });
       campaignDomain.queryCampaignsByDateRange.mockResolvedValue([]);
       const snap = await buildVendorReportSnapshot({
         vendorId: "V2",

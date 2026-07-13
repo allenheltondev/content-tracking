@@ -2,7 +2,8 @@ import { BadRequestError, NotFoundError } from "../services/errors.mjs";
 import { jsonResponse } from "../services/http-handler.mjs";
 import { recommendEngagement } from "../services/bedrock.mjs";
 import { fetchContentText } from "../services/content-fetch.mjs";
-import { getCampaignWithLinks } from "../domain/campaign.mjs";
+import { assertCampaignOwned, getCampaignWithLinks } from "../domain/campaign.mjs";
+import { requireTenantId } from "../services/identity.mjs";
 import { getProfileSettings } from "../domain/profile.mjs";
 import {
   getEngagementRecommendation,
@@ -24,6 +25,8 @@ export function registerContentRecommendationRoutes(app) {
   // recommendations for this content post and store them.
   app.post("/campaigns/:campaignId/content-posts/:postId/recommendations", async ({ event, params }) => {
     const { campaignId, postId } = params;
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     const { goal } = validateRecommendationRequest(parseBody(event, { optional: true }));
 
     // One Query pulls the campaign and everything under it: the work item,
@@ -67,8 +70,10 @@ export function registerContentRecommendationRoutes(app) {
   });
 
   // GET .../recommendations — the most recently generated set for this post.
-  app.get("/campaigns/:campaignId/content-posts/:postId/recommendations", async ({ params }) => {
+  app.get("/campaigns/:campaignId/content-posts/:postId/recommendations", async ({ event, params }) => {
     const { campaignId, postId } = params;
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     const stored = await getEngagementRecommendation(campaignId, postId);
     if (!stored) {
       throw new NotFoundError("ContentPostRecommendation", postId);

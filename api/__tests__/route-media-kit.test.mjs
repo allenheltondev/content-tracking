@@ -31,6 +31,9 @@ jest.unstable_mockModule("../domain/vendor-report-record.mjs", () => ({
 jest.unstable_mockModule("../services/newsletter-service.mjs", () => ({
   mintShortLink: jest.fn(),
 }));
+jest.unstable_mockModule("../services/identity.mjs", () => ({
+  requireTenantId: jest.fn(() => "user-1"),
+}));
 
 const { buildMediaKitSnapshot } = await import("../domain/media-kit.mjs");
 const { renderMediaKitHtml } = await import("../services/media-kit-renderer.mjs");
@@ -104,6 +107,7 @@ describe("routes/media-kit", () => {
       expect(snapshot.report.id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
       expect(buildMediaKitSnapshot).toHaveBeenCalledWith({
         assetUrlTtlSeconds: 90 * 24 * 60 * 60,
+        tenantId: "user-1",
       });
       expect(renderMediaKitHtml).toHaveBeenCalledWith(snapshot);
 

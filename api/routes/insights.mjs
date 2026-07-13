@@ -1,6 +1,7 @@
 import { jsonResponse } from "../services/http-handler.mjs";
 import { parseInsightsQuery } from "../validation/insights.mjs";
 import { buildInsightsSummary } from "../domain/insights.mjs";
+import { requireTenantId } from "../services/identity.mjs";
 
 // GET /insights?startDate=&endDate=
 //
@@ -10,9 +11,10 @@ import { buildInsightsSummary } from "../domain/insights.mjs";
 // over the daily snapshots already captured — no new data is written.
 export function registerInsightsRoutes(app) {
   app.get("/insights", async ({ event }) => {
+    const tenantId = requireTenantId(event);
     const params = event.queryStringParameters || {};
     const { startDate, endDate } = parseInsightsQuery(params);
-    const summary = await buildInsightsSummary({ startDate, endDate });
+    const summary = await buildInsightsSummary({ startDate, endDate, tenantId });
     return jsonResponse(200, summary);
   });
 }

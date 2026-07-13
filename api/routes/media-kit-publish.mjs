@@ -7,6 +7,7 @@ import {
   clearPublicMediaKitPublished,
 } from "../domain/profile.mjs";
 import { buildMediaKitSnapshot, toPublicTeaser } from "../domain/media-kit.mjs";
+import { requireTenantId } from "../services/identity.mjs";
 import { renderMediaKitHtml } from "../services/media-kit-renderer.mjs";
 import {
   publishMediaKitHtml,
@@ -31,7 +32,8 @@ export function registerMediaKitPublishRoutes(app) {
   // permanent page has permanent image URLs, writes the page to the slug,
   // and stamps the profile as published. Requires a public_slug to be set
   // first via PUT /profile.
-  app.post("/media-kit/publish", async () => {
+  app.post("/media-kit/publish", async ({ event }) => {
+    const tenantId = requireTenantId(event);
     const profile = await getProfileSettings();
     const slug = profile?.publicSlug;
     if (!slug) {
@@ -40,7 +42,7 @@ export function registerMediaKitPublishRoutes(app) {
       );
     }
 
-    const snapshot = await buildMediaKitSnapshot();
+    const snapshot = await buildMediaKitSnapshot({ tenantId });
 
     // Copy avatar/logo originals (private reports bucket) into the public
     // bucket so the permanent page references permanent URLs, not the

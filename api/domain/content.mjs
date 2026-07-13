@@ -407,13 +407,18 @@ export async function detachCampaign(tenantId, contentId) {
 // had a back-pointer (or one already cleared) simply has nothing to remove and
 // the guard's ConditionalCheckFailed is swallowed — the content side has
 // already been detached, so the operation still succeeds overall.
+//
+// Only `contentId` is removed. The campaign's `tenantId` is its ownership
+// stamp for the campaign's whole lifetime — dropping it here would demote a
+// detached campaign to a "legacy" (owner-less) row that the grandfather clause
+// in assertCampaignOwned lets any tenant reach, so it stays put.
 async function clearCampaignBackPointer(campaignId, contentId) {
   try {
     await ddb.send(new UpdateCommand({
       TableName: TABLE_NAME,
       Key: campaignKey(campaignId),
-      UpdateExpression: "REMOVE #contentId, #tenantId",
-      ExpressionAttributeNames: { "#contentId": "contentId", "#tenantId": "tenantId" },
+      UpdateExpression: "REMOVE #contentId",
+      ExpressionAttributeNames: { "#contentId": "contentId" },
       ExpressionAttributeValues: { ":contentId": contentId },
       ConditionExpression: "#contentId = :contentId",
     }));

@@ -1,6 +1,7 @@
 import { BadRequestError } from "../services/errors.mjs";
 import { jsonResponse } from "../services/http-handler.mjs";
-import { updateCampaignPayout } from "../domain/campaign.mjs";
+import { assertCampaignOwned, updateCampaignPayout } from "../domain/campaign.mjs";
+import { requireTenantId } from "../services/identity.mjs";
 import { applyPaidAtDefault, formatPayout, validatePayoutPayload } from "../validation/payout.mjs";
 
 const formatCampaign = (row) => ({
@@ -26,6 +27,8 @@ export function registerPayoutRoutes(app) {
   // paid_at to today; paid=false clears paid_at.
   app.patch("/campaigns/:campaignId/payout", async ({ event, params }) => {
     const { campaignId } = params;
+    const tenantId = requireTenantId(event);
+    await assertCampaignOwned(campaignId, tenantId);
     const body = parseBody(event);
     const fields = validatePayoutPayload(body, { partial: true });
 
