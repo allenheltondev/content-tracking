@@ -6,7 +6,7 @@ import { useState } from 'react';
 export default function CopyButton({
   text,
   label = 'Copy',
-  className = 'btn-secondary btn-sm',
+  className = 'btn btn-secondary btn-sm',
 }: {
   text: string;
   label?: string;

@@ -70,7 +70,7 @@ export default function CampaignReportsTab({
         </div>
         <button
           type="button"
-          className="btn-secondary shrink-0"
+          className="btn btn-secondary shrink-0"
           disabled={generating}
           onClick={() => void handleGenerate()}
         >

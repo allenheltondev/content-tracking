@@ -5,6 +5,7 @@ import {
   QueryVectorsCommand,
 } from "@aws-sdk/client-s3vectors";
 import { logger } from "./logger.mjs";
+import { andFilter } from "./s3vectors-filter.mjs";
 
 // Thin wrapper over the S3 Vectors data API for content chunk vectors.
 // Centralizes the bucket/index names, the vector key shape, and the metadata
@@ -84,10 +85,15 @@ export async function queryContentChunks({ tenantId, queryEmbedding, topK = 8, c
   }
   if (!tenantId) throw new Error("queryContentChunks requires a tenantId");
 
-  // Implicit AND across keys: tenantId always, contentId/type when narrowing.
-  const filter = { tenantId };
-  if (contentId) filter.contentId = contentId;
-  if (type) filter.type = type;
+  // S3 Vectors has no implicit AND across different metadata keys — a
+  // top-level object with more than one key is rejected as an invalid
+  // filter. Combine the tenant scope with any narrowing keys under an
+  // explicit $and (a single condition passes through as bare equality).
+  const filter = andFilter([
+    { tenantId },
+    contentId ? { contentId } : null,
+    type ? { type } : null,
+  ]);
 
   const res = await client.send(new QueryVectorsCommand({
     vectorBucketName: BUCKET,

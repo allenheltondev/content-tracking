@@ -46,16 +46,24 @@ describe("services/content-vectors", () => {
       ]);
     });
 
-    test("adds contentId to the filter when narrowing to one piece", async () => {
+    // Different metadata keys must be combined under $and — S3 Vectors rejects
+    // a multi-key top-level filter object as invalid.
+    test("adds contentId under $and when narrowing to one piece", async () => {
       mockSend.mockResolvedValueOnce({ vectors: [] });
       await queryContentChunks({ tenantId: "T1", queryEmbedding: [0.1], contentId: "C9" });
-      expect(mockSend.mock.calls[0][0].input.filter).toEqual({ tenantId: "T1", contentId: "C9" });
+      expect(mockSend.mock.calls[0][0].input.filter).toEqual({ $and: [{ tenantId: "T1" }, { contentId: "C9" }] });
     });
 
-    test("adds type to the filter when narrowing to one type", async () => {
+    test("adds type under $and when narrowing to one type", async () => {
       mockSend.mockResolvedValueOnce({ vectors: [] });
       await queryContentChunks({ tenantId: "T1", queryEmbedding: [0.1], type: "blog" });
-      expect(mockSend.mock.calls[0][0].input.filter).toEqual({ tenantId: "T1", type: "blog" });
+      expect(mockSend.mock.calls[0][0].input.filter).toEqual({ $and: [{ tenantId: "T1" }, { type: "blog" }] });
+    });
+
+    test("combines contentId and type under a single $and", async () => {
+      mockSend.mockResolvedValueOnce({ vectors: [] });
+      await queryContentChunks({ tenantId: "T1", queryEmbedding: [0.1], contentId: "C9", type: "blog" });
+      expect(mockSend.mock.calls[0][0].input.filter).toEqual({ $and: [{ tenantId: "T1" }, { contentId: "C9" }, { type: "blog" }] });
     });
 
     test("returns [] when the index has no matches", async () => {

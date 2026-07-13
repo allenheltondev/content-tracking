@@ -166,18 +166,18 @@ export default function VendorDetail(): ReactElement {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            className="btn-secondary"
+            className="btn btn-secondary"
             disabled={reportBusy}
             onClick={() => void handleGenerateReport()}
           >
             {reportBusy ? 'Generating…' : 'Generate report'}
           </button>
-          <Link to={`/vendors/${vendor.vendor_id}/edit`} className="btn-secondary">
+          <Link to={`/vendors/${vendor.vendor_id}/edit`} className="btn btn-secondary">
             Edit
           </Link>
           <button
             type="button"
-            className="btn-destructive"
+            className="btn btn-error"
             onClick={() => {
               setBlockingCount(null);
               setDeleteServerError(null);
@@ -272,7 +272,7 @@ export default function VendorDetail(): ReactElement {
           <h2 className="text-lg font-semibold text-foreground">Campaigns</h2>
           <button
             type="button"
-            className="btn-primary"
+            className="btn btn-primary"
             onClick={() => {
               setCreateCampaignError(null);
               setCreateCampaignOpen(true);

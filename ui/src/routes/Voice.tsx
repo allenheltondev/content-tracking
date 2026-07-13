@@ -221,7 +221,7 @@ function VoiceChecker({ knownPlatforms }: { knownPlatforms: string[] }): ReactEl
 
   if (!open) {
     return (
-      <button type="button" className="btn-secondary btn-sm" onClick={() => setOpen(true)}>
+      <button type="button" className="btn btn-secondary btn-sm" onClick={() => setOpen(true)}>
         Check a draft against your voice
       </button>
     );
@@ -231,7 +231,7 @@ function VoiceChecker({ knownPlatforms }: { knownPlatforms: string[] }): ReactEl
     <div className="card card-body space-y-3">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-foreground">Does this sound like you?</h2>
-        <button type="button" className="btn-ghost btn-sm" onClick={() => setOpen(false)}>Close</button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOpen(false)}>Close</button>
       </div>
       <div className="flex flex-wrap items-end gap-3">
         <label className="text-sm">
@@ -252,7 +252,7 @@ function VoiceChecker({ knownPlatforms }: { knownPlatforms: string[] }): ReactEl
       />
       {error && <p className="form-error">{error}</p>}
       <div>
-        <button type="button" className="btn-primary btn-sm" onClick={() => void check()} disabled={busy || draft.trim().length === 0}>
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => void check()} disabled={busy || draft.trim().length === 0}>
           {busy ? 'Scoring…' : 'Check voice match'}
         </button>
       </div>
@@ -371,7 +371,7 @@ function ProfileDetail({ platform, onChanged }: { platform: string; onChanged: (
     <div className="card card-body space-y-4">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-foreground">{platformLabel(platform)} voice</h2>
-        <button type="button" className="btn-secondary btn-sm" onClick={() => void refresh()} disabled={reflecting}>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => void refresh()} disabled={reflecting}>
           {reflecting ? 'Refreshing…' : 'Refresh now'}
         </button>
       </div>
@@ -515,17 +515,17 @@ function SteeringEditor({
       <div className="flex items-center gap-2">
         <button
           type="button"
-          className="btn-primary btn-sm"
+          className="btn btn-primary btn-sm"
           onClick={() => void save(note.trim() ? note.trim() : null)}
           disabled={busy}
         >
           {busy ? 'Saving…' : 'Save & refresh voice'}
         </button>
-        <button type="button" className="btn-ghost btn-sm" onClick={() => { setEditing(false); setNote(current ?? ''); }} disabled={busy}>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setEditing(false); setNote(current ?? ''); }} disabled={busy}>
           Cancel
         </button>
         {current && (
-          <button type="button" className="btn-ghost btn-sm text-error-600" onClick={() => void save(null)} disabled={busy}>
+          <button type="button" className="btn btn-ghost btn-sm text-error-600" onClick={() => void save(null)} disabled={busy}>
             Clear
           </button>
         )}
@@ -693,7 +693,7 @@ function SamplesList({ platform, onDeleted }: { platform: string; onDeleted: () 
                 <div className="flex items-center gap-1 shrink-0">
                   <button
                     type="button"
-                    className="btn-ghost btn-sm"
+                    className="btn btn-ghost btn-sm"
                     onClick={() => void toggleMute(s)}
                     disabled={busyId === s.sample_id}
                   >
@@ -702,7 +702,7 @@ function SamplesList({ platform, onDeleted }: { platform: string; onDeleted: () 
                   {!isAuto && (
                     <button
                       type="button"
-                      className="btn-ghost btn-sm"
+                      className="btn btn-ghost btn-sm"
                       onClick={() => void remove(s.sample_id)}
                       disabled={busyId === s.sample_id}
                       aria-label="Delete sample"

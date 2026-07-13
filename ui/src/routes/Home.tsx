@@ -137,7 +137,7 @@ export default function Home(): ReactElement {
             No content yet. Create your first piece — then attach a sponsorship if a brand
             comes along.
           </p>
-          <Link to="/content" className="btn-primary inline-flex w-auto mx-auto">
+          <Link to="/content" className="btn btn-primary inline-flex w-auto mx-auto">
             Create your first piece
           </Link>
         </div>
@@ -331,7 +331,7 @@ function DashboardHeader(): ReactElement {
           Your latest content, plus any sponsorships and how the year is tracking.
         </p>
       </div>
-      <Link to="/content" className="btn-primary w-auto">
+      <Link to="/content" className="btn btn-primary w-auto">
         New content
       </Link>
     </header>

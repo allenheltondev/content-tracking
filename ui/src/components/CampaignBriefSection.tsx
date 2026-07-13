@@ -111,7 +111,7 @@ export default function CampaignBriefSection({
           {brief && (
             <button
               type="button"
-              className="btn-secondary"
+              className="btn btn-secondary"
               disabled={busy}
               onClick={() => {
                 setAdding(false);
@@ -399,7 +399,7 @@ function BriefSummary({
         {error && <p className="form-error">{error}</p>}
 
         <div className="flex items-center justify-end gap-3">
-          <button type="button" className="btn-primary" onClick={() => void apply()} disabled={busy}>
+          <button type="button" className="btn btn-primary" onClick={() => void apply()} disabled={busy}>
             {busy ? 'Applying...' : 'Apply to campaign'}
           </button>
         </div>

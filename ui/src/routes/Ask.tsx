@@ -91,7 +91,7 @@ export default function Ask(): ReactElement {
           />
         </label>
         <div className="flex items-center gap-3">
-          <button type="submit" className="btn-primary" disabled={busy || trimmed.length === 0}>
+          <button type="submit" className="btn btn-primary" disabled={busy || trimmed.length === 0}>
             {busy ? 'Thinking…' : 'Ask'}
           </button>
           <span className="text-xs text-muted-foreground">⌘/Ctrl + Enter</span>

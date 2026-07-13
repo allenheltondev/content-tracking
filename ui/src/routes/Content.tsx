@@ -70,7 +70,7 @@ export default function Content(): ReactElement {
             and feeds your content voice. Create one with “Add content” below.
           </p>
         </div>
-        <button type="button" className="btn-primary" onClick={() => setAdding((v) => !v)}>
+        <button type="button" className="btn btn-primary" onClick={() => setAdding((v) => !v)}>
           {adding ? 'Close' : 'Add content'}
         </button>
       </header>
@@ -173,7 +173,7 @@ export default function Content(): ReactElement {
           {nextStartKey && (
             <button
               type="button"
-              className="btn-secondary"
+              className="btn btn-secondary"
               onClick={() => void load(nextStartKey)}
               disabled={loading}
             >
@@ -313,7 +313,7 @@ function AddContentForm({
         Creating an unsponsored piece. Add a sponsorship (campaign) later from the content’s page.
       </p>
       {error && <p className="form-error">{error}</p>}
-      <button type="submit" className="btn-primary" disabled={busy || !title.trim() || !content.trim()}>
+      <button type="submit" className="btn btn-primary" disabled={busy || !title.trim() || !content.trim()}>
         {busy ? 'Saving…' : 'Save content'}
       </button>
     </form>

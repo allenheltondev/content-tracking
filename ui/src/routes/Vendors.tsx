@@ -41,7 +41,7 @@ export default function Vendors(): ReactElement {
     <section className="space-y-4">
       <header className="flex items-start justify-between gap-4">
         <h1 className="text-2xl font-semibold text-foreground">Vendors</h1>
-        <Link to="/vendors/new" className="btn-primary">
+        <Link to="/vendors/new" className="btn btn-primary">
           Add vendor
         </Link>
       </header>
@@ -61,7 +61,7 @@ export default function Vendors(): ReactElement {
       {filtered && filtered.length === 0 && vendors && vendors.length === 0 && (
         <div className="card card-body text-center py-12 space-y-4">
           <p className="text-muted-foreground">No vendors yet.</p>
-          <Link to="/vendors/new" className="btn-primary inline-block">
+          <Link to="/vendors/new" className="btn btn-primary inline-block">
             Add your first vendor
           </Link>
         </div>

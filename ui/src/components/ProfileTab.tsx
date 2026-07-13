@@ -321,7 +321,7 @@ export default function ProfileTab(): ReactElement {
       {saved && <p className="text-sm text-success-700">Profile saved.</p>}
 
       <div className="flex justify-end">
-        <button type="button" className="btn-primary" onClick={() => void submit()} disabled={busy}>
+        <button type="button" className="btn btn-primary" onClick={() => void submit()} disabled={busy}>
           {busy ? 'Saving…' : 'Save profile'}
         </button>
       </div>
@@ -432,7 +432,7 @@ function ImageUploader({
           />
           <button
             type="button"
-            className="btn-secondary text-sm"
+            className="btn btn-secondary text-sm"
             onClick={() => inputRef.current?.click()}
             disabled={busy || uploading}
           >
@@ -481,7 +481,7 @@ function ListSection({
           <h2 className="text-lg font-semibold text-foreground">{title}</h2>
           <p className="text-sm text-muted-foreground">{hint}</p>
         </div>
-        <button type="button" className="btn-secondary text-sm shrink-0" onClick={onAdd} disabled={busy}>
+        <button type="button" className="btn btn-secondary text-sm shrink-0" onClick={onAdd} disabled={busy}>
           {addLabel}
         </button>
       </div>

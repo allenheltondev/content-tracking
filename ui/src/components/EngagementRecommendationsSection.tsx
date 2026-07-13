@@ -131,7 +131,7 @@ function PostRecommendations({
         </div>
         <button
           type="button"
-          className="btn-secondary py-1 px-2 text-sm shrink-0"
+          className="btn btn-secondary py-1 px-2 text-sm shrink-0"
           onClick={() => void generate()}
           disabled={generating}
         >

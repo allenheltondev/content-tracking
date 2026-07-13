@@ -153,7 +153,9 @@ function parseYamlSubset(block, dialect) {
   const kvSep = dialect === "toml" ? /^([A-Za-z0-9_.-]+)\s*=\s*(.*)$/ : /^([A-Za-z0-9_.-]+)\s*:\s*(.*)$/;
   const out = {};
   let lastKey = null;
-  for (const line of block.split(/\r?\n/)) {
+  const lines = block.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     if (!line.trim() || line.trim().startsWith("#")) continue;
 
     const arr = line.match(/^\s*-\s+(.*)$/);
@@ -170,9 +172,51 @@ function parseYamlSubset(block, dialect) {
     }
     lastKey = kv[1];
     const rhs = kv[2].trim();
+
+    // YAML block scalars: `key: |` (literal) or `key: >` (folded), each with an
+    // optional chomping indicator (`-`/`+`). Without this the indicator itself
+    // (">-", "|", ...) leaks in as the value and the indented body below is
+    // dropped — which is exactly how ">- " ended up as post descriptions.
+    const scalar = dialect === "yaml" && rhs.match(/^([|>])([+-]?)$/);
+    if (scalar) {
+      const keyIndent = line.match(/^(\s*)/)[1].length;
+      const bodyLines = [];
+      let j = i + 1;
+      for (; j < lines.length; j++) {
+        const l = lines[j];
+        if (l.trim() === "") { bodyLines.push(""); continue; }
+        if (l.match(/^(\s*)/)[1].length <= keyIndent) break;
+        bodyLines.push(l);
+      }
+      i = j - 1; // resume after the block body
+      out[lastKey] = foldBlockScalar(bodyLines, { folded: scalar[1] === ">" });
+      continue;
+    }
+
     out[lastKey] = rhs === "" ? "" : parseValue(rhs);
   }
   return out;
+}
+
+// Joins the collected lines of a YAML block scalar after stripping the common
+// leading indentation. Folded (`>`) style collapses line breaks within a
+// paragraph to spaces; literal (`|`) style keeps them. Blank lines mark
+// paragraph breaks in both. Trailing/leading whitespace is trimmed, which
+// covers the chomping styles we care about for short frontmatter fields.
+function foldBlockScalar(bodyLines, { folded }) {
+  const indents = bodyLines.filter((l) => l.trim()).map((l) => l.match(/^(\s*)/)[1].length);
+  const base = indents.length ? Math.min(...indents) : 0;
+  const body = bodyLines.map((l) => (l.trim() ? l.slice(base) : ""));
+
+  if (!folded) return body.join("\n").trim();
+
+  let text = "";
+  for (const cur of body) {
+    if (cur === "") { text += "\n"; continue; }
+    if (text && !text.endsWith("\n")) text += " ";
+    text += cur;
+  }
+  return text.trim();
 }
 
 function parseValue(v) {

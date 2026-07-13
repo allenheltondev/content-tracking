@@ -104,7 +104,7 @@ export default function SourcePicker({ busy, onSubmitChat, onSubmitPdf }: Props)
           {chatError && <p className="form-error">{chatError}</p>}
           <button
             type="button"
-            className="btn-primary"
+            className="btn btn-primary"
             disabled={busy || chatText.trim().length === 0}
             onClick={handleChatSubmit}
           >
@@ -152,7 +152,7 @@ export default function SourcePicker({ busy, onSubmitChat, onSubmitPdf }: Props)
           {fileError && <p className="form-error">{fileError}</p>}
           <button
             type="button"
-            className="btn-primary"
+            className="btn btn-primary"
             disabled={busy || !file}
             onClick={() => file && onSubmitPdf(file)}
           >

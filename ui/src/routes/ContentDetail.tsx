@@ -211,7 +211,7 @@ function EditContentForm({
     <form onSubmit={submit} className="card card-body space-y-3">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-foreground">Edit content</h2>
-        <button type="button" className="btn-ghost btn-sm" onClick={onCancel} disabled={busy}>Cancel</button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel} disabled={busy}>Cancel</button>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block">
@@ -264,7 +264,7 @@ function EditContentForm({
         </label>
       </div>
       {error && <p className="form-error">{error}</p>}
-      <button type="submit" className="btn-primary" disabled={busy || !title.trim()}>
+      <button type="submit" className="btn btn-primary" disabled={busy || !title.trim()}>
         {busy ? 'Saving…' : 'Save changes'}
       </button>
     </form>
@@ -344,18 +344,18 @@ function SponsorshipRow({
         </div>
         {content.campaign_id ? (
           <div className="flex items-center gap-2">
-            <Link to={`/campaigns/${content.campaign_id}`} className="btn-secondary btn-sm">View campaign</Link>
-            <button type="button" className="btn-ghost btn-sm" onClick={() => void doDetach()} disabled={busy}>
+            <Link to={`/campaigns/${content.campaign_id}`} className="btn btn-secondary btn-sm">View campaign</Link>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => void doDetach()} disabled={busy}>
               {busy ? 'Detaching…' : 'Detach'}
             </button>
           </div>
         ) : mode === 'idle' ? (
           <div className="flex items-center gap-2">
-            <button type="button" className="btn-secondary btn-sm" onClick={() => setMode('create')}>Add sponsorship</button>
-            <button type="button" className="btn-ghost btn-sm" onClick={() => setMode('attach')}>Attach existing</button>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setMode('create')}>Add sponsorship</button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setMode('attach')}>Attach existing</button>
           </div>
         ) : (
-          <button type="button" className="btn-ghost btn-sm" onClick={reset} disabled={busy}>Cancel</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={reset} disabled={busy}>Cancel</button>
         )}
       </div>
 
@@ -365,7 +365,7 @@ function SponsorshipRow({
             <span className="field-label">Campaign name</span>
             <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Acme Q3 sponsorship" disabled={busy} />
           </label>
-          <button type="submit" className="btn-primary btn-sm" disabled={busy || !name.trim()}>
+          <button type="submit" className="btn btn-primary btn-sm" disabled={busy || !name.trim()}>
             {busy ? 'Creating…' : 'Create & attach'}
           </button>
         </form>
@@ -377,7 +377,7 @@ function SponsorshipRow({
             <span className="field-label">Existing campaign ID</span>
             <input className="input" value={campaignId} onChange={(e) => setCampaignId(e.target.value)} placeholder="01H…" disabled={busy} />
           </label>
-          <button type="submit" className="btn-primary btn-sm" disabled={busy || !campaignId.trim()}>
+          <button type="submit" className="btn btn-primary btn-sm" disabled={busy || !campaignId.trim()}>
             {busy ? 'Attaching…' : 'Attach'}
           </button>
         </form>
@@ -459,21 +459,21 @@ function ActionsRow({
             ))}
           </select>
         </label>
-        <button type="button" className="btn-secondary btn-sm" onClick={onEdit}>Edit</button>
-        <button type="button" className="btn-secondary btn-sm" onClick={() => void saveToVoice()} disabled={saveState !== 'idle'}>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={onEdit}>Edit</button>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => void saveToVoice()} disabled={saveState !== 'idle'}>
           {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved to voice ✓' : 'Save to voice'}
         </button>
         {confirming ? (
           <>
-            <button type="button" className="btn-destructive btn-sm" onClick={() => void doDelete()} disabled={deleting}>
+            <button type="button" className="btn btn-error btn-sm" onClick={() => void doDelete()} disabled={deleting}>
               {deleting ? 'Deleting…' : 'Confirm delete'}
             </button>
-            <button type="button" className="btn-ghost btn-sm" onClick={() => setConfirming(false)} disabled={deleting}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirming(false)} disabled={deleting}>
               Cancel
             </button>
           </>
         ) : (
-          <button type="button" className="btn-ghost btn-sm" onClick={() => setConfirming(true)}>Delete</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirming(true)}>Delete</button>
         )}
       </div>
       {error && <p className="form-error">{error}</p>}
@@ -525,7 +525,7 @@ function ContentCrosspostPanel({ contentId, apiFetch }: { contentId: string; api
               {p === 'dev' ? 'DEV' : p}
             </label>
           ))}
-          <button type="submit" className="btn-secondary btn-sm" disabled={busy || selected.size === 0}>
+          <button type="submit" className="btn btn-secondary btn-sm" disabled={busy || selected.size === 0}>
             {busy ? 'Publishing…' : 'Cross-post now'}
           </button>
         </div>
@@ -693,7 +693,7 @@ function AddPublishForm({
         <span className="field-label">URL (optional)</span>
         <input className="input" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" disabled={busy} />
       </label>
-      <button type="submit" className="btn-primary btn-sm" disabled={busy || !platform.trim()}>
+      <button type="submit" className="btn btn-primary btn-sm" disabled={busy || !platform.trim()}>
         {busy ? 'Adding…' : 'Add'}
       </button>
       {error && <p className="form-error w-full">{error}</p>}
@@ -742,7 +742,7 @@ function RecordStatsForm({
     <div className="space-y-2 rounded-md bg-muted/50 p-3">
       <KeyValueEditor pairs={pairs} onChange={setPairs} keyPlaceholder="metric (views)" valuePlaceholder="count" />
       {error && <p className="form-error">{error}</p>}
-      <button type="button" className="btn-secondary btn-sm" onClick={() => void submit()} disabled={busy}>
+      <button type="button" className="btn btn-secondary btn-sm" onClick={() => void submit()} disabled={busy}>
         {busy ? 'Recording…' : 'Record today'}
       </button>
     </div>
@@ -781,7 +781,7 @@ function AskPanel({ contentId, apiFetch }: { contentId: string; apiFetch: Return
           placeholder="e.g. What's the main takeaway?"
           disabled={busy}
         />
-        <button type="submit" className="btn-secondary shrink-0" disabled={busy || !question.trim()}>
+        <button type="submit" className="btn btn-secondary shrink-0" disabled={busy || !question.trim()}>
           {busy ? 'Asking…' : 'Ask'}
         </button>
       </div>

@@ -52,7 +52,7 @@ export default function Campaigns(): ReactElement {
     <section className="space-y-4">
       <header className="flex items-start justify-between gap-4">
         <h1 className="text-2xl font-semibold text-foreground">Campaigns</h1>
-        <button type="button" className="btn-primary" onClick={() => setModalOpen(true)}>
+        <button type="button" className="btn btn-primary" onClick={() => setModalOpen(true)}>
           Create campaign
         </button>
       </header>
@@ -79,7 +79,7 @@ export default function Campaigns(): ReactElement {
       {campaigns && campaigns.length === 0 && (
         <div className="card card-body text-center py-12 space-y-4">
           <p className="text-muted-foreground">No campaigns yet.</p>
-          <button type="button" className="btn-primary" onClick={() => setModalOpen(true)}>
+          <button type="button" className="btn btn-primary" onClick={() => setModalOpen(true)}>
             Create your first campaign
           </button>
         </div>

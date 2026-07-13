@@ -38,7 +38,7 @@ export default function DeleteVendorModal({
             {blockingCampaignCount === 1 ? '' : 's'}. Reassign or delete those campaigns first.
           </p>
           <div className="flex justify-end gap-2">
-            <button type="button" className="btn-primary" onClick={onClose}>
+            <button type="button" className="btn btn-primary" onClick={onClose}>
               Close
             </button>
           </div>
@@ -50,10 +50,10 @@ export default function DeleteVendorModal({
           </p>
           {serverError && <p className="form-error">{serverError}</p>}
           <div className="flex justify-end gap-2">
-            <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>
+            <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>
               Cancel
             </button>
-            <button type="button" className="btn-destructive" onClick={onConfirm} disabled={busy}>
+            <button type="button" className="btn btn-error" onClick={onConfirm} disabled={busy}>
               {busy ? 'Deleting...' : 'Delete vendor'}
             </button>
           </div>

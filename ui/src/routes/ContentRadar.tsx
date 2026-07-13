@@ -144,7 +144,7 @@ export default function ContentRadar(): ReactElement {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            className="btn-primary"
+            className="btn btn-primary"
             onClick={() => void inspire()}
             disabled={busy || activeCount === 0}
           >
@@ -459,7 +459,7 @@ function PreferencesEditor({
 
           {error && <p className="form-error">{error}</p>}
           <div className="flex items-center gap-3">
-            <button type="button" className="btn-primary btn-sm" onClick={() => void save()} disabled={busy}>
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => void save()} disabled={busy}>
               {busy ? 'Saving…' : 'Save preferences'}
             </button>
             {saved && <span className="text-xs text-success-700">Saved — the radar will use these next time.</span>}
@@ -568,7 +568,7 @@ function FeedManager({
         </label>
         <button
           type="button"
-          className="btn-secondary"
+          className="btn btn-secondary"
           onClick={() => void add()}
           disabled={adding || url.trim().length === 0}
         >
@@ -601,7 +601,7 @@ function FeedManager({
               <div className="flex items-center gap-1 shrink-0">
                 <button
                   type="button"
-                  className="btn-ghost btn-sm"
+                  className="btn btn-ghost btn-sm"
                   onClick={() => void toggleMute(feed)}
                   disabled={busyId === feed.feed_id}
                 >
@@ -609,7 +609,7 @@ function FeedManager({
                 </button>
                 <button
                   type="button"
-                  className="btn-ghost btn-sm text-error-600"
+                  className="btn btn-ghost btn-sm text-error-600"
                   onClick={() => void remove(feed.feed_id)}
                   disabled={busyId === feed.feed_id}
                   aria-label="Remove feed"
