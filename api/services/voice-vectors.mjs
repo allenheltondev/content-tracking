@@ -14,9 +14,10 @@ import { logger } from "./logger.mjs";
 //
 // Vector key:  `${tenantId}#${platform}#${sampleId}` — deterministic, so a
 //              re-put overwrites in place and delete needs no list/scan.
-// Metadata:    filterable { tenantId, platform, format } so a query scopes to
-//              one tenant+platform; non-filterable { text } carries the sample
-//              body back for use as a few-shot example.
+// Metadata:    filterable { tenantId, platform, format, publishedAt } so a
+//              query scopes to one tenant+platform and gets the publish date
+//              back for recency re-ranking; non-filterable { text } carries
+//              the sample body back for use as a few-shot example.
 
 const BUCKET = process.env.VECTOR_BUCKET_NAME;
 const INDEX = process.env.VOICE_VECTOR_INDEX_NAME;
@@ -33,8 +34,10 @@ function assertConfigured() {
   }
 }
 
-// Upserts the embedding for one voice sample.
-export async function putVoiceSample({ tenantId, platform, format, sampleId, text, embedding }) {
+// Upserts the embedding for one voice sample. publishedAt rides along in the
+// metadata (when known) so compose can weight retrieved examples by recency
+// without a DynamoDB round-trip.
+export async function putVoiceSample({ tenantId, platform, format, sampleId, text, embedding, publishedAt }) {
   assertConfigured();
   await client.send(new PutVectorsCommand({
     vectorBucketName: BUCKET,
@@ -42,7 +45,13 @@ export async function putVoiceSample({ tenantId, platform, format, sampleId, tex
     vectors: [{
       key: voiceVectorKey(tenantId, platform, sampleId),
       data: { float32: embedding },
-      metadata: { tenantId, platform, format: format ?? "", text },
+      metadata: {
+        tenantId,
+        platform,
+        format: format ?? "",
+        text,
+        ...(publishedAt ? { publishedAt } : {}),
+      },
     }],
   }));
   logger.info("Put voice sample vector", { platform, sampleId });
@@ -70,6 +79,7 @@ export async function queryVoiceSamples({ tenantId, queryEmbedding, platform, to
     distance: v.distance,
     text: v.metadata?.text,
     format: v.metadata?.format,
+    publishedAt: v.metadata?.publishedAt,
   }));
 }
 

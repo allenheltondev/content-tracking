@@ -5,6 +5,11 @@ import { CognitoJwtVerifier } from "aws-jwt-verify";
 import { embedText } from "../../api/services/embeddings.mjs";
 import { queryVoiceSamples } from "../../api/services/voice-vectors.mjs";
 import { queryContentChunks } from "../../api/services/content-vectors.mjs";
+import {
+  COMPOSE_CANDIDATE_POOL,
+  COMPOSE_EXAMPLE_COUNT,
+  rankVoiceSamples,
+} from "../../api/services/voice-recency.mjs";
 import { getVoiceProfile } from "../../api/domain/voice.mjs";
 import { streamVoicePost, streamBlogAnswer } from "../../api/services/bedrock-stream.mjs";
 import { validateComposeRequest } from "../../api/validation/voice.mjs";
@@ -67,10 +72,14 @@ export const handler = awslambda.streamifyResponse(async (event, responseStream)
 async function runCompose(sub, { params }, write) {
   const { topic, platform, format, guidance } = params;
   const queryEmbedding = await embedText(topic);
-  const [samples, profileRow] = await Promise.all([
-    queryVoiceSamples({ tenantId: sub, queryEmbedding, platform }),
+  // Retrieve a pool, then re-rank by similarity blended with publish-date
+  // recency so the few-shot examples track the current voice (matches the
+  // buffered POST /voice/compose).
+  const [candidates, profileRow] = await Promise.all([
+    queryVoiceSamples({ tenantId: sub, queryEmbedding, platform, topK: COMPOSE_CANDIDATE_POOL }),
     getVoiceProfile(sub, platform),
   ]);
+  const samples = rankVoiceSamples(candidates, { topK: COMPOSE_EXAMPLE_COUNT });
   for await (const text of streamVoicePost({
     topic, platform, format, profile: profileRow?.profile ?? null, samples, guidance,
   })) {

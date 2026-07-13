@@ -19,11 +19,15 @@ export const VOICE_PLATFORMS = [
   "devto",
 ];
 export const VOICE_FORMATS = ["social", "blog"];
-const SOURCES = ["manual", "generated", "blog-seed"];
+const SOURCES = ["manual", "generated", "blog-seed", "content-auto"];
 
 // Surfaced to the UI so it can render real progress toward the next automatic
 // reflection. Mirrors the ReflectionThreshold template parameter.
 const REFLECTION_THRESHOLD = Number(process.env.REFLECTION_THRESHOLD ?? 5);
+
+// Surfaced on profile reads so the UI can explain the recency model. Mirrors
+// the VoiceHalfLifeDays template parameter (see services/voice-recency.mjs).
+const VOICE_HALF_LIFE_DAYS = Number(process.env.VOICE_HALF_LIFE_DAYS ?? 90);
 
 const TOPIC_MAX = 2000;
 const GUIDANCE_MAX = 1000;
@@ -94,6 +98,17 @@ export function validateSampleCreate(body) {
     }
     out.source = body.source;
   }
+  // Optional publish date/time: anchors the sample on the recency-decay curve
+  // (defaults to capture time when omitted). Accepts YYYY-MM-DD or full ISO
+  // 8601 timestamps.
+  if (body.published_at !== undefined && body.published_at !== null) {
+    if (typeof body.published_at !== "string"
+      || !/^\d{4}-\d{2}-\d{2}(T[\d:.]+(Z|[+-]\d{2}:?\d{2})?)?$/.test(body.published_at.trim())
+      || isNaN(Date.parse(body.published_at.trim()))) {
+      throw new BadRequestError("published_at must be a YYYY-MM-DD date or ISO 8601 timestamp");
+    }
+    out.publishedAt = body.published_at.trim();
+  }
   return out;
 }
 
@@ -109,6 +124,7 @@ export function formatVoiceSample(row) {
     format: row.format ?? null,
     source: row.source ?? null,
     text: row.text,
+    published_at: row.publishedAt ?? null,
     created_at: row.createdAt,
   };
 }
@@ -120,6 +136,7 @@ export function formatVoiceProfile(row) {
     profile: row.profile ?? null,
     samples_since_reflection: row.samplesSinceReflection ?? 0,
     reflection_threshold: REFLECTION_THRESHOLD,
+    recency_half_life_days: VOICE_HALF_LIFE_DAYS,
     version: row.version ?? 0,
     created_at: row.createdAt ?? null,
     updated_at: row.updatedAt ?? null,
@@ -132,6 +149,7 @@ export function formatVoiceReflection(row) {
     platform: row.platform,
     change_summary: row.changeSummary ?? null,
     sample_window: row.sampleWindow ?? null,
+    half_life_days: row.halfLifeDays ?? null,
     model: row.model ?? null,
     created_at: row.createdAt,
   };

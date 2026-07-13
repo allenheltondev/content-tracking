@@ -55,9 +55,9 @@ function ctx({ body, params, query } = {}) {
 beforeEach(() => jest.clearAllMocks());
 
 describe("POST /voice/compose", () => {
-  test("embeds the topic, retrieves platform samples + profile, and composes", async () => {
+  test("embeds the topic, retrieves a candidate pool + profile, and composes", async () => {
     embedText.mockResolvedValue([0.1, 0.2]);
-    queryVoiceSamples.mockResolvedValue([{ text: "past" }]);
+    queryVoiceSamples.mockResolvedValue([{ text: "past", distance: 0.1 }]);
     getVoiceProfile.mockResolvedValue({ profile: { tone: "wry" } });
     composeVoicePost.mockResolvedValue({ post: "Drafted.", title: null });
 
@@ -65,11 +65,32 @@ describe("POST /voice/compose", () => {
 
     expect(res.statusCode).toBe(200);
     expect(embedText).toHaveBeenCalledWith("ship");
-    expect(queryVoiceSamples).toHaveBeenCalledWith({ tenantId: SUB, queryEmbedding: [0.1, 0.2], platform: "x" });
+    // Retrieves a wider pool than it uses so the recency re-rank has room.
+    expect(queryVoiceSamples).toHaveBeenCalledWith({ tenantId: SUB, queryEmbedding: [0.1, 0.2], platform: "x", topK: 16 });
     expect(composeVoicePost).toHaveBeenCalledWith(expect.objectContaining({
-      platform: "x", format: "social", profile: { tone: "wry" }, samples: [{ text: "past" }],
+      platform: "x", format: "social", profile: { tone: "wry" },
+      samples: [expect.objectContaining({ text: "past" })],
     }));
     expect(JSON.parse(res.body).post).toBe("Drafted.");
+  });
+
+  test("re-ranks the pool by similarity + publish-date recency and caps the examples", async () => {
+    embedText.mockResolvedValue([0.1]);
+    const now = new Date();
+    const daysAgo = (n) => new Date(now.getTime() - n * 86_400_000).toISOString();
+    queryVoiceSamples.mockResolvedValue([
+      { text: "stale-exact", distance: 0.05, publishedAt: daysAgo(720) },
+      { text: "fresh-close", distance: 0.25, publishedAt: daysAgo(3) },
+      ...Array.from({ length: 6 }, (_, i) => ({ text: `filler-${i}`, distance: 0.6, publishedAt: daysAgo(400) })),
+    ]);
+    getVoiceProfile.mockResolvedValue(null);
+    composeVoicePost.mockResolvedValue({ post: "x" });
+
+    await routes["POST /voice/compose"](ctx({ body: { topic: "t", platform: "x", format: "social" } }));
+
+    const { samples } = composeVoicePost.mock.calls[0][0];
+    expect(samples).toHaveLength(5);
+    expect(samples[0].text).toBe("fresh-close"); // recency lifts it over the stale exact match
   });
 
   test("composes on a cold start (no profile)", async () => {
@@ -95,6 +116,13 @@ describe("POST /voice/samples", () => {
     expect(res.statusCode).toBe(201);
     expect(createVoiceSample).toHaveBeenCalledWith(SUB, { text: "hi", platform: "x", format: "social", source: "generated" });
     expect(JSON.parse(res.body).sample_id).toBe("S1");
+  });
+
+  test("threads published_at through to the recency anchor", async () => {
+    createVoiceSample.mockResolvedValue({ sampleId: "S2", platform: "x", format: "social", source: "manual", text: "hi", publishedAt: "2026-06-01", createdAt: "t0" });
+    const res = await routes["POST /voice/samples"](ctx({ body: { text: "hi", platform: "x", format: "social", published_at: "2026-06-01" } }));
+    expect(createVoiceSample).toHaveBeenCalledWith(SUB, expect.objectContaining({ publishedAt: "2026-06-01" }));
+    expect(JSON.parse(res.body).published_at).toBe("2026-06-01");
   });
 });
 

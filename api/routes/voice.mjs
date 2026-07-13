@@ -7,6 +7,11 @@ import { queryVoiceSamples, deleteVoiceSample } from "../services/voice-vectors.
 import { composeVoicePost } from "../services/bedrock.mjs";
 import { runReflection } from "../services/voice-memory.mjs";
 import {
+  COMPOSE_CANDIDATE_POOL,
+  COMPOSE_EXAMPLE_COUNT,
+  rankVoiceSamples,
+} from "../services/voice-recency.mjs";
+import {
   createVoiceSample,
   deleteVoiceSampleRow,
   getVoiceProfile,
@@ -33,18 +38,21 @@ import {
 
 export function registerVoiceRoutes(app) {
   // POST /voice/compose — draft a post in the creator's voice. Embeds the topic,
-  // retrieves the nearest past samples for the platform (episodic memory) and the
-  // learned style profile (semantic memory), and asks Bedrock to write. Nothing
-  // is persisted; "save" is a separate POST /voice/samples. Mirrors /blogs/ask.
+  // retrieves a pool of nearby past samples for the platform (episodic memory),
+  // re-ranks them by topical similarity blended with publish-date recency (so
+  // the examples reflect the CURRENT voice — see voice-recency.mjs), pairs them
+  // with the learned style profile (semantic memory), and asks Bedrock to
+  // write. Nothing is persisted; "save" is a separate POST /voice/samples.
   app.post("/voice/compose", async ({ event }) => {
     const tenantId = requireTenantId(event);
     const { topic, platform, format, guidance } = validateComposeRequest(parseBody(event));
 
     const queryEmbedding = await embedText(topic);
-    const [samples, profileRow] = await Promise.all([
-      queryVoiceSamples({ tenantId, queryEmbedding, platform }),
+    const [candidates, profileRow] = await Promise.all([
+      queryVoiceSamples({ tenantId, queryEmbedding, platform, topK: COMPOSE_CANDIDATE_POOL }),
       getVoiceProfile(tenantId, platform),
     ]);
+    const samples = rankVoiceSamples(candidates, { topK: COMPOSE_EXAMPLE_COUNT });
 
     const draft = await composeVoicePost({
       topic,

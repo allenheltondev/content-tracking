@@ -753,25 +753,40 @@ const RECORD_VOICE_POST_TOOL = {
   },
 };
 
-const COMPOSE_SYSTEM_PROMPT = `You are a ghostwriter who writes in one specific person's voice. You are given (1) a structured style profile describing how they write on a platform, and (2) a few of their past posts as examples of that voice.
+const COMPOSE_SYSTEM_PROMPT = `You are a ghostwriter who writes in one specific person's voice. You are given (1) a structured style profile describing how they write on a platform, and (2) a few of their past posts as examples of that voice, each annotated with its publish date when known.
 
-Write a NEW post on the requested topic for the requested platform that authentically matches their voice — tone, sentence structure, vocabulary, signature phrases, and formatting preferences. Match the requested format: 'social' = short, punchy, platform-native (no title); 'blog' = long-form structured prose with a title.
+Write a NEW post on the requested topic for the requested platform that authentically matches their voice — tone, sentence structure, vocabulary, signature phrases, and formatting preferences. Their voice evolves over time: the examples are ordered by a blend of topical relevance and recency, and when examples conflict stylistically, favor the more recently published ones — they are the truest signal of how this person writes NOW. Match the requested format: 'social' = short, punchy, platform-native (no title); 'blog' = long-form structured prose with a title.
 
 Emulate the style, do not copy the example posts' content. If the profile is empty, infer the voice from the examples. Output only by calling the record_voice_post tool.`;
 
+// Renders the per-sample annotation for the compose/reflect prompts: publish
+// date (the recency anchor) and, when present, the normalized weight share the
+// recency model assigned the sample.
+function voiceSampleLabel(sample) {
+  const parts = [];
+  if (typeof sample.publishedAt === "string" && sample.publishedAt.length > 0) {
+    parts.push(`published ${sample.publishedAt.slice(0, 10)}`);
+  }
+  if (typeof sample.weightShare === "number") {
+    parts.push(`recency weight ${Math.round(sample.weightShare * 100)}%`);
+  }
+  return parts.length > 0 ? ` (${parts.join(", ")})` : "";
+}
+
 // Drafts a post in the user's voice. `profile` is the stored VoiceProfile.profile
-// JSON (or null on cold start); `samples` are few-shot examples ([{ text }] from
-// queryVoiceSamples). Returns { post, title? }. Not persisted by this call.
+// JSON (or null on cold start); `samples` are few-shot examples ([{ text,
+// publishedAt? }] from queryVoiceSamples, pre-ranked by relevance + recency).
+// Returns { post, title? }. Not persisted by this call.
 export async function composeVoicePost({ topic, platform, format, profile, samples, guidance }) {
   const examples = (samples ?? []).filter((s) => s?.text);
   const exampleBlock = examples.length > 0
-    ? examples.map((s, i) => `[${i + 1}] ${s.text}`).join("\n\n")
+    ? examples.map((s, i) => `[${i + 1}]${voiceSampleLabel(s)} ${s.text}`).join("\n\n")
     : "(no examples yet)";
 
   const userContent = [{
     text: `=== STYLE PROFILE (${platform}) ===\n${
       profile ? JSON.stringify(profile, null, 2) : "(no learned profile yet — infer the voice from the examples below)"
-    }\n\n=== PAST POSTS (examples of their voice; emulate, don't copy) ===\n${exampleBlock}\n\n=== TASK ===\nWrite a ${
+    }\n\n=== PAST POSTS (ordered by relevance + recency; emulate, don't copy) ===\n${exampleBlock}\n\n=== TASK ===\nWrite a ${
       format === "blog" ? "long-form blog post" : "short social post"
     } for ${platform} about:\n${topic}${
       guidance ? `\n\nAdditional guidance: ${guidance}` : ""
@@ -808,22 +823,23 @@ const RECORD_VOICE_PROFILE_TOOL = {
   },
 };
 
-const REFLECT_SYSTEM_PROMPT = `You maintain a structured profile of how a specific person writes on a given platform. You are given their current profile (which may be empty) and their most recent posts.
+const REFLECT_SYSTEM_PROMPT = `You maintain a structured profile of how a specific person writes on a given platform. You are given their current profile (which may be empty) and their recent posts, ordered newest-published first. Each post is annotated with its publish date and a recency weight — its share of influence on the profile, decaying exponentially with publish age.
 
-Update the profile to reflect how they actually write now: infer tone, audience, sentence structure, vocabulary, signature phrases, formatting preferences, and concrete dos/donts directly from the samples. Emit the FULL updated profile (a replacement, not a diff) plus a short change_summary describing what you changed versus the prior profile.
+Update the profile to reflect how they actually write NOW: infer tone, audience, sentence structure, vocabulary, signature phrases, formatting preferences, and concrete dos/donts directly from the samples, letting each sample's influence match its stated weight. When samples disagree — tone shifted, formatting habits changed, vocabulary moved on — the higher-weighted recent posts WIN; keep traits from older or lower-weighted posts only where nothing newer contradicts them. The profile should track the voice's evolution, not average over its whole history. Emit the FULL updated profile (a replacement, not a diff) plus a short change_summary describing what you changed versus the prior profile and any drift you observed toward the recent posts.
 
 Be specific and grounded in the samples — do not invent traits the samples don't demonstrate. Output only by calling the record_voice_profile tool.`;
 
 // Re-derives the style profile from recent samples. `currentProfile` is the
-// prior VoiceProfile.profile JSON (or null); `samples` are recent VoiceSample
-// rows ([{ text }]). Returns { profile, change_summary }.
+// prior VoiceProfile.profile JSON (or null); `samples` are recency-weighted
+// VoiceSample rows ([{ text, publishedAt?, weightShare? }], newest-published
+// first, from selectRecencyWeighted). Returns { profile, change_summary }.
 export async function reflectVoiceProfile({ platform, currentProfile, samples }) {
   const recent = (samples ?? []).filter((s) => s?.text);
   const userContent = [{
     text: `=== CURRENT PROFILE (${platform}) ===\n${
       currentProfile ? JSON.stringify(currentProfile, null, 2) : "(none yet — build it from scratch)"
-    }\n\n=== RECENT POSTS ===\n${
-      recent.map((s, i) => `[${i + 1}] ${s.text}`).join("\n\n")
+    }\n\n=== RECENT POSTS (newest-published first, recency-weighted) ===\n${
+      recent.map((s, i) => `[${i + 1}]${voiceSampleLabel(s)} ${s.text}`).join("\n\n")
     }\n\nUpdate the profile by calling record_voice_profile.`,
   }];
 

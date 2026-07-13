@@ -57,6 +57,14 @@ describe("domain/voice", () => {
     expect(item.source).toBe("manual");
   });
 
+  test("createVoiceSample stores publishedAt when given, omits it otherwise", async () => {
+    mockSend.mockResolvedValue({});
+    const dated = await createVoiceSample(TENANT, { text: "hi", platform: "blog", format: "blog", publishedAt: "2026-07-10" });
+    expect(dated.publishedAt).toBe("2026-07-10");
+    const undated = await createVoiceSample(TENANT, { text: "hi", platform: "x", format: "social" });
+    expect(undated).not.toHaveProperty("publishedAt");
+  });
+
   test("listRecentSamples queries begins_with newest-first with a limit", async () => {
     mockSend.mockResolvedValue({ Items: [{ sampleId: "S2" }] });
     const out = await listRecentSamples(TENANT, "linkedin", 7);
@@ -123,9 +131,10 @@ describe("domain/voice", () => {
 
   test("createReflection + listReflections", async () => {
     mockSend.mockResolvedValueOnce({});
-    const r = await createReflection(TENANT, "x", { changeSummary: "c", sampleWindow: 5, model: "m" });
+    const r = await createReflection(TENANT, "x", { changeSummary: "c", sampleWindow: 5, model: "m", halfLifeDays: 90 });
     expect(r.entity).toBe("VoiceReflection");
     expect(r.changeSummary).toBe("c");
+    expect(r.halfLifeDays).toBe(90);
 
     mockSend.mockResolvedValueOnce({ Items: [{ reflectionId: "R1" }] });
     const list = await listReflections(TENANT, "x", 3);

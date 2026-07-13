@@ -45,10 +45,12 @@ const SAMPLE_PREFIX = (platform) => `VOICE#SAMPLE#${platform}#`;
 const REFLECTION_PREFIX = (platform) => `VOICE#REFLECTION#${platform}#`;
 
 // Creates a voice sample. The stream consumer does the rest (embed → vector →
-// counter → maybe reflect). `sampleId` is normally a fresh ULID; the seed
-// script passes a deterministic id (derived from the source blog) so re-runs
-// overwrite instead of duplicating.
-export async function createVoiceSample(tenantId, { text, platform, format, source = "manual", sampleId } = {}) {
+// counter → maybe reflect). `sampleId` is normally a fresh ULID; the
+// auto-capture and seed paths pass a deterministic id (derived from the source
+// content) so re-runs overwrite instead of duplicating. `publishedAt` anchors
+// the sample on the recency-decay curve (see services/voice-recency.mjs);
+// when absent, createdAt is the fallback anchor.
+export async function createVoiceSample(tenantId, { text, platform, format, source = "manual", sampleId, publishedAt } = {}) {
   const id = sampleId ?? ulid();
   const now = new Date().toISOString();
   const item = {
@@ -62,6 +64,9 @@ export async function createVoiceSample(tenantId, { text, platform, format, sour
     text,
     createdAt: now,
   };
+  if (publishedAt) {
+    item.publishedAt = publishedAt;
+  }
   await ddb.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
   return item;
 }
@@ -210,7 +215,9 @@ export async function putVoiceProfile(tenantId, platform, { profile, version, cr
 }
 
 // Records a reflection in the audit trail (one row per profile update).
-export async function createReflection(tenantId, platform, { changeSummary, sampleWindow, model }) {
+// halfLifeDays captures the recency-decay setting the reflection ran with, so
+// profile changes stay explainable after the knob is retuned.
+export async function createReflection(tenantId, platform, { changeSummary, sampleWindow, model, halfLifeDays }) {
   const id = ulid();
   const now = new Date().toISOString();
   const item = {
@@ -224,6 +231,9 @@ export async function createReflection(tenantId, platform, { changeSummary, samp
     model,
     createdAt: now,
   };
+  if (halfLifeDays !== undefined && halfLifeDays !== null) {
+    item.halfLifeDays = halfLifeDays;
+  }
   await ddb.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
   return item;
 }

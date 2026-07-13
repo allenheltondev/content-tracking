@@ -268,6 +268,7 @@ const SOURCE_LABEL: Record<string, string> = {
   generated: 'generated',
   manual: 'pasted',
   'blog-seed': 'from blog',
+  'content-auto': 'from published content',
 };
 
 // The corpus the voice learns from — curate it by removing off-voice samples.
@@ -322,7 +323,7 @@ function SamplesList({ platform, onDeleted }: { platform: string; onDeleted: () 
               <div className="min-w-0">
                 <p className="text-sm text-foreground line-clamp-2">{s.text}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {SOURCE_LABEL[s.source ?? ''] ?? s.source ?? 'sample'} · {fmtDate(s.created_at)}
+                  {SOURCE_LABEL[s.source ?? ''] ?? s.source ?? 'sample'} · {s.published_at ? `published ${fmtDate(s.published_at)}` : fmtDate(s.created_at)}
                 </p>
               </div>
               <button

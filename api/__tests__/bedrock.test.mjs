@@ -465,6 +465,17 @@ describe("services/bedrock voice", () => {
     expect(userText).toContain("mention CI");
   });
 
+  test("composeVoicePost annotates examples with their publish date", async () => {
+    mockSend.mockResolvedValueOnce(toolResponse("record_voice_post", { post: "p" }));
+    await composeVoicePost({
+      topic: "t", platform: "x", format: "social", profile: null,
+      samples: [{ text: "dated post", publishedAt: "2026-07-01T08:00:00Z" }, { text: "undated post" }],
+    });
+    const userText = mockSend.mock.calls[0][0].input.messages[0].content[0].text;
+    expect(userText).toContain("[1] (published 2026-07-01) dated post");
+    expect(userText).toContain("[2] undated post");
+  });
+
   test("composeVoicePost caps social drafts at 512 tokens", async () => {
     mockSend.mockResolvedValueOnce(toolResponse("record_voice_post", { post: "short" }));
     await composeVoicePost({ topic: "t", platform: "x", format: "social", profile: null, samples: [] });
@@ -489,6 +500,24 @@ describe("services/bedrock voice", () => {
     const userText = command.input.messages[0].content[0].text;
     expect(userText).toContain("CURRENT PROFILE (linkedin)");
     expect(userText).toContain("recent post");
+  });
+
+  test("reflectVoiceProfile states each sample's publish date and recency weight share", async () => {
+    mockSend.mockResolvedValueOnce(toolResponse("record_voice_profile", {
+      profile: {}, change_summary: "s",
+    }));
+    await reflectVoiceProfile({
+      platform: "blog",
+      currentProfile: null,
+      samples: [
+        { text: "newest", publishedAt: "2026-07-10", weightShare: 0.6 },
+        { text: "older", publishedAt: "2025-11-02", weightShare: 0.4 },
+      ],
+    });
+    const userText = mockSend.mock.calls[0][0].input.messages[0].content[0].text;
+    expect(userText).toContain("[1] (published 2026-07-10, recency weight 60%) newest");
+    expect(userText).toContain("[2] (published 2025-11-02, recency weight 40%) older");
+    expect(userText).toContain("newest-published first");
   });
 
   test("wraps Bedrock errors in UpstreamError", async () => {

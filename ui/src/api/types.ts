@@ -809,6 +809,8 @@ export interface VoiceSample {
   format: string | null;
   source: string | null;
   text: string;
+  // Publish date of the source post — anchors the sample's recency weight.
+  published_at: string | null;
   created_at: string;
 }
 
@@ -817,6 +819,8 @@ export interface VoiceProfile {
   profile: Record<string, unknown> | null;
   samples_since_reflection: number;
   reflection_threshold: number;
+  // Half-life (days) of the publish-date decay weighting samples.
+  recency_half_life_days: number;
   version: number;
   created_at: string | null;
   updated_at: string | null;
@@ -827,6 +831,7 @@ export interface VoiceReflection {
   platform: string;
   change_summary: string | null;
   sample_window: number | null;
+  half_life_days: number | null;
   model: string | null;
   created_at: string;
 }

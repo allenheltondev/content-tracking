@@ -55,6 +55,17 @@ describe("services/bedrock-stream", () => {
     expect(userText).toContain("keep it short");
   });
 
+  test("streamVoicePost annotates examples with their publish date when known", async () => {
+    mockSend.mockResolvedValueOnce(fakeStream(["x"]));
+    await collect(streamVoicePost({
+      topic: "t", platform: "x", format: "social", profile: null,
+      samples: [{ text: "dated", publishedAt: "2026-07-01T08:00:00Z" }, { text: "undated" }],
+    }));
+    const userText = mockSend.mock.calls[0][0].input.messages[0].content[0].text;
+    expect(userText).toContain("[1] (published 2026-07-01) dated");
+    expect(userText).toContain("[2] undated");
+  });
+
   test("streamVoicePost gives blog format more token headroom", async () => {
     mockSend.mockResolvedValueOnce(fakeStream(["x"]));
     await collect(streamVoicePost({ topic: "t", platform: "blog", format: "blog", profile: null, samples: [] }));
