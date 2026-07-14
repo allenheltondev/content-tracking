@@ -101,11 +101,11 @@ export default function RegisterSocialPostForm({ busy, serverError, onSubmit, on
       {serverError && <p className="form-error">{serverError}</p>}
 
       <div className="flex items-center gap-2">
-        <button type="button" className="btn-primary" onClick={submit} disabled={busy}>
+        <button type="button" className="btn btn-primary" onClick={submit} disabled={busy}>
           {busy ? 'Adding…' : 'Track post'}
         </button>
         {onCancel && (
-          <button type="button" className="btn-secondary" onClick={onCancel} disabled={busy}>
+          <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={busy}>
             Cancel
           </button>
         )}

@@ -50,7 +50,7 @@ export default function KeyValueEditor({
           />
           <button
             type="button"
-            className="btn-ghost px-2 text-error-600 hover:bg-error-50"
+            className="btn btn-ghost px-2 text-error-600 hover:bg-error-50"
             onClick={() => remove(i)}
             aria-label="Remove row"
           >

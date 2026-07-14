@@ -315,7 +315,7 @@ function IntegrationsTab(): ReactElement {
       {saved && <p className="text-sm text-success-700">Settings saved.</p>}
 
       <div className="flex justify-end">
-        <button type="button" className="btn-primary" onClick={() => void submit()} disabled={busy}>
+        <button type="button" className="btn btn-primary" onClick={() => void submit()} disabled={busy}>
           {busy ? 'Saving...' : 'Save settings'}
         </button>
       </div>
@@ -385,7 +385,7 @@ function ExtensionTab(): ReactElement {
           <a
             href="/booked-extension.zip"
             download="booked-extension.zip"
-            className="btn-primary inline-flex"
+            className="btn btn-primary inline-flex"
           >
             Download extension (.zip)
           </a>
@@ -560,7 +560,7 @@ function GeneratePairingDialog({
         <div className="flex justify-end gap-2">
           <button
             type="button"
-            className="btn-secondary"
+            className="btn btn-secondary"
             onClick={onClose}
             disabled={generating}
           >
@@ -568,7 +568,7 @@ function GeneratePairingDialog({
           </button>
           <button
             type="button"
-            className="btn-primary"
+            className="btn btn-primary"
             onClick={() => void submit()}
             disabled={generating}
           >
@@ -610,7 +610,7 @@ function NewPairingDialog({
             {result.token}
           </code>
           <div className="flex justify-end">
-            <button type="button" className="btn-secondary" onClick={copy}>
+            <button type="button" className="btn btn-secondary" onClick={copy}>
               {copied ? 'Copied' : 'Copy to clipboard'}
             </button>
           </div>
@@ -620,7 +620,7 @@ function NewPairingDialog({
           Revoke it from the Paired devices list if it leaks.
         </p>
         <div className="flex justify-end">
-          <button type="button" className="btn-primary" onClick={onClose}>
+          <button type="button" className="btn btn-primary" onClick={onClose}>
             Done
           </button>
         </div>

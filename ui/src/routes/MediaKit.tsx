@@ -101,7 +101,7 @@ export default function MediaKit(): ReactElement {
             publish a public page for your bio.
           </p>
         </div>
-        <button type="button" className="btn-primary" onClick={() => void generate()} disabled={generating}>
+        <button type="button" className="btn btn-primary" onClick={() => void generate()} disabled={generating}>
           {generating ? 'Generating…' : 'Generate media kit'}
         </button>
       </header>
@@ -116,14 +116,14 @@ export default function MediaKit(): ReactElement {
           </p>
           <div className="flex items-center gap-2">
             <input type="text" readOnly value={shareUrl} className="input flex-1 font-mono text-xs" />
-            <button type="button" className="btn-secondary shrink-0" onClick={copy}>
+            <button type="button" className="btn btn-secondary shrink-0" onClick={copy}>
               {copied ? 'Copied' : 'Copy'}
             </button>
             <a
               href={latest.url}
               target="_blank"
               rel="noreferrer noopener"
-              className="btn-secondary shrink-0"
+              className="btn btn-secondary shrink-0"
             >
               Open
             </a>
@@ -271,21 +271,21 @@ function PublicKitPanel({
           {state.published && url && (
             <div className="flex items-center gap-2">
               <input type="text" readOnly value={url} className="input flex-1 font-mono text-xs" />
-              <button type="button" className="btn-secondary shrink-0" onClick={copy}>
+              <button type="button" className="btn btn-secondary shrink-0" onClick={copy}>
                 {copied ? 'Copied' : 'Copy'}
               </button>
-              <a href={url} target="_blank" rel="noreferrer noopener" className="btn-secondary shrink-0">
+              <a href={url} target="_blank" rel="noreferrer noopener" className="btn btn-secondary shrink-0">
                 Open
               </a>
             </div>
           )}
           {error && <p className="form-error">{error}</p>}
           <div className="flex gap-2">
-            <button type="button" className="btn-primary" onClick={() => void publish()} disabled={busy}>
+            <button type="button" className="btn btn-primary" onClick={() => void publish()} disabled={busy}>
               {busy ? 'Working…' : state.published ? 'Republish (refresh data)' : 'Publish'}
             </button>
             {state.published && (
-              <button type="button" className="btn-secondary" onClick={() => void unpublish()} disabled={busy}>
+              <button type="button" className="btn btn-secondary" onClick={() => void unpublish()} disabled={busy}>
                 Unpublish
               </button>
             )}

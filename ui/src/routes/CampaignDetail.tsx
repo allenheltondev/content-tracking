@@ -471,7 +471,7 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
               >
                 <button
                   type="button"
-                  className="btn-secondary py-1 px-2 text-sm"
+                  className="btn btn-secondary py-1 px-2 text-sm"
                   onClick={() => setExtensionModalOpen(true)}
                 >
                   Install extension
@@ -479,7 +479,7 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
                 {!showPostForm && (
                   <button
                     type="button"
-                    className="btn-secondary py-1 px-2 text-sm"
+                    className="btn btn-secondary py-1 px-2 text-sm"
                     onClick={() => setShowPostForm(true)}
                     aria-label="Track a new social post"
                   >
@@ -570,7 +570,7 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
                 {!showContentForm && (
                   <button
                     type="button"
-                    className="btn-secondary py-1 px-2 text-sm"
+                    className="btn btn-secondary py-1 px-2 text-sm"
                     onClick={() => setShowContentForm(true)}
                     aria-label="Track a new content post"
                   >
@@ -671,7 +671,7 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
                 )}
                 <button
                   type="button"
-                  className="btn-secondary py-1 px-2 text-sm"
+                  className="btn btn-secondary py-1 px-2 text-sm"
                   onClick={() => void refreshAnalytics()}
                   disabled={analyticsRefreshing}
                 >
@@ -1285,7 +1285,7 @@ function EditScaffold({
       <div className="flex items-center gap-2">
         <button
           type="button"
-          className="btn-primary py-1 text-sm"
+          className="btn btn-primary py-1 text-sm"
           onClick={onSave}
           disabled={busy}
         >
@@ -1293,7 +1293,7 @@ function EditScaffold({
         </button>
         <button
           type="button"
-          className="btn-secondary py-1 text-sm"
+          className="btn btn-secondary py-1 text-sm"
           onClick={onCancel}
           disabled={busy}
         >

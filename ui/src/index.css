@@ -8,13 +8,10 @@
  * app-specific component classes the package doesn't ship live here.
  */
 @layer components {
-  /* Buttons the package doesn't ship (it exposes btn-error, not
-   * btn-destructive, and has no btn-link). Kept self-contained so they
-   * don't depend on the package's prebuilt .btn (external CSS the
-   * Tailwind @apply pass can't see). */
-  .btn-destructive {
-    @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none bg-error-600 text-white hover:bg-error-700 focus:ring-error-500;
-  }
+  /* Link-styled button the package doesn't ship (it has no btn-link).
+   * Self-contained: it renders as inline text, so it deliberately does
+   * not build on the package's .btn base. Destructive actions use the
+   * package's own `btn btn-error` pair rather than a custom class. */
   .btn-link {
     @apply text-primary-600 hover:text-primary-700 hover:underline text-sm font-medium bg-transparent;
   }

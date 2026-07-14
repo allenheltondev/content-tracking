@@ -47,7 +47,7 @@ describe("services/voice-vectors", () => {
     const cmd = mockSend.mock.calls[0][0].input;
     expect(cmd.indexName).toBe("voice-samples");
     expect(cmd.topK).toBe(3);
-    expect(cmd.filter).toEqual({ tenantId: "T1", platform: "x" });
+    expect(cmd.filter).toEqual({ $and: [{ tenantId: "T1" }, { platform: "x" }] });
     expect(cmd.returnMetadata).toBe(true);
     expect(out).toEqual([{ key: "T1#x#S1", distance: 0.2, text: "body", format: "social", publishedAt: "2026-07-10" }]);
   });

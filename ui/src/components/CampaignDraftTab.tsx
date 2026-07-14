@@ -121,7 +121,7 @@ export default function CampaignDraftTab({
             {draft && (
               <button
                 type="button"
-                className="btn-secondary"
+                className="btn btn-secondary"
                 disabled={saving}
                 onClick={() => {
                   setEditing(false);
@@ -134,7 +134,7 @@ export default function CampaignDraftTab({
             )}
             <button
               type="button"
-              className="btn-primary"
+              className="btn btn-primary"
               disabled={saving}
               onClick={() => void handleSave()}
             >
@@ -217,7 +217,7 @@ function DraftWorkspace({
             <h3 className="text-sm font-semibold text-foreground">AI review</h3>
             <button
               type="button"
-              className="btn-primary btn-sm"
+              className="btn btn-primary btn-sm"
               disabled={!canReview || reviewing}
               onClick={onReview}
             >

@@ -189,7 +189,7 @@ export default function Compose(): ReactElement {
           />
         </label>
 
-        <button type="submit" className="btn-primary" disabled={busy || trimmed.length === 0}>
+        <button type="submit" className="btn btn-primary" disabled={busy || trimmed.length === 0}>
           {busy ? 'Composing…' : hasDraft ? 'Compose again' : 'Compose'}
         </button>
       </form>
@@ -246,7 +246,7 @@ export default function Compose(): ReactElement {
               <CopyButton text={composedText} />
               <button
                 type="button"
-                className="btn-secondary btn-sm"
+                className="btn btn-secondary btn-sm"
                 onClick={() => void runCompose()}
                 disabled={busy}
               >
@@ -254,7 +254,7 @@ export default function Compose(): ReactElement {
               </button>
               <button
                 type="button"
-                className="btn-primary btn-sm"
+                className="btn btn-primary btn-sm"
                 onClick={() => void saveDraft()}
                 disabled={saveState !== 'idle' || editedPost.trim().length === 0}
               >
@@ -332,7 +332,7 @@ function TeachSample(): ReactElement {
         </select>
       </div>
       {error && <p className="form-error">{error}</p>}
-      <button type="submit" className="btn-secondary" disabled={state === 'saving' || text.trim().length === 0}>
+      <button type="submit" className="btn btn-secondary" disabled={state === 'saving' || text.trim().length === 0}>
         {state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved ✓' : 'Save sample'}
       </button>
     </form>

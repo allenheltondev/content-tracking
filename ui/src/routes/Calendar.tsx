@@ -94,10 +94,10 @@ export default function Calendar(): ReactElement {
           <p className="text-sm text-muted-foreground">Your content by publish date, colored by status.</p>
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" className="btn-secondary btn-sm" onClick={() => step(-1)}>← Prev</button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => step(-1)}>← Prev</button>
           <span className="min-w-40 text-center font-medium text-foreground">{monthLabel(year, month)}</span>
-          <button type="button" className="btn-secondary btn-sm" onClick={() => step(1)}>Next →</button>
-          <button type="button" className="btn-ghost btn-sm" onClick={goToday}>Today</button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => step(1)}>Next →</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={goToday}>Today</button>
         </div>
       </header>
 

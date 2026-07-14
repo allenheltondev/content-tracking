@@ -5,6 +5,7 @@ import {
   QueryVectorsCommand,
 } from "@aws-sdk/client-s3vectors";
 import { logger } from "./logger.mjs";
+import { andFilter } from "./s3vectors-filter.mjs";
 
 // S3 Vectors wrapper for the "voice" episodic memory. Sibling of
 // content-vectors.mjs but a separate index: voice samples are short whole posts
@@ -69,7 +70,7 @@ export async function queryVoiceSamples({ tenantId, queryEmbedding, platform, to
     indexName: INDEX,
     topK,
     queryVector: { float32: queryEmbedding },
-    filter: { tenantId, platform },
+    filter: andFilter([{ tenantId }, { platform }]),
     returnMetadata: true,
     returnDistance: true,
   }));

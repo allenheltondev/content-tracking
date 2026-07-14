@@ -28,7 +28,7 @@ export default function InstallExtensionModal({ open, onClose }: Props): ReactEl
           <a
             href={EXTENSION_ZIP_URL}
             download="booked-extension.zip"
-            className="btn-primary inline-flex"
+            className="btn btn-primary inline-flex"
           >
             Download extension (.zip)
           </a>
@@ -75,7 +75,7 @@ export default function InstallExtensionModal({ open, onClose }: Props): ReactEl
         </p>
 
         <div className="flex justify-end pt-2">
-          <button type="button" className="btn-secondary" onClick={onClose}>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>
             Close
           </button>
         </div>

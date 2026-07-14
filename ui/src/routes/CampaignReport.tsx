@@ -77,7 +77,7 @@ export default function CampaignReport(): ReactElement {
         <Link to={`/campaigns/${campaign.campaign_id}`} className="btn-link">
           ← Back to campaign
         </Link>
-        <button type="button" className="btn-primary" onClick={() => window.print()}>
+        <button type="button" className="btn btn-primary" onClick={() => window.print()}>
           Print to PDF
         </button>
       </div>

@@ -61,7 +61,7 @@ export default function ReportLinkDialog({
               <a href={shareUrl} target="_blank" rel="noreferrer" className="btn-link">
                 Open
               </a>
-              <button type="button" className="btn-secondary" onClick={copy}>
+              <button type="button" className="btn btn-secondary" onClick={copy}>
                 {copied ? 'Copied' : 'Copy link'}
               </button>
             </div>
@@ -72,7 +72,7 @@ export default function ReportLinkDialog({
           new report any time to refresh the data.
         </p>
         <div className="flex justify-end">
-          <button type="button" className="btn-primary" onClick={onClose}>
+          <button type="button" className="btn btn-primary" onClick={onClose}>
             Done
           </button>
         </div>

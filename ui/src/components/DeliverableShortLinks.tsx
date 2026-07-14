@@ -183,7 +183,7 @@ export default function DeliverableShortLinks({ deliverable, createShortLink }: 
           <div className="flex items-center gap-3">
             <button
               type="button"
-              className="btn-primary btn-sm"
+              className="btn btn-primary btn-sm"
               onClick={() => void submit()}
               disabled={busy}
             >
