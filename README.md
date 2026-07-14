@@ -341,3 +341,6 @@ public, and it deliberately omits rate-card pricing.
   feed and the content-angles agent: what's persisted vs. read live, the
   dependency-free feed parser, and how idea generation is grounded in your
   voice and topics.
+- [`docs/badges.md`](docs/badges.md) - the usage badges: how Booked emits
+  `Track Activity` events to the shared rsc-core Badge Chest, the seven badges
+  and their emit points, and the catalog entries for the follow-on rsc-core PR.

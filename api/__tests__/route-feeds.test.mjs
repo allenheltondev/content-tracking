@@ -5,6 +5,7 @@ process.env.TABLE_NAME = "test-booked";
 // Mock every collaborator so the route logic is exercised in isolation: the
 // feed source store, the live aggregator, the Bedrock idea generator, and the
 // voice/topics context reads.
+jest.unstable_mockModule("../services/activity.mjs", () => ({ trackActivity: jest.fn(), ACTIVITY_SERVICE: "booked" }));
 jest.unstable_mockModule("../domain/feed.mjs", () => ({
   createFeedSource: jest.fn(),
   listFeedSources: jest.fn(),

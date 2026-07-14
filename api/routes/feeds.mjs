@@ -1,4 +1,5 @@
 import { requireTenantId } from "../services/identity.mjs";
+import { trackActivity } from "../services/activity.mjs";
 import { emptyResponse, jsonResponse } from "../services/http-handler.mjs";
 import { BadRequestError } from "../services/errors.mjs";
 import { aggregateFeeds } from "../services/rss.mjs";
@@ -51,6 +52,11 @@ export function registerFeedRoutes(app) {
     const tenantId = requireTenantId(event);
     const fields = validateFeedCreate(parseBody(event));
     const item = await createFeedSource(tenantId, fields);
+    // Gamification: adding a radar source is the "On the Radar" activity.
+    // Idempotent per feed so a retry can't double-count.
+    await trackActivity(tenantId, "radar.feed.added", {
+      id: `radar.feed.added#${tenantId}#${item.feedId}`,
+    });
     return jsonResponse(201, formatFeedSource(item));
   });
 

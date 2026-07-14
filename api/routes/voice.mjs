@@ -1,4 +1,5 @@
 import { requireTenantId } from "../services/identity.mjs";
+import { trackActivity } from "../services/activity.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import { emptyResponse, jsonResponse } from "../services/http-handler.mjs";
 import { BadRequestError } from "../services/errors.mjs";
@@ -78,6 +79,11 @@ export function registerVoiceRoutes(app) {
       samples,
       guidance,
     });
+    // Gamification: each composed draft counts toward the "Ghostwriter" tier.
+    // Nothing is persisted for a compose, so there's no natural idempotency id;
+    // an occasional double-count on a client retry is harmless for a
+    // count-up-to-N badge.
+    await trackActivity(tenantId, "voice.composed");
     return jsonResponse(200, formatVoiceDraft(draft));
   });
 
@@ -130,6 +136,12 @@ export function registerVoiceRoutes(app) {
     const tenantId = requireTenantId(event);
     const fields = validateSampleCreate(parseBody(event));
     const item = await createVoiceSample(tenantId, fields);
+    // Gamification: capturing a writing sample is the "Found Your Voice"
+    // activity. Idempotent per sample so a retried Idempotency-Key won't
+    // double-count.
+    await trackActivity(tenantId, "voice.sample.captured", {
+      id: `voice.sample.captured#${tenantId}#${item.sampleId}`,
+    });
     return jsonResponse(201, formatVoiceSample(item));
   }));
 
