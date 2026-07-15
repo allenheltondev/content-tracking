@@ -75,3 +75,20 @@ export async function putAnalytics(bucket, campaignId, postId, metrics, captured
     body: { metrics, capturedAt },
   });
 }
+
+// Content Radar: the creator's curated RSS/Atom feed sources. The extension
+// reads the list (to tell "already on your radar" from a fresh add) and adds
+// the feed for whatever site the user is reading.
+export async function listRadarFeeds() {
+  const res = await apiFetch("/content-radar/feeds");
+  return res?.feeds ?? [];
+}
+
+// Adds a feed source. `url` is the site's RSS/Atom feed URL; `title` is an
+// optional label. Returns the created source. The server re-validates the URL
+// (public http(s), SSRF-guarded) before storing it.
+export async function addRadarFeed(url, title) {
+  const body = { url };
+  if (title) body.title = title;
+  return apiFetch("/content-radar/feeds", { method: "POST", body });
+}

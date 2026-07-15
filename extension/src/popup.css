@@ -180,6 +180,68 @@ button.link:hover {
   margin-top: 2px;
 }
 
+.radar {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.radar-head {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.radar-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.radar-body button.primary {
+  align-self: flex-start;
+}
+
+.radar-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.radar-feed-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.radar-feed-url {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.radar-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.radar-note.ok {
+  color: var(--ok);
+}
+
+.radar-note.error {
+  color: var(--error);
+}
+
 .footer {
   display: flex;
   justify-content: space-between;
