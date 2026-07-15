@@ -106,7 +106,6 @@ jobs:
               "NewsletterMintApiKey=${{ secrets.NEWSLETTER_MINT_API_KEY }}" \
               "UserPoolId=${{ vars.USER_POOL_ID }}" \
               "ExtensionTokenSigningKey=${{ secrets.EXTENSION_TOKEN_SIGNING_KEY }}" \
-              "EnableBlogGrounding=${{ vars.ENABLE_BLOG_GROUNDING || 'false' }}" \
               "VendorReportsSigningPublicKey='${VR_PUBKEY}'" \
               "VendorReportsSigningPrivateKey='${VR_PRIVKEY}'"
 

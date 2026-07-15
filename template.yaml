@@ -38,27 +38,6 @@ Parameters:
       Production environments. Rotation: change the secret and redeploy;
       every minted token becomes invalid simultaneously (no kid-based
       acceptance window yet).
-  CoreApiUrl:
-    Type: AWS::SSM::Parameter::Value<String>
-    Default: /readysetcloud/api-url
-    Description: |
-      Shared rsc-core Core API base URL (prod:
-      https://api.readysetcloud.io/core). Resolved at deploy time from the
-      rsc-core-owned SSM parameter. POST /agent/sessions proxies agent-session
-      creation here so the browser never calls rsc-core with a Booked secret.
-  EnableBlogGrounding:
-    Type: String
-    AllowedValues: ["true", "false"]
-    Default: "false"
-    Description: |
-      Whether "Ask your blog" sessions reference the blog-search AgentCore
-      Gateway (its URL is wired automatically from the in-stack BlogGateway
-      resource — you never paste it in). Kept off by default so activation can't
-      break session creation: deploy first, then add the gateway host (the
-      BlogGatewayUrl output) to the runtime's MCP allowlist
-      (readysetcloud/rsc-core#196) and make sure the runtime can present the
-      caller's Cognito token (readysetcloud/rsc-core#199), THEN set this to
-      "true". With it "false" the session is created ungrounded.
   NewsletterMintApiKey:
     Type: String
     NoEcho: true
@@ -240,12 +219,11 @@ Globals:
         # via the deploy workflow from the EXTENSION_TOKEN_SIGNING_KEY
         # GitHub secret; same shape NewsletterMintApiKey uses.
         EXTENSION_TOKEN_SIGNING_KEY: !Ref ExtensionTokenSigningKey
-        # "Ask your blog" agent (POST /agent/sessions). CORE_API_URL is the
-        # shared rsc-core Core API (SSM /readysetcloud/api-url), which the mint
-        # endpoint proxies session creation to. The blog-search gateway URL +
-        # grounding flag live on ApiFunction (not here) so only it depends on the
-        # in-stack BlogGateway resource. See api/routes/agent.mjs.
-        CORE_API_URL: !Ref CoreApiUrl
+        # "Ask your blog" agent (POST /agent/sessions): creates the session by
+        # emitting a "Create Agent Session" event on the default bus (rsc-core
+        # consumes it). The blog-search gateway URL + grounding flag live on
+        # ApiFunction (not here) so only it depends on the in-stack BlogGateway
+        # resource. See api/routes/agent.mjs.
         # Vendor-report static HTML lives in a private bucket fronted by a
         # CloudFront distribution that requires signed URLs. The API Lambda
         # writes the HTML to VENDOR_REPORTS_BUCKET, then signs a URL against
@@ -511,13 +489,11 @@ Resources:
       Timeout: 30
       Environment:
         Variables:
-          # Blog grounding (POST /agent/sessions). The gateway URL is wired
-          # straight from the in-stack BlogGateway resource — no manual param.
-          # BLOG_GROUNDING_ENABLED gates whether a session actually references it
-          # (see EnableBlogGrounding). Scoped here (not Globals) so only this
-          # function depends on the gateway resource.
+          # Blog grounding (POST /agent/sessions): every session references the
+          # blog-search AgentCore Gateway, whose URL is wired straight from the
+          # in-stack resource. Scoped here (not Globals) so only this function
+          # depends on the gateway resource.
           BLOG_GATEWAY_URL: !GetAtt BlogGateway.GatewayUrl
-          BLOG_GROUNDING_ENABLED: !Ref EnableBlogGrounding
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: 2012-10-17
@@ -1212,7 +1188,10 @@ Resources:
       AuthorizerConfiguration:
         CustomJWTAuthorizer:
           DiscoveryUrl: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPoolId}/.well-known/openid-configuration"
-          AllowedClients:
+          # The dashboard sends Cognito ID tokens (getFreshIdToken), which carry
+          # `aud` = the app client id (not a `client_id` claim), so validate the
+          # audience. The interceptor reads `sub` from the same token.
+          AllowedAudience:
             - !Ref UserPoolClient
       InterceptorConfigurations:
         - InterceptionPoints: [REQUEST]

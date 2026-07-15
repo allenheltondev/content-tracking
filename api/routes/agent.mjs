@@ -1,27 +1,30 @@
+import { requestSession } from "@readysetcloud/agent/memory";
 import { requireTenantId } from "../services/identity.mjs";
 import { jsonResponse } from "../services/http-handler.mjs";
-import { createRuntimeSession } from "../services/agent-session.mjs";
 
 // POST /agent/sessions — creates an "Ask your blog" agent session on the shared
-// rsc-core AgentCore runtime, on the caller's behalf. This endpoint exists (vs.
+// rsc-core AgentCore runtime, on the caller's behalf. Server-authoritative (vs.
 // the browser calling rsc-core directly) so the assistant's behavior and its
-// blog grounding are server-authoritative, not client-supplied.
+// blog grounding aren't client-supplied.
+//
+// We create the session by emitting a "Create Agent Session" event on the
+// default bus via @readysetcloud/agent `requestSession` — rsc-core's stack owns
+// the agent table and consumes the event. So Booked needs only events:PutEvents
+// (already granted for Badge activity), no cross-stack table access and no HTTP
+// hop. `requestSession` returns the sessionId immediately; the config row is
+// written async, well before the runtime reads it (on the first message).
 //
 // Flow:
-//   1. Authorize (cognito-only) -> the verified sub.
+//   1. Authorize (cognito-only) -> the verified sub (the session owner).
 //   2. Point the session at Booked's blog-search AgentCore Gateway (when
-//      grounding is configured, BLOG_GATEWAY_URL set). No auth header is minted
-//      here: the runtime authenticates to the gateway with the caller's own
-//      Cognito token (the gateway's CUSTOM_JWT authorizer trusts the shared
-//      pool), and a gateway interceptor forwards the verified sub to the tool.
-//      Until the gateway host is allowlisted on the runtime (rsc-core#196) and
-//      the runtime can present that token, BLOG_GATEWAY_URL stays unset and the
-//      session is created WITHOUT mcpServers (an ungrounded assistant).
-//   3. Create the session via the Core API, forwarding the caller's id token so
-//      rsc-core records the same sub as the session owner.
+//      grounding is enabled). The caller's Cognito id token rides as the
+//      gateway's Authorization header (rsc-core#197 folds `authHeader` into the
+//      outbound headers); the gateway validates it and its interceptor forwards
+//      the sub to the tool.
+//   3. Emit the event; return the sessionId.
 //
-// The browser still calls the Core API's /agent/connect directly to presign the
-// wss:// socket; only session creation is proxied.
+// The browser calls the Core API's /agent/connect directly to presign the wss://
+// socket.
 
 // The assistant's behavior lives here (server-authoritative) rather than being
 // supplied by the client, so a caller can't repurpose the session's prompt.
@@ -34,33 +37,41 @@ const BLOG_ASSISTANT_PROMPT = `You are a research assistant for a content creato
 
 export function registerAgentRoutes(app) {
   app.post("/agent/sessions", async ({ event }) => {
-    // Cognito-only: the blog assistant is a dashboard feature.
-    requireTenantId(event);
+    // Cognito-only: the blog assistant is a dashboard feature. The verified sub
+    // becomes the session owner (the runtime enforces it on connect).
+    const sub = requireTenantId(event);
 
-    const session = await createRuntimeSession({
-      authorization: getAuthorization(event),
+    const { sessionId } = await requestSession({
+      userId: sub,
       systemPrompt: BLOG_ASSISTANT_PROMPT,
       title: "Ask your blog",
-      mcpServers: buildBlogMcpServers(),
+      mcpServers: buildBlogMcpServers(getAuthorization(event)),
     });
 
-    return jsonResponse(201, { sessionId: session.sessionId, title: session.title });
+    return jsonResponse(201, { sessionId });
   });
 }
 
-// Points the session at the blog-search AgentCore Gateway, or undefined when
-// grounding is off (EnableBlogGrounding="false") so the session is an ungrounded
-// assistant. The gateway URL is wired from the in-stack resource; the flag gates
-// activation until the runtime side is ready (allowlist + token — rsc-core
-// #196/#199). No authHeader: the runtime presents the caller's Cognito token to
-// the gateway. Env is read per-call so the toggle takes effect without a cold
-// start and tests can flip it.
-function buildBlogMcpServers() {
-  if (process.env.BLOG_GROUNDING_ENABLED !== "true") return undefined;
+// Points the session at the blog-search AgentCore Gateway. The gateway URL is
+// wired from the in-stack resource (always set), so every session is grounded.
+//
+// Auth: we forward the caller's Cognito id token as the gateway's Authorization
+// header (the runtime folds `authHeader` into the outbound headers, rsc-core
+// #197; the gateway's CUSTOM_JWT authorizer validates it and its interceptor
+// reads the sub). NOTE: this token is stored in the session config and lives
+// only ~1h, so a session grounds for about an hour after creation — acceptable
+// for now; the durable fix is per-connection token vending in the runtime
+// (readysetcloud/rsc-core#199). Returns undefined only if the URL/token are
+// somehow absent, degrading to an ungrounded session rather than erroring.
+function buildBlogMcpServers(authorization) {
   const url = process.env.BLOG_GATEWAY_URL;
-  if (!url) return undefined;
+  if (!url || !authorization) return undefined;
   return {
-    blog: { transport: "streamable-http", url },
+    blog: {
+      transport: "streamable-http",
+      url,
+      authHeader: { name: "Authorization", value: authorization },
+    },
   };
 }
 
