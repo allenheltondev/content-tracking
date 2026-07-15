@@ -420,14 +420,12 @@ function ExtensionTab(): ReactElement {
           </li>
           <li>
             Under <span className="font-medium">Paired devices</span> below, click the{' '}
-            <span className="font-medium">+</span> button to generate a pairing code and copy
-            it from the dialog.
+            <span className="font-medium">+</span> button to generate a pairing code.
           </li>
           <li>
-            Open the extension popup, paste the code into the{' '}
-            <span className="font-medium">Pairing code</span> field, and click{' '}
-            <span className="font-medium">Pair extension</span>. Your tracked posts show up
-            in the popup once the pairing finishes.
+            The extension in this browser pairs automatically — the dialog confirms it, and
+            your tracked posts show up in the popup. To set up a different browser, paste the
+            code into that browser's extension popup instead.
           </li>
         </ol>
       </div>
@@ -616,9 +614,25 @@ function NewPairingDialog({
     <Modal open title="Pairing code" onClose={onClose}>
       <div className="space-y-4 text-sm text-foreground">
         <p>
-          Paste this code into the Booked Chrome extension's Options page. This is the only time
-          it will be shown. Generate a new code if you lose it.
+          If the Booked extension is installed in this browser, it pairs automatically — watch
+          for a confirmation below. To pair a different browser, paste this code into that
+          browser's extension popup. This is the only time the code will be shown; generate a
+          new one if you lose it.
         </p>
+        {/*
+          Bridge for the Booked extension's dashboard content script. When the
+          extension is installed here but not yet paired, it reads the token
+          from this hidden slot and pairs automatically, reporting the outcome
+          into the status slot. Both are inert when the extension isn't
+          installed. The token is already shown in plaintext below, so the
+          hidden attribute adds no exposure beyond what's on screen.
+        */}
+        <div
+          data-booked-slot="pairing-token"
+          data-booked-token={result.token}
+          hidden
+          aria-hidden="true"
+        />
         <div className="space-y-2">
           <code className="block bg-muted rounded p-3 font-mono text-xs break-all">
             {result.token}
@@ -628,6 +642,7 @@ function NewPairingDialog({
               {copied ? 'Copied' : 'Copy to clipboard'}
             </button>
           </div>
+          <p data-booked-slot="pairing-status" className="text-sm font-medium" hidden />
         </div>
         <p className="text-muted-foreground">
           Treat this code like a password. Anyone with it can read and update your campaign data.

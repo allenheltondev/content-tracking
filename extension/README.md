@@ -84,9 +84,20 @@ anything beyond pairing.
    unzipped.
 3. Open the dashboard's **Settings → Extension** page and click
    **Generate pairing code**.
-4. Open the extension popup, paste the code into the **Pairing code**
-   field, and click **Pair extension**. The popup switches to showing
-   your tracked posts.
+4. The extension in that same browser **pairs itself automatically** — the
+   dialog confirms it, and the popup switches to showing your tracked posts.
+   To set up a *different* browser, paste the code into that browser's
+   extension popup **Pairing code** field and click **Pair extension**.
+
+### Automatic pairing
+
+When you generate a pairing code on **Settings → Extension**, the extension's
+dashboard content script picks up the freshly minted token straight from the
+page and pairs this browser for you — no copy/paste. It only ever does this for
+a browser that **isn't paired yet**; an already-paired browser is left alone, so
+the visible code is still there for pairing another machine. The handoff stays on
+your own dashboard page (the token is already shown there), and the content
+script runs only on the dashboard origin.
 
 ## Revoking access
 
