@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Chat } from '@readysetcloud/ui/chat';
 import { useAuth } from '../auth/useAuth';
 import { agentChatEnabled, createBlogSession, makeGetConnectionUrl } from '../api/agent';
@@ -45,11 +45,18 @@ export default function ChatWidget(): ReactElement | null {
   // A stable presigner for the chat client to call on every (re)connect.
   const getConnectionUrl = useMemo(() => makeGetConnectionUrl(getAccessToken), [getAccessToken]);
 
+  // Guards against creating two sessions without being an effect dependency —
+  // a ref, not `creating` state, because a state dep that the effect also sets
+  // would re-run the effect, and its cleanup would cancel the in-flight create
+  // (discarding the sessionId and wedging the widget on "Starting…").
+  const creatingRef = useRef(false);
+
   // Create a session lazily the first time the widget opens, so users who never
   // open it don't hit the Core API. A stored id (from an earlier open or a
   // reload) is reused, resuming that conversation from the runtime's snapshots.
   useEffect(() => {
-    if (!open || sessionId || creating) return;
+    if (!open || sessionId || creatingRef.current) return;
+    creatingRef.current = true;
     let cancelled = false;
     setCreating(true);
     setError(null);
@@ -63,14 +70,16 @@ export default function ChatWidget(): ReactElement | null {
         if (!cancelled) setError((err as Error).message);
       })
       .finally(() => {
+        creatingRef.current = false;
         if (!cancelled) setCreating(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [open, sessionId, creating, getAccessToken]);
+  }, [open, sessionId, getAccessToken]);
 
   const startNewChat = (): void => {
+    creatingRef.current = false;
     storeSessionId(null);
     setSessionId(null);
     setError(null);
