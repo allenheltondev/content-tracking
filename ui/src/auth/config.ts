@@ -7,6 +7,11 @@ interface RuntimeEnv {
   // Lambda Function URL for streaming compose/ask. Optional — when unset the
   // UI falls back to the buffered REST endpoints.
   streamBaseUrl?: string;
+  // Base URL of the shared rsc-core Core API (SSM /readysetcloud/api-url; prod
+  // https://api.readysetcloud.io/core). Backs the agent chat, which creates a
+  // session and presigns a wss:// connection to the shared AgentCore runtime.
+  // Optional — when unset the "Ask your blog" widget is hidden.
+  coreApiUrl?: string;
 }
 
 function required(name: string): string {
@@ -29,6 +34,7 @@ export const env: RuntimeEnv = {
   awsRegion: required('VITE_AWS_REGION'),
   userPoolClientId: required('VITE_USER_POOL_CLIENT_ID'),
   streamBaseUrl: optional('VITE_STREAM_BASE_URL'),
+  coreApiUrl: optional('VITE_CORE_API_URL'),
 };
 
 // Configure the shared Ready, Set, Cloud auth core. All apps sign into
