@@ -52,10 +52,8 @@ export function registerAgentRoutes(app) {
   });
 }
 
-// Points the session at the blog-search AgentCore Gateway, or undefined when
-// grounding is off (EnableBlogGrounding="false") so the session is an ungrounded
-// assistant. The gateway URL is wired from the in-stack resource; the flag gates
-// activation until the runtime side is ready (allowlist — rsc-core#196).
+// Points the session at the blog-search AgentCore Gateway. The gateway URL is
+// wired from the in-stack resource (always set), so every session is grounded.
 //
 // Auth: we forward the caller's Cognito id token as the gateway's Authorization
 // header (the runtime folds `authHeader` into the outbound headers, rsc-core
@@ -63,10 +61,9 @@ export function registerAgentRoutes(app) {
 // reads the sub). NOTE: this token is stored in the session config and lives
 // only ~1h, so a session grounds for about an hour after creation — acceptable
 // for now; the durable fix is per-connection token vending in the runtime
-// (readysetcloud/rsc-core#199). Env is read per-call so the toggle takes effect
-// without a cold start and tests can flip it.
+// (readysetcloud/rsc-core#199). Returns undefined only if the URL/token are
+// somehow absent, degrading to an ungrounded session rather than erroring.
 function buildBlogMcpServers(authorization) {
-  if (process.env.BLOG_GROUNDING_ENABLED !== "true") return undefined;
   const url = process.env.BLOG_GATEWAY_URL;
   if (!url || !authorization) return undefined;
   return {

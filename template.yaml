@@ -38,19 +38,6 @@ Parameters:
       Production environments. Rotation: change the secret and redeploy;
       every minted token becomes invalid simultaneously (no kid-based
       acceptance window yet).
-  EnableBlogGrounding:
-    Type: String
-    AllowedValues: ["true", "false"]
-    Default: "false"
-    Description: |
-      Whether "Ask your blog" sessions reference the blog-search AgentCore
-      Gateway (its URL is wired automatically from the in-stack BlogGateway
-      resource — you never paste it in). Kept off by default so activation can't
-      break session creation: deploy first, then add the gateway host (the
-      BlogGatewayUrl output) to the runtime's MCP allowlist
-      (readysetcloud/rsc-core#196) and make sure the runtime can present the
-      caller's Cognito token (readysetcloud/rsc-core#199), THEN set this to
-      "true". With it "false" the session is created ungrounded.
   NewsletterMintApiKey:
     Type: String
     NoEcho: true
@@ -502,13 +489,11 @@ Resources:
       Timeout: 30
       Environment:
         Variables:
-          # Blog grounding (POST /agent/sessions). The gateway URL is wired
-          # straight from the in-stack BlogGateway resource — no manual param.
-          # BLOG_GROUNDING_ENABLED gates whether a session actually references it
-          # (see EnableBlogGrounding). Scoped here (not Globals) so only this
-          # function depends on the gateway resource.
+          # Blog grounding (POST /agent/sessions): every session references the
+          # blog-search AgentCore Gateway, whose URL is wired straight from the
+          # in-stack resource. Scoped here (not Globals) so only this function
+          # depends on the gateway resource.
           BLOG_GATEWAY_URL: !GetAtt BlogGateway.GatewayUrl
-          BLOG_GROUNDING_ENABLED: !Ref EnableBlogGrounding
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: 2012-10-17
