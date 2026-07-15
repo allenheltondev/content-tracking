@@ -7,6 +7,7 @@ process.env.TABLE_NAME = "test-booked";
 // campaign route module stays light and the create/patch auth wiring is
 // exercised in isolation.
 jest.unstable_mockModule("../services/idempotency.mjs", () => ({ withIdempotency: (fn) => fn }));
+jest.unstable_mockModule("../services/activity.mjs", () => ({ trackActivity: jest.fn(), ACTIVITY_SERVICE: "booked" }));
 jest.unstable_mockModule("../services/bedrock.mjs", () => ({ reviewDraft: jest.fn(), summarizeBrief: jest.fn() }));
 jest.unstable_mockModule("../services/google-docs.mjs", () => ({ extractGoogleDocId: jest.fn(), fetchGoogleDocText: jest.fn() }));
 jest.unstable_mockModule("../services/s3.mjs", () => ({
@@ -39,6 +40,7 @@ jest.unstable_mockModule("../domain/draft.mjs", () => ({
 
 const { assertCampaignOwned, createCampaign, updateCampaignFields } = await import("../domain/campaign.mjs");
 const { assertVendorOwned } = await import("../domain/vendor.mjs");
+const { trackActivity } = await import("../services/activity.mjs");
 const { NotFoundError } = await import("../services/errors.mjs");
 const { registerCampaignRoutes } = await import("../routes/campaigns.mjs");
 
@@ -97,6 +99,10 @@ describe("routes/campaigns — vendor ownership on link", () => {
       const res = await post()(ctx({ body: { name: "Solo" } }));
       expect(res.statusCode).toBe(201);
       expect(assertVendorOwned).not.toHaveBeenCalled();
+      // Emits the "Deal Maker" gamification activity, keyed for idempotency.
+      expect(trackActivity).toHaveBeenCalledWith(SUB, "campaign.created", {
+        id: `campaign.created#${SUB}#C1`,
+      });
     });
   });
 

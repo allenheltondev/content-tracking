@@ -28,6 +28,7 @@ import {
   updateCampaignFields,
 } from "../domain/campaign.mjs";
 import { requireTenantId } from "../services/identity.mjs";
+import { trackActivity } from "../services/activity.mjs";
 import { assertVendorOwned, listVendors } from "../domain/vendor.mjs";
 import { getBriefForCampaign, saveBriefForCampaign } from "../domain/brief.mjs";
 import {
@@ -85,6 +86,12 @@ export function registerCampaignRoutes(app) {
       await assertVendorOwned(fields.vendorId, tenantId);
     }
     const item = await createCampaign({ ...fields, tenantId });
+    // Gamification: a created campaign is the "Deal Maker" activity (and feeds
+    // the higher campaign-count tiers). Idempotent per campaign so a retry with
+    // the same Idempotency-Key can't double-count.
+    await trackActivity(tenantId, "campaign.created", {
+      id: `campaign.created#${tenantId}#${item.campaignId}`,
+    });
     return jsonResponse(201, formatCampaign(item));
   }));
 

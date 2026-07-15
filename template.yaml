@@ -208,6 +208,12 @@ Globals:
         VOICE_VECTOR_INDEX_NAME: voice-samples
         REFLECTION_THRESHOLD: !Ref ReflectionThreshold
         VOICE_HALF_LIFE_DAYS: !Ref VoiceHalfLifeDays
+        # Gamification: emit "Track Activity" events to the shared rsc-core
+        # Badge Chest engine (readysetcloud/rsc-core) on the default bus. The
+        # engine, this stack, and the Cognito pool share one AWS account, so the
+        # events reach ProcessActivityFunction and the Cognito `sub` doubles as
+        # the cross-app badge identity. See api/services/activity.mjs.
+        BADGE_ACTIVITY_ENABLED: "true"
         # Read by api/services/extension-secret.mjs on both the API
         # Lambda (mint) and the authorizer Lambda (verify). Passed in
         # via the deploy workflow from the EXTENSION_TOKEN_SIGNING_KEY
@@ -594,6 +600,12 @@ Resources:
               Resource:
                 - !GetAtt BlogVectorBucket.VectorBucketArn
                 - !GetAtt BlogVoiceIndex.IndexArn
+            # EventBridge: emit "Track Activity" gamification events to the
+            # default bus, where rsc-core's ProcessActivityFunction consumes
+            # them. Scoped to the default bus only. See services/activity.mjs.
+            - Effect: Allow
+              Action: events:PutEvents
+              Resource: !Sub "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default"
       Events:
         ProxyAny:
           Type: Api

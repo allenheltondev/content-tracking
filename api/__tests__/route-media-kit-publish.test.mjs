@@ -3,6 +3,7 @@ import { jest } from "@jest/globals";
 process.env.TABLE_NAME = "test-booked";
 process.env.ENVIRONMENT = "staging";
 
+jest.unstable_mockModule("../services/activity.mjs", () => ({ trackActivity: jest.fn(), ACTIVITY_SERVICE: "booked" }));
 jest.unstable_mockModule("../domain/profile.mjs", () => ({
   getProfileSettings: jest.fn(),
   markPublicMediaKitPublished: jest.fn(),

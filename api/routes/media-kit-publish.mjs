@@ -8,6 +8,7 @@ import {
 } from "../domain/profile.mjs";
 import { buildMediaKitSnapshot, toPublicTeaser } from "../domain/media-kit.mjs";
 import { requireTenantId } from "../services/identity.mjs";
+import { trackActivity } from "../services/activity.mjs";
 import { renderMediaKitHtml } from "../services/media-kit-renderer.mjs";
 import {
   publishMediaKitHtml,
@@ -77,6 +78,13 @@ export function registerMediaKitPublishRoutes(app) {
     });
 
     await markPublicMediaKitPublished(publishedAt);
+
+    // Gamification: publishing the public media kit is the "Press Ready"
+    // activity. Keyed on this publish's timestamp so a retry of the same
+    // publish is deduped, while a genuine re-publish later still counts.
+    await trackActivity(tenantId, "mediakit.published", {
+      id: `mediakit.published#${tenantId}#${publishedAt}`,
+    });
 
     return jsonResponse(200, { slug, url, published: true, published_at: publishedAt });
   });

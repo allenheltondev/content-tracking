@@ -3,6 +3,7 @@ import { jest } from "@jest/globals";
 process.env.TABLE_NAME = "test-booked";
 
 jest.unstable_mockModule("../services/idempotency.mjs", () => ({ withIdempotency: (fn) => fn }));
+jest.unstable_mockModule("../services/activity.mjs", () => ({ trackActivity: jest.fn(), ACTIVITY_SERVICE: "booked" }));
 jest.unstable_mockModule("../services/embeddings.mjs", () => ({ embedText: jest.fn() }));
 jest.unstable_mockModule("../services/voice-vectors.mjs", () => ({
   queryVoiceSamples: jest.fn(),
