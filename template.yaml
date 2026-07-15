@@ -38,6 +38,35 @@ Parameters:
       Production environments. Rotation: change the secret and redeploy;
       every minted token becomes invalid simultaneously (no kid-based
       acceptance window yet).
+  CoreApiUrl:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /readysetcloud/api-url
+    Description: |
+      Shared rsc-core Core API base URL (prod:
+      https://api.readysetcloud.io/core). Resolved at deploy time from the
+      rsc-core-owned SSM parameter. POST /agent/sessions proxies agent-session
+      creation here so the browser never calls rsc-core with a Booked secret.
+  BlogMcpUrl:
+    Type: String
+    Default: ""
+    Description: |
+      Endpoint of Booked's blog-search MCP server (#204). While empty, the
+      "Ask your blog" session is created ungrounded (no mcpServers), so this
+      stack ships before the MCP server exists; set it to turn grounding on.
+      Its host must also be on the runtime's MCP allowlist
+      (readysetcloud/rsc-core#196).
+  BlogMcpSigningKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: |
+      HMAC-SHA256 signing key for the blog-search grant that authenticates the
+      runtime -> Booked MCP call (minted in POST /agent/sessions, verified in
+      the MCP server). Generate with
+      `node scripts/generate-blog-mcp-signing-key.mjs` and store as the GitHub
+      secret BLOG_MCP_SIGNING_KEY. Optional until BlogMcpUrl is set (grounding
+      off), then required. Rotation: change the secret (and bump the grant key
+      version) and redeploy to invalidate outstanding grants.
   NewsletterMintApiKey:
     Type: String
     NoEcho: true
@@ -219,6 +248,17 @@ Globals:
         # via the deploy workflow from the EXTENSION_TOKEN_SIGNING_KEY
         # GitHub secret; same shape NewsletterMintApiKey uses.
         EXTENSION_TOKEN_SIGNING_KEY: !Ref ExtensionTokenSigningKey
+        # "Ask your blog" agent (POST /agent/sessions). CORE_API_URL is the
+        # shared rsc-core Core API (SSM /readysetcloud/api-url), which the mint
+        # endpoint proxies session creation to. BLOG_MCP_SIGNING_KEY signs the
+        # per-user grant that authenticates the runtime -> Booked blog-search
+        # MCP call (mint here, verify in the MCP server, #204). BLOG_MCP_URL is
+        # that MCP server's endpoint: while it's empty the session is created
+        # ungrounded (no mcpServers), so this ships before the MCP server exists
+        # and grounding turns on by setting the URL. See api/routes/agent.mjs.
+        CORE_API_URL: !Ref CoreApiUrl
+        BLOG_MCP_URL: !Ref BlogMcpUrl
+        BLOG_MCP_SIGNING_KEY: !Ref BlogMcpSigningKey
         # Vendor-report static HTML lives in a private bucket fronted by a
         # CloudFront distribution that requires signed URLs. The API Lambda
         # writes the HTML to VENDOR_REPORTS_BUCKET, then signs a URL against

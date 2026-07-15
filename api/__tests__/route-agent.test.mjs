@@ -1,0 +1,93 @@
+import { jest } from "@jest/globals";
+
+process.env.TABLE_NAME = "test-booked";
+process.env.ENVIRONMENT = "staging";
+
+// The Core API proxy is mocked so the route is exercised in isolation — we
+// assert on what it's asked to create, not on a real HTTP call.
+jest.unstable_mockModule("../services/agent-session.mjs", () => ({
+  createRuntimeSession: jest.fn(),
+}));
+
+const { createRuntimeSession } = await import("../services/agent-session.mjs");
+const { verifyBlogGrant, BLOG_GRANT_HEADER } = await import("../services/blog-mcp-grant.mjs");
+const { registerAgentRoutes } = await import("../routes/agent.mjs");
+
+function buildRouteTable() {
+  const routes = {};
+  const app = {
+    get: (path, handler) => { routes[`GET ${path}`] = handler; },
+    post: (path, handler) => { routes[`POST ${path}`] = handler; },
+    patch: (path, handler) => { routes[`PATCH ${path}`] = handler; },
+    delete: (path, handler) => { routes[`DELETE ${path}`] = handler; },
+    put: (path, handler) => { routes[`PUT ${path}`] = handler; },
+  };
+  registerAgentRoutes(app);
+  return routes;
+}
+
+const routes = buildRouteTable();
+const SUB = "user-1";
+const SIGNING_KEY = "test-secret-at-least-32-characters-long!!";
+
+function ctx({ authSource = "cognito", sub = SUB, authorization = "Bearer id-token" } = {}) {
+  return {
+    event: {
+      headers: authorization ? { Authorization: authorization } : {},
+      requestContext: { authorizer: { authSource, sub } },
+    },
+  };
+}
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  createRuntimeSession.mockResolvedValue({ sessionId: "sess-1", title: "Ask your blog" });
+  delete process.env.BLOG_MCP_URL;
+  delete process.env.BLOG_MCP_SIGNING_KEY;
+  delete process.env.BLOG_MCP_KEY_VERSION;
+});
+
+describe("POST /agent/sessions", () => {
+  test("rejects non-cognito callers (extension/apikey)", async () => {
+    await expect(routes["POST /agent/sessions"](ctx({ authSource: "extension" })))
+      .rejects.toThrow(/dashboard sign-in/);
+    expect(createRuntimeSession).not.toHaveBeenCalled();
+  });
+
+  test("creates an ungrounded session (no mcpServers) when BLOG_MCP_URL is unset", async () => {
+    const res = await routes["POST /agent/sessions"](ctx());
+
+    expect(res.statusCode).toBe(201);
+    expect(JSON.parse(res.body).sessionId).toBe("sess-1");
+
+    const arg = createRuntimeSession.mock.calls[0][0];
+    expect(arg.mcpServers).toBeUndefined();
+    expect(arg.authorization).toBe("Bearer id-token");
+    expect(arg.systemPrompt).toEqual(expect.stringContaining("published blog posts"));
+    expect(arg.title).toBe("Ask your blog");
+  });
+
+  test("attaches a verifiable blog-search grant when grounding is configured", async () => {
+    process.env.BLOG_MCP_URL = "https://mcp.booked.example/blog";
+    process.env.BLOG_MCP_SIGNING_KEY = SIGNING_KEY;
+    process.env.BLOG_MCP_KEY_VERSION = "2";
+
+    await routes["POST /agent/sessions"](ctx());
+
+    const { mcpServers } = createRuntimeSession.mock.calls[0][0];
+    expect(mcpServers.blog.url).toBe("https://mcp.booked.example/blog");
+    expect(mcpServers.blog.transport).toBe("streamable-http");
+    expect(mcpServers.blog.authHeader.name).toBe(BLOG_GRANT_HEADER);
+
+    // The grant verifies to the verified caller + configured key version.
+    const claims = verifyBlogGrant(mcpServers.blog.authHeader.value, SIGNING_KEY);
+    expect(claims.sub).toBe(SUB);
+    expect(claims.ver).toBe(2);
+  });
+
+  test("fails loudly if grounding is half-configured (URL set, signing key missing)", async () => {
+    process.env.BLOG_MCP_URL = "https://mcp.booked.example/blog";
+    await expect(routes["POST /agent/sessions"](ctx())).rejects.toThrow(/BLOG_MCP_SIGNING_KEY/);
+    expect(createRuntimeSession).not.toHaveBeenCalled();
+  });
+});
