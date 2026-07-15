@@ -96,7 +96,15 @@ jobs:
           # the whole PEM together as a single parameter value.
           VR_PUBKEY: ${{ secrets.VENDOR_REPORTS_SIGNING_PUBLIC_KEY }}
           VR_PRIVKEY: ${{ secrets.VENDOR_REPORTS_SIGNING_PRIVATE_KEY }}
+          BLOG_GATEWAY_URL: ${{ vars.BLOG_GATEWAY_URL }}
         run: |
+          # BlogGatewayUrl is optional (empty => ungrounded). Only pass it when
+          # set: sam rejects an empty parameter value ("BlogGatewayUrl="), and
+          # the template default ("") already handles the unset case.
+          BLOG_GATEWAY_OVERRIDE=""
+          if [ -n "$BLOG_GATEWAY_URL" ]; then
+            BLOG_GATEWAY_OVERRIDE="BlogGatewayUrl=$BLOG_GATEWAY_URL"
+          fi
           sam deploy \
             --config-env ci \
             --no-confirm-changeset \
@@ -106,9 +114,9 @@ jobs:
               "NewsletterMintApiKey=${{ secrets.NEWSLETTER_MINT_API_KEY }}" \
               "UserPoolId=${{ vars.USER_POOL_ID }}" \
               "ExtensionTokenSigningKey=${{ secrets.EXTENSION_TOKEN_SIGNING_KEY }}" \
-              "BlogGatewayUrl=${{ vars.BLOG_GATEWAY_URL }}" \
               "VendorReportsSigningPublicKey='${VR_PUBKEY}'" \
-              "VendorReportsSigningPrivateKey='${VR_PRIVKEY}'"
+              "VendorReportsSigningPrivateKey='${VR_PRIVKEY}'" \
+              $BLOG_GATEWAY_OVERRIDE
 
       - name: Diagnose failed deploy
         if: ${{ failure() }}
