@@ -114,6 +114,90 @@
     renderAll();
   }
 
+  // ---- automatic pairing ----------------------------------------------------
+  //
+  // When the Settings → Extension page mints a pairing code it renders the
+  // token into a hidden slot (data-booked-slot="pairing-token") plus a status
+  // slot (data-booked-slot="pairing-status"). If this browser has the extension
+  // installed but not yet paired, we read the token and pair automatically, so
+  // the user never has to copy it into the popup. We only ever configure a
+  // browser that has no pairing yet — an already-paired browser is left alone,
+  // and the visible code still works for setting up a *different* browser.
+
+  const PAIR_TOKEN_SELECTOR = '[data-booked-slot="pairing-token"]';
+  const PAIR_STATUS_SELECTOR = '[data-booked-slot="pairing-status"]';
+  const PAIR_COLORS = { pending: "#6b7280", info: "#6b7280", ok: "#16a34a", error: "#dc2626" };
+
+  // Tokens we've already acted on, so a dialog re-render or a double observer
+  // fire can't pair twice or repeat the status.
+  const handledTokens = new Set();
+
+  function writePairStatus(text, kind) {
+    const slot = document.querySelector(PAIR_STATUS_SELECTOR);
+    if (!slot) return;
+    slot.textContent = text;
+    slot.hidden = false;
+    slot.style.color = PAIR_COLORS[kind] || "";
+    slot.setAttribute("data-booked-pair-state", kind);
+  }
+
+  async function maybeAutoPair() {
+    const el = document.querySelector(PAIR_TOKEN_SELECTOR);
+    const token = el && el.getAttribute("data-booked-token");
+    if (!token || handledTokens.has(token)) return;
+
+    let status;
+    try {
+      status = await chrome.runtime.sendMessage({ type: "booked:status" });
+    } catch {
+      // Background unreachable (extension disabled / updating). Leave the
+      // manual copy-paste path untouched.
+      return;
+    }
+    if (!status) return;
+
+    if (status.paired) {
+      // Already set up here; don't disturb it. The visible code still lets the
+      // user pair another browser.
+      handledTokens.add(token);
+      writePairStatus("This browser is already paired with Booked.", "info");
+      return;
+    }
+
+    handledTokens.add(token);
+    writePairStatus("Pairing this browser automatically…", "pending");
+
+    let result;
+    try {
+      result = await chrome.runtime.sendMessage({ type: "booked:pair", token });
+    } catch {
+      handledTokens.delete(token); // allow a retry if the worker was mid-restart
+      writePairStatus("Couldn't reach the extension. Paste the code into the popup to pair.", "error");
+      return;
+    }
+
+    if (!result || result.error || !result.paired) {
+      handledTokens.delete(token);
+      writePairStatus(
+        result?.error || "Automatic pairing failed. Paste the code into the popup to pair.",
+        "error",
+      );
+      return;
+    }
+
+    if (!result.configured) {
+      // Paired, but this build has no API base URL baked in (a hand-packed dev
+      // zip). The token is stored, but nothing will sync until the URL is set.
+      writePairStatus(
+        "Paired ✓ — but this extension build is missing its API URL. Download a fresh zip above.",
+        "error",
+      );
+      return;
+    }
+
+    writePairStatus("Paired this browser automatically ✓ You can close this dialog.", "ok");
+  }
+
   // The slots swap in and out on tab switches and SPA navigations, so we watch
   // document.body for them. The catch is that mount() writes into that same
   // observed subtree (it inserts controls and sets their content), so a naive
@@ -121,25 +205,34 @@
   // defend two ways: affectsSlot ignores mutations that don't add or remove a
   // slot itself, and safeMount() disconnects the observer for the duration of
   // mount() so its writes can never feed back in.
-  const SLOT_SELECTOR =
+  const REFRESH_SLOT_SELECTOR =
     '[data-booked-slot="social-posts-actions"],[data-booked-slot="needs-refresh"]';
-  function affectsSlot(nodes) {
+  function affectsSlot(nodes, selector) {
     for (const node of nodes) {
       if (node.nodeType !== 1) continue;
-      if (node.matches?.(SLOT_SELECTOR)) return true;
-      if (node.querySelector?.(SLOT_SELECTOR)) return true;
+      if (node.matches?.(selector)) return true;
+      if (node.querySelector?.(selector)) return true;
     }
     return false;
   }
 
   const OBSERVE_OPTS = { childList: true, subtree: true };
   const obs = new MutationObserver((records) => {
+    let refresh = false;
+    let pairing = false;
     for (const r of records) {
-      if (affectsSlot(r.addedNodes) || affectsSlot(r.removedNodes)) {
-        safeMount();
-        return;
+      if (
+        affectsSlot(r.addedNodes, REFRESH_SLOT_SELECTOR) ||
+        affectsSlot(r.removedNodes, REFRESH_SLOT_SELECTOR)
+      ) {
+        refresh = true;
       }
+      // Only the token slot appearing matters for pairing; its removal (dialog
+      // closed) is a no-op.
+      if (affectsSlot(r.addedNodes, PAIR_TOKEN_SELECTOR)) pairing = true;
     }
+    if (refresh) safeMount();
+    if (pairing) void maybeAutoPair();
   });
 
   // Run mount() with the observer disconnected so none of its DOM writes can
@@ -159,6 +252,8 @@
 
   function init() {
     safeMount();
+    // In case the pairing dialog is already open when the script initializes.
+    void maybeAutoPair();
   }
 
   if (document.readyState === "loading") {
