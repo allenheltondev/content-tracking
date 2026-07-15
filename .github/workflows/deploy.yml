@@ -173,6 +173,7 @@ jobs:
             echo "dashboard-distribution-id=$(read_out DashboardDistributionId)"
             echo "dashboard-url=$(read_out DashboardUrl)"
             echo "stream-url=$(read_out StreamGenerateUrl)"
+            echo "core-api-url=$(read_out CoreApiUrl)"
           } >> "$GITHUB_OUTPUT"
 
       - name: Install dashboard dependencies
@@ -201,6 +202,9 @@ jobs:
           # Streaming Function URL (StreamGenerateUrl output). Optional in the
           # UI — empty falls back to the buffered REST endpoints.
           VITE_STREAM_BASE_URL: ${{ steps.outputs.outputs.stream-url }}
+          # Shared rsc-core Core API (CoreApiUrl output). Backs the "Ask your
+          # blog" widget's wss:// presign; the widget hides itself when unset.
+          VITE_CORE_API_URL: ${{ steps.outputs.outputs.core-api-url }}
         run: npm run build
 
       - name: Package Chrome extension into dashboard build
