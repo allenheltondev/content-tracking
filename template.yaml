@@ -38,6 +38,16 @@ Parameters:
       Production environments. Rotation: change the secret and redeploy;
       every minted token becomes invalid simultaneously (no kid-based
       acceptance window yet).
+  CoreApiUrl:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /readysetcloud/api-url
+    Description: |
+      Shared rsc-core Core API base URL (prod: https://api.readysetcloud.io/core),
+      resolved at deploy from the rsc-core-owned SSM parameter. Not used by the
+      backend; surfaced as the CoreApiUrl output so the deploy workflow can build
+      it into the dashboard as VITE_CORE_API_URL. The "Ask your blog" widget uses
+      it to presign the wss:// connection (POST /agent/connect) and hides itself
+      when it's unset.
   NewsletterMintApiKey:
     Type: String
     NoEcho: true
@@ -1708,6 +1718,13 @@ Outputs:
       VITE_USER_POOL_CLIENT_ID so @readysetcloud/ui/auth signs users in
       against this client.
     Value: !Ref UserPoolClient
+
+  CoreApiUrl:
+    Description: |
+      Shared rsc-core Core API base URL. The deploy workflow injects it into the
+      dashboard build as VITE_CORE_API_URL; the "Ask your blog" widget uses it to
+      presign the wss:// connection and hides itself if it's unset.
+    Value: !Ref CoreApiUrl
 
   ContentTrackingTableName:
     Description: DynamoDB single-table for Booked
