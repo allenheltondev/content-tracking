@@ -1108,6 +1108,59 @@ Resources:
               Resource:
                 - !GetAtt ContentTrackingTable.Arn
 
+  # Booked's blog-search MCP server (#204). The shared rsc-core AgentCore
+  # runtime connects here over MCP Streamable HTTP when an "Ask your blog"
+  # session references it (set via POST /agent/sessions when BLOG_MCP_URL is
+  # configured). Behind a Function URL (AuthType NONE) because the caller is the
+  # runtime, not the browser: it presents the Booked-minted grant in a header,
+  # which the handler verifies in-process (grant sub === tenantId). Inherits
+  # embedding/vector env from Globals; no DynamoDB access needed — it only
+  # embeds the query and reads the content vector index.
+  #
+  # Activation is a deliberate, staged operation (avoids breaking session
+  # creation): deploy this -> read the BlogMcpUrl output -> add its host to the
+  # runtime's MCP allowlist (readysetcloud/rsc-core#196) -> set the BlogMcpUrl
+  # parameter to that URL and the BLOG_MCP_SIGNING_KEY secret. Until then the URL
+  # exists but no session references it.
+  BlogMcpFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - index.mjs
+    Properties:
+      CodeUri: functions/blog-mcp
+      Handler: index.handler
+      MemorySize: 512
+      Timeout: 30
+      FunctionUrlConfig:
+        # No Cors block: the caller is the AgentCore runtime (server-to-server),
+        # not a browser, so no preflight is involved. Auth is the grant header,
+        # verified in the handler.
+        AuthType: NONE
+        InvokeMode: BUFFERED
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            # Embed the incoming query via Titan (same model as /blogs/ask).
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource:
+                - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
+                - !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/*"
+            # Tenant-scoped nearest-neighbour search over the content index.
+            - Effect: Allow
+              Action:
+                - s3vectors:QueryVectors
+                - s3vectors:GetVectors
+              Resource:
+                - !GetAtt BlogVectorBucket.VectorBucketArn
+                - !GetAtt ContentVectorIndex.IndexArn
+
   # Static hosting for the dashboard UI. Bucket is private; only the
   # CloudFront distribution (via OAC) can read it. SPA routing is
   # handled by rewriting 403/404 to /index.html so deep links survive a
@@ -1604,6 +1657,15 @@ Outputs:
       dashboard build so it can render generations live; if unset the UI falls
       back to the buffered REST endpoints.
     Value: !GetAtt StreamGenerateFunctionUrl.FunctionUrl
+
+  BlogMcpUrl:
+    Description: |
+      Function URL of the blog-search MCP server (#204). To turn "Ask your blog"
+      grounding on: add this URL's host to the runtime's MCP allowlist
+      (readysetcloud/rsc-core#196), then set the BlogMcpUrl parameter to this
+      value (and the BLOG_MCP_SIGNING_KEY secret). Until then it's deployed but
+      unreferenced.
+    Value: !GetAtt BlogMcpFunctionUrl.FunctionUrl
 
   HelloDurableFunctionAliasArn:
     Description: |
