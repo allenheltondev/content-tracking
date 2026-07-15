@@ -9,24 +9,25 @@ import {
 import { getExtensionSigningSecret } from "../services/extension-secret.mjs";
 import { requireTenantId } from "../services/identity.mjs";
 
-// CI / automation tokens. These ride the same HMAC-token machinery as the
+// API keys for automation. These ride the same HMAC-token machinery as the
 // Chrome-extension pairings (mint here, verify in api/authorizer.mjs, revoke
-// by deleting the row) but are tagged source="ci", so the authorizer stamps
-// authSource="ci". That lets the content *publish* endpoints
+// by deleting the row) but are tagged source="apikey", so the authorizer
+// stamps authSource="apikey". That lets the content *publish* endpoints
 // (requirePublisherTenantId) accept an automated caller — e.g. a GitHub
 // Actions hook that registers a blog when the writing repo publishes it —
 // while the rest of the API stays dashboard-only.
 //
 // Minting requires a Cognito-authenticated dashboard user (requireTenantId's
-// cognito-only gate), so a CI token can never mint more tokens for itself. The
-// token value is returned exactly once at mint time; store it as a secret in
+// cognito-only gate), so an API key can never mint more keys for itself. The
+// key value is returned exactly once at mint time; store it as a secret in
 // the writing repo.
 
 const LABEL_MAX = 60;
-const DEFAULT_LABEL = "CI token";
+const DEFAULT_LABEL = "API key";
+const SOURCE = "apikey";
 
-export function registerCiTokenRoutes(app) {
-  app.post("/ci/tokens", async ({ event }) => {
+export function registerApiKeyRoutes(app) {
+  app.post("/api-keys", async ({ event }) => {
     const sub = requireTenantId(event);
     const label = parseLabel(event) ?? DEFAULT_LABEL;
 
@@ -35,26 +36,26 @@ export function registerCiTokenRoutes(app) {
       sub,
       label,
       signingSecret: secret,
-      source: "ci",
+      source: SOURCE,
     });
 
-    logger.info("CI token minted", { sub, jti: pairing.jti, label: pairing.label });
+    logger.info("API key minted", { sub, jti: pairing.jti, label: pairing.label });
 
-    // 201 + the token in the body. This is the only time the token value ever
+    // 201 + the key in the body. This is the only time the key value ever
     // leaves our side; the dashboard shows it in a one-time dialog.
-    return jsonResponse(201, { token, ...pairing });
+    return jsonResponse(201, { key: token, ...pairing });
   });
 
-  app.get("/ci/tokens", async ({ event }) => {
+  app.get("/api-keys", async ({ event }) => {
     const sub = requireTenantId(event);
-    const tokens = await listPairings({ sub, source: "ci" });
-    return jsonResponse(200, { tokens });
+    const keys = await listPairings({ sub, source: SOURCE });
+    return jsonResponse(200, { keys });
   });
 
-  app.delete("/ci/tokens/:jti", async ({ event, params }) => {
+  app.delete("/api-keys/:jti", async ({ event, params }) => {
     const sub = requireTenantId(event);
     await revokePairing({ sub, jti: params.jti });
-    logger.info("CI token revoked", { sub, jti: params.jti });
+    logger.info("API key revoked", { sub, jti: params.jti });
     return emptyResponse(204);
   });
 }

@@ -52,9 +52,9 @@ export function registerBlogRoutes(app) {
   // merge Content + un-migrated Blog rows, so this is transparent to GET /blogs
   // and the response shape is unchanged (asBlogRow aliases contentId→blogId).
   app.post("/blogs", withIdempotency(async ({ event }) => {
-    // Publish endpoint: the dashboard OR a CI token (e.g. a publish hook in
+    // Publish endpoint: the dashboard OR an API key (e.g. a publish hook in
     // the writing repo) may create a blog. Reads/edits/deletes below stay
-    // cognito-only, so a leaked CI token can only ever add content.
+    // cognito-only, so a leaked API key can only ever add content.
     const tenantId = requirePublisherTenantId(event);
     const fields = validateBlogCreate(parseBody(event));
     const item = await createContent(tenantId, {

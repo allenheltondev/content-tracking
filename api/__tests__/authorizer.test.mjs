@@ -37,13 +37,13 @@ function hmacToken() {
 beforeEach(() => jest.clearAllMocks());
 
 describe("authorizer HMAC path", () => {
-  test("stamps authSource from the pairing's source (ci)", async () => {
+  test("stamps authSource from the pairing's source (apikey)", async () => {
     verifyToken.mockReturnValue({ sub: "user-1", jti: "J1" });
-    touchPairing.mockResolvedValue({ jti: "J1", source: "ci" });
+    touchPairing.mockResolvedValue({ jti: "J1", source: "apikey" });
 
     const res = await handler({ authorizationToken: `Bearer ${hmacToken()}`, methodArn: METHOD_ARN });
 
-    expect(res.context).toEqual({ sub: "user-1", authSource: "ci", jti: "J1" });
+    expect(res.context).toEqual({ sub: "user-1", authSource: "apikey", jti: "J1" });
     expect(res.policyDocument.Statement[0].Effect).toBe("Allow");
   });
 

@@ -57,7 +57,7 @@ function requireCampaignId(value) {
 
 export function registerContentRoutes(app) {
   app.post("/content", withIdempotency(async ({ event }) => {
-    // Publish endpoint — dashboard or CI token (see requirePublisherTenantId).
+    // Publish endpoint — dashboard or API key (see requirePublisherTenantId).
     const tenantId = requirePublisherTenantId(event);
     const fields = validateContentCreate(parseBody(event));
     const item = await createContent(tenantId, fields);

@@ -635,25 +635,25 @@ export interface CreateExtensionPairingResponse {
   token: string;
 }
 
-// CI / automation tokens. Same one-time-view rule as pairing tokens: the
-// secret is only present on the create response; GET returns metadata only.
-export interface CiToken {
+// Automation API keys. Same one-time-view rule as pairing tokens: the secret
+// is only present on the create response; GET returns metadata only.
+export interface ApiKey {
   jti: string;
   label: string;
   created_at: string;
   last_used_at: string | null;
 }
 
-export interface ListCiTokensResponse {
-  tokens: CiToken[];
+export interface ListApiKeysResponse {
+  keys: ApiKey[];
 }
 
-export interface CreateCiTokenRequest {
+export interface CreateApiKeyRequest {
   label?: string;
 }
 
-export interface CreateCiTokenResponse extends CiToken {
-  token: string;
+export interface CreateApiKeyResponse extends ApiKey {
+  key: string;
 }
 
 export interface Ga4Totals {

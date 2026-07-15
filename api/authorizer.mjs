@@ -6,15 +6,15 @@ import { logger } from "./services/logger.mjs";
 
 // Lambda TOKEN authorizer for the API. Accepts either:
 //   - a Cognito id token (dashboard sign-in) — verified via JWKS
-//   - an HMAC-SHA256 API token (Chrome extension or CI) — verified against
+//   - an HMAC-SHA256 token (Chrome extension or API key) — verified against
 //     the signing secret, then a DynamoDB write confirms the jti hasn't been
 //     revoked. The persisted row carries the token's source ("extension" or
-//     "ci"), which becomes context.authSource.
+//     "apikey"), which becomes context.authSource.
 //
 // Returns an IAM policy plus a context object the routes read via
 // event.requestContext.authorizer to know who the caller is and which
 // auth path they came in on. Routes gate on context.authSource — human-only
-// endpoints require "cognito"; publish endpoints also accept "ci".
+// endpoints require "cognito"; publish endpoints also accept "apikey".
 
 const USER_POOL_ID = process.env.USER_POOL_ID;
 const USER_POOL_CLIENT_ID = process.env.USER_POOL_CLIENT_ID;

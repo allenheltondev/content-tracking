@@ -9,14 +9,14 @@ source of truth.
 - **Base URL:** the `ContentTrackingApiBaseUrl` stack output. Shape:
   `https://<api-id>.execute-api.us-east-1.amazonaws.com/v1`.
 - **Authentication:** every route requires an `Authorization: Bearer <token>`
-  header. The token is one of:
+  header. The credential is one of:
   - a **Cognito id token** issued by the `RSCUserPool` (the dashboard), or
-  - a **CI token** — a long-lived HMAC token for automation (see
-    [CI / automation tokens](#ci--automation-tokens)).
+  - an **API key** — a long-lived HMAC credential for automation (see
+    [API keys](#api-keys)).
 
-  Missing or invalid tokens return `401 Unauthorized` from the Lambda
+  Missing or invalid credentials return `401 Unauthorized` from the Lambda
   authorizer before reaching the handler. Most routes require the Cognito
-  path; the content **publish** endpoints additionally accept a CI token.
+  path; the content **publish** endpoints additionally accept an API key.
 - **Content type:** request and response bodies are `application/json`.
 - **IDs:** vendor IDs are ULIDs matching `^[0-9A-HJKMNP-TV-Z]{26}$`.
   Campaign and link IDs are opaque strings (1-64 chars).
@@ -40,17 +40,17 @@ source of truth.
 
 ---
 
-## CI / automation tokens
+## API keys
 
 For calling the API from automation — e.g. a GitHub Actions workflow in your
-writing repo that registers a blog when you publish it — mint a **CI token**
-instead of driving a Cognito sign-in from CI. A CI token is a long-lived,
-revocable HMAC bearer token scoped to your tenant. It is verified by the same
-Lambda authorizer as dashboard tokens; the server always derives the tenant
-from the token, never from the request body, so a CI token can only ever write
-into your own tenant's data.
+writing repo that registers a blog when you publish it — mint an **API key**
+instead of driving a Cognito sign-in from CI. An API key is a long-lived,
+revocable HMAC bearer credential scoped to your tenant. It is verified by the
+same Lambda authorizer as dashboard tokens; the server always derives the
+tenant from the key, never from the request body, so an API key can only ever
+write into your own tenant's data.
 
-**Scope.** A CI token is accepted only on the content **publish** endpoints:
+**Scope.** An API key is accepted only on the content **publish** endpoints:
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -60,26 +60,28 @@ into your own tenant's data.
 | `POST /content/{contentId}/crosspost` | Cross-post to dev.to / Medium / Hashnode |
 
 Every other route (reads, edits, deletes, campaigns, revenue, …) still
-requires dashboard sign-in, so a leaked CI token can only add content — it
+requires dashboard sign-in, so a leaked API key can only add content — it
 cannot read or destroy anything.
 
-**Minting** (requires dashboard sign-in — a CI token cannot mint more tokens):
+**Minting** (requires dashboard sign-in — an API key cannot mint more keys):
 
 ```
-POST /ci/tokens
+POST /api-keys
 { "label": "writing-repo publish" }
 
-201 → { "token": "<the token — shown once>", "jti": "...", "label": "...", "created_at": "...", "last_used_at": null }
+201 → { "key": "<the key — shown once>", "jti": "...", "label": "...", "created_at": "...", "last_used_at": null }
 ```
 
-Copy the `token` value into a secret in the writing repo (e.g. `BOOKED_API_TOKEN`).
-It is returned only at mint time and is never retrievable afterward.
+Copy the `key` value into a secret in the writing repo (e.g. `BOOKED_API_KEY`).
+It is returned only at mint time and is never retrievable afterward. The
+dashboard's **Settings → API keys** tab mints, lists, and revokes keys with the
+same one-time reveal.
 
 **Using it in CI:**
 
 ```bash
 curl -sS -X POST "$BOOKED_API_URL/blogs" \
-  -H "Authorization: Bearer $BOOKED_API_TOKEN" \
+  -H "Authorization: Bearer $BOOKED_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $GITHUB_SHA" \
   -d '{ "title": "…", "slug": "…", "url": "…", "content_markdown": "…" }'
@@ -91,12 +93,12 @@ workflow safe — it won't create a duplicate.
 **Listing / revoking:**
 
 ```
-GET    /ci/tokens          → { "tokens": [ { "jti": "...", "label": "...", ... } ] }
-DELETE /ci/tokens/{jti}     → 204
+GET    /api-keys          → { "keys": [ { "jti": "...", "label": "...", ... } ] }
+DELETE /api-keys/{jti}     → 204
 ```
 
 Revocation takes effect on the next request (the authorizer isn't cached). If a
-token leaks, delete it here and mint a new one.
+key leaks, delete it here and mint a new one.
 
 ---
 

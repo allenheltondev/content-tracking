@@ -28,21 +28,21 @@ describe("services/identity requirePublisherTenantId", () => {
     expect(requirePublisherTenantId(authEvent("cognito", "sub-abc"))).toBe("sub-abc");
   });
 
-  test("returns the sub for a CI-token caller", () => {
-    expect(requirePublisherTenantId(authEvent("ci", "sub-abc"))).toBe("sub-abc");
+  test("returns the sub for an API-key caller", () => {
+    expect(requirePublisherTenantId(authEvent("apikey", "sub-abc"))).toBe("sub-abc");
   });
 
   test("rejects the Chrome extension (extension) auth source", () => {
     expect(() => requirePublisherTenantId(authEvent("extension", "sub-abc"))).toThrow(
-      /dashboard sign-in or a CI token/,
+      /dashboard sign-in or an API key/,
     );
   });
 
   test("rejects a missing sub even for an allowed source", () => {
-    expect(() => requirePublisherTenantId(authEvent("ci"))).toThrow(/caller identity/);
+    expect(() => requirePublisherTenantId(authEvent("apikey"))).toThrow(/caller identity/);
   });
 
   test("rejects a missing authorizer context", () => {
-    expect(() => requirePublisherTenantId({})).toThrow(/dashboard sign-in or a CI token/);
+    expect(() => requirePublisherTenantId({})).toThrow(/dashboard sign-in or an API key/);
   });
 });

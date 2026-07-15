@@ -9,11 +9,11 @@ import { TABLE_NAME, ddb } from "../services/ddb.mjs";
 import { NotFoundError } from "../services/errors.mjs";
 import { newJti, signToken } from "../services/extension-token.mjs";
 
-// HMAC-signed API tokens issued to non-browser clients. Two flavours share
-// this one mechanism, distinguished by the `source` tag on the persisted row:
+// HMAC-signed tokens issued to non-browser clients. Two flavours share this
+// one mechanism, distinguished by the `source` tag on the persisted row:
 //   - "extension" — the Chrome extension. Minted on Settings → Extension and
 //     pasted into the extension's Options.
-//   - "ci"        — an automation/CI token (e.g. a GitHub Actions publish
+//   - "apikey"    — an automation API key (e.g. a GitHub Actions publish
 //     hook). Minted on the dashboard and stored as a repo secret.
 // The token itself is signed (HMAC-SHA256) so the API authorizer can verify
 // it without a database hit; the metadata row written here exists so the
@@ -23,7 +23,7 @@ import { newJti, signToken } from "../services/extension-token.mjs";
 //
 // Storage:
 //   pk = USER#{cognitoSub}, sk = EXTTOKEN#{jti}
-//   entity = "ExtensionPairing" | "CiToken", source = "extension" | "ci"
+//   entity = "ExtensionPairing" | "ApiKey", source = "extension" | "apikey"
 //
 // Both flavours share the EXTTOKEN# sort-key prefix so the authorizer's
 // revocation lookup (touchPairing) needs only sub + jti — the source lives in
@@ -52,7 +52,7 @@ export async function mintPairing({ sub, label, signingSecret, source = DEFAULT_
   const now = new Date().toISOString();
   const item = {
     ...pairingKey(sub, jti),
-    entity: source === "ci" ? "CiToken" : "ExtensionPairing",
+    entity: source === "apikey" ? "ApiKey" : "ExtensionPairing",
     source,
     jti,
     sub,
@@ -71,8 +71,9 @@ export async function mintPairing({ sub, label, signingSecret, source = DEFAULT_
 }
 
 // `source`, when supplied, restricts the result to tokens of that flavour so
-// the extension and CI dashboards don't leak each other's tokens. A row with
-// no source attribute (minted before the tag existed) counts as "extension".
+// the extension and API-key surfaces don't leak each other's tokens. A row
+// with no source attribute (minted before the tag existed) counts as
+// "extension".
 export async function listPairings({ sub, source }) {
   const result = await ddb.send(new QueryCommand({
     TableName: TABLE_NAME,
