@@ -12,7 +12,7 @@ import {
   listContentByTenant,
   updateContent,
 } from "../domain/content.mjs";
-import { requireTenantId } from "../services/identity.mjs";
+import { requirePublisherTenantId, requireTenantId } from "../services/identity.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import { parseLimit } from "../services/pagination.mjs";
 import { emptyResponse, jsonResponse } from "../services/http-handler.mjs";
@@ -52,7 +52,10 @@ export function registerBlogRoutes(app) {
   // merge Content + un-migrated Blog rows, so this is transparent to GET /blogs
   // and the response shape is unchanged (asBlogRow aliases contentId→blogId).
   app.post("/blogs", withIdempotency(async ({ event }) => {
-    const tenantId = requireTenantId(event);
+    // Publish endpoint: the dashboard OR an API key (e.g. a publish hook in
+    // the writing repo) may create a blog. Reads/edits/deletes below stay
+    // cognito-only, so a leaked API key can only ever add content.
+    const tenantId = requirePublisherTenantId(event);
     const fields = validateBlogCreate(parseBody(event));
     const item = await createContent(tenantId, {
       ...fields,

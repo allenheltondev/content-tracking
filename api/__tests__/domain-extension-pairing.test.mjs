@@ -73,6 +73,25 @@ describe("domain/extension-pairing", () => {
       await expect(mintPairing({ signingSecret: SECRET })).rejects.toThrow(/requires sub/);
       await expect(mintPairing({ sub: SUB })).rejects.toThrow(/requires signingSecret/);
     });
+
+    test("defaults to an extension-sourced pairing", async () => {
+      mockSend.mockResolvedValueOnce({});
+      await mintPairing({ sub: SUB, signingSecret: SECRET });
+      const item = mockSend.mock.calls[0][0].input.Item;
+      expect(item.source).toBe("extension");
+      expect(item.entity).toBe("ExtensionPairing");
+    });
+
+    test("tags an API key with source=apikey and its own entity", async () => {
+      mockSend.mockResolvedValueOnce({});
+      await mintPairing({ sub: SUB, label: "writing-repo", signingSecret: SECRET, source: "apikey" });
+      const item = mockSend.mock.calls[0][0].input.Item;
+      expect(item.source).toBe("apikey");
+      expect(item.entity).toBe("ApiKey");
+      // Still shares the EXTTOKEN# prefix so the authorizer's revocation
+      // lookup needs only sub + jti.
+      expect(item.sk).toMatch(/^EXTTOKEN#/);
+    });
   });
 
   describe("listPairings", () => {
@@ -112,6 +131,21 @@ describe("domain/extension-pairing", () => {
     test("returns an empty array when the user has no pairings", async () => {
       mockSend.mockResolvedValueOnce({});
       expect(await listPairings({ sub: SUB })).toEqual([]);
+    });
+
+    test("filters by source, treating a missing source as extension", async () => {
+      const items = [
+        { sk: "EXTTOKEN#a", jti: "a", label: "Laptop", source: "extension", created_at: "t", last_used_at: null },
+        { sk: "EXTTOKEN#b", jti: "b", label: "Legacy", created_at: "t", last_used_at: null },
+        { sk: "EXTTOKEN#c", jti: "c", label: "Key", source: "apikey", created_at: "t", last_used_at: null },
+      ];
+      mockSend.mockResolvedValue({ Items: items });
+
+      const keys = await listPairings({ sub: SUB, source: "apikey" });
+      expect(keys.map((p) => p.jti)).toEqual(["c"]);
+
+      const ext = await listPairings({ sub: SUB, source: "extension" });
+      expect(ext.map((p) => p.jti)).toEqual(["a", "b"]);
     });
 
     test("never echoes the partition keys back to the caller", async () => {

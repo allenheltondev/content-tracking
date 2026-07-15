@@ -8,10 +8,15 @@ source of truth.
 
 - **Base URL:** the `ContentTrackingApiBaseUrl` stack output. Shape:
   `https://<api-id>.execute-api.us-east-1.amazonaws.com/v1`.
-- **Authentication:** every route requires an `Authorization` header
-  containing a Cognito access token issued by the `RSCUserPool`. Missing
-  or invalid tokens return `401 Unauthorized` from API Gateway before
-  reaching the handler.
+- **Authentication:** every route requires an `Authorization: Bearer <token>`
+  header. The credential is one of:
+  - a **Cognito id token** issued by the `RSCUserPool` (the dashboard), or
+  - an **API key** — a long-lived HMAC credential for automation (see
+    [API keys](#api-keys)).
+
+  Missing or invalid credentials return `401 Unauthorized` from the Lambda
+  authorizer before reaching the handler. Most routes require the Cognito
+  path; the content **publish** endpoints additionally accept an API key.
 - **Content type:** request and response bodies are `application/json`.
 - **IDs:** vendor IDs are ULIDs matching `^[0-9A-HJKMNP-TV-Z]{26}$`.
   Campaign and link IDs are opaque strings (1-64 chars).
@@ -32,6 +37,68 @@ source of truth.
 | 409 | Conflict (vendor has linked campaigns and cannot be deleted) |
 | 502 | Upstream newsletter-service call failed |
 | 500 | Unexpected server error |
+
+---
+
+## API keys
+
+For calling the API from automation — e.g. a GitHub Actions workflow in your
+writing repo that registers a blog when you publish it — mint an **API key**
+instead of driving a Cognito sign-in from CI. An API key is a long-lived,
+revocable HMAC bearer credential scoped to your tenant. It is verified by the
+same Lambda authorizer as dashboard tokens; the server always derives the
+tenant from the key, never from the request body, so an API key can only ever
+write into your own tenant's data.
+
+**Scope.** An API key is accepted only on the content **publish** endpoints:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /blogs` | Register a published blog in the catalog |
+| `POST /content` | Register any published content item |
+| `POST /content/{contentId}/publish` | Record a publish variant (per platform) |
+| `POST /content/{contentId}/crosspost` | Cross-post to dev.to / Medium / Hashnode |
+
+Every other route (reads, edits, deletes, campaigns, revenue, …) still
+requires dashboard sign-in, so a leaked API key can only add content — it
+cannot read or destroy anything.
+
+**Minting** (requires dashboard sign-in — an API key cannot mint more keys):
+
+```
+POST /api-keys
+{ "label": "writing-repo publish" }
+
+201 → { "key": "<the key — shown once>", "jti": "...", "label": "...", "created_at": "...", "last_used_at": null }
+```
+
+Copy the `key` value into a secret in the writing repo (e.g. `BOOKED_API_KEY`).
+It is returned only at mint time and is never retrievable afterward. The
+dashboard's **Settings → API keys** tab mints, lists, and revokes keys with the
+same one-time reveal.
+
+**Using it in CI:**
+
+```bash
+curl -sS -X POST "$BOOKED_API_URL/blogs" \
+  -H "Authorization: Bearer $BOOKED_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $GITHUB_SHA" \
+  -d '{ "title": "…", "slug": "…", "url": "…", "content_markdown": "…" }'
+```
+
+Sending an `Idempotency-Key` (the commit SHA works well) makes a re-run of the
+workflow safe — it won't create a duplicate.
+
+**Listing / revoking:**
+
+```
+GET    /api-keys          → { "keys": [ { "jti": "...", "label": "...", ... } ] }
+DELETE /api-keys/{jti}     → 204
+```
+
+Revocation takes effect on the next request (the authorizer isn't cached). If a
+key leaks, delete it here and mint a new one.
 
 ---
 

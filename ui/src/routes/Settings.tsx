@@ -8,7 +8,14 @@ import {
   listExtensionPairings,
   revokeExtensionPairing,
 } from '../api/extensions';
+import {
+  createApiKey,
+  listApiKeys,
+  revokeApiKey,
+} from '../api/apiKeys';
 import type {
+  ApiKey,
+  CreateApiKeyResponse,
   CreateExtensionPairingResponse,
   ExtensionPairing,
   ProfileResponse,
@@ -16,12 +23,13 @@ import type {
 } from '../api/types';
 import Modal from '../components/Modal';
 
-type SettingsTab = 'integrations' | 'extension';
+type SettingsTab = 'integrations' | 'extension' | 'api';
 
 const TAB_PARAM = 'tab';
 
 function parseTab(value: string | null): SettingsTab {
   if (value === 'extension') return 'extension';
+  if (value === 'api') return 'api';
   return 'integrations';
 }
 
@@ -58,10 +66,16 @@ export default function Settings(): ReactElement {
           active={activeTab === 'extension'}
           onClick={() => selectTab('extension')}
         />
+        <TabButton
+          label="API keys"
+          active={activeTab === 'api'}
+          onClick={() => selectTab('api')}
+        />
       </nav>
 
       {activeTab === 'integrations' && <IntegrationsTab />}
       {activeTab === 'extension' && <ExtensionTab />}
+      {activeTab === 'api' && <ApiKeysTab />}
     </section>
   );
 }
@@ -618,6 +632,277 @@ function NewPairingDialog({
         <p className="text-muted-foreground">
           Treat this code like a password. Anyone with it can read and update your campaign data.
           Revoke it from the Paired devices list if it leaks.
+        </p>
+        <div className="flex justify-end">
+          <button type="button" className="btn btn-primary" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ApiKeysTab(): ReactElement {
+  const apiFetch = useApiFetch();
+
+  const [keys, setKeys] = useState<ApiKey[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const [generateOpen, setGenerateOpen] = useState(false);
+  const [justMinted, setJustMinted] = useState<CreateApiKeyResponse | null>(null);
+
+  const [revoking, setRevoking] = useState<string | null>(null);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoadError(null);
+    setLoading(true);
+    try {
+      const res = await listApiKeys(apiFetch);
+      setKeys(res.keys);
+    } catch (err) {
+      setLoadError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [apiFetch]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const onGenerated = (res: CreateApiKeyResponse): void => {
+    const { key: _key, ...meta } = res;
+    setKeys((prev) => [...prev, meta]);
+    setGenerateOpen(false);
+    setJustMinted(res);
+  };
+
+  const revoke = async (jti: string): Promise<void> => {
+    setRevokeError(null);
+    setRevoking(jti);
+    try {
+      await revokeApiKey(apiFetch, jti);
+      setKeys((prev) => prev.filter((k) => k.jti !== jti));
+    } catch (err) {
+      setRevokeError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setRevoking(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-muted-foreground">
+        API keys let automation — like a GitHub Actions workflow in your writing repo — publish to
+        Booked without a dashboard sign-in. Each key is a long-lived, revocable credential scoped
+        to your account.
+      </p>
+
+      <div className="card card-body space-y-3 text-sm text-foreground">
+        <h2 className="text-lg font-semibold text-foreground">What a key can do</h2>
+        <p className="text-muted-foreground">
+          API keys are accepted only on the content <span className="font-medium">publish</span>{' '}
+          endpoints — creating a blog or content item, recording a publish, and cross-posting.
+          Everything else (reading, editing, deleting, campaigns, revenue) still requires signing
+          in here, so a leaked key can only ever add content.
+        </p>
+        <p className="text-muted-foreground">
+          Send it as an <code className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">Authorization</code>{' '}
+          header on your request, e.g.{' '}
+          <code className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">
+            Authorization: Bearer &lt;key&gt;
+          </code>
+          . Include an{' '}
+          <code className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">Idempotency-Key</code>{' '}
+          (your commit SHA works well) so a re-run won't create duplicates.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-foreground">Your keys</h2>
+          <button
+            type="button"
+            className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary-600 text-white hover:bg-primary-700 text-xl leading-none"
+            onClick={() => setGenerateOpen(true)}
+            aria-label="Create a new API key"
+            title="Create a new API key"
+          >
+            +
+          </button>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Create one key per automation and give it a label so you can tell them apart. Revoke a
+          row to cut that automation off immediately.
+        </p>
+        {loadError && <p className="form-error">Could not load keys: {loadError}</p>}
+        {revokeError && <p className="form-error">{revokeError}</p>}
+        {loading ? (
+          <p className="text-muted-foreground">Loading...</p>
+        ) : keys.length === 0 ? (
+          <p className="text-muted-foreground">No API keys yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Label</th>
+                  <th>Created</th>
+                  <th>Last used</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {keys.map((k) => (
+                  <tr key={k.jti}>
+                    <td>{k.label}</td>
+                    <td className="text-muted-foreground">{k.created_at.slice(0, 10)}</td>
+                    <td className="text-muted-foreground">
+                      {k.last_used_at ? new Date(k.last_used_at).toLocaleString() : 'never'}
+                    </td>
+                    <td className="text-right">
+                      <button
+                        type="button"
+                        className="btn-link text-error-600"
+                        onClick={() => void revoke(k.jti)}
+                        disabled={revoking === k.jti}
+                      >
+                        {revoking === k.jti ? 'Revoking...' : 'Revoke'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <GenerateApiKeyDialog
+        open={generateOpen}
+        onClose={() => setGenerateOpen(false)}
+        onGenerated={onGenerated}
+      />
+
+      <NewApiKeyDialog result={justMinted} onClose={() => setJustMinted(null)} />
+    </div>
+  );
+}
+
+function GenerateApiKeyDialog({
+  open,
+  onClose,
+  onGenerated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onGenerated: (res: CreateApiKeyResponse) => void;
+}): ReactElement | null {
+  const apiFetch = useApiFetch();
+  const [label, setLabel] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setLabel('');
+      setError(null);
+      setGenerating(false);
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  const submit = async (): Promise<void> => {
+    setError(null);
+    setGenerating(true);
+    try {
+      const res = await createApiKey(apiFetch, { label: label.trim() || undefined });
+      onGenerated(res);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <Modal open title="Create an API key" onClose={onClose}>
+      <div className="space-y-4 text-sm text-foreground">
+        <p className="text-muted-foreground">
+          Give the key a label so you can tell your automations apart later when you revoke one.
+        </p>
+        <label className="block">
+          <span className="field-label">Label (optional)</span>
+          <input
+            type="text"
+            className="input"
+            placeholder="e.g. writing-repo publish"
+            value={label}
+            maxLength={60}
+            onChange={(e) => setLabel(e.target.value)}
+            disabled={generating}
+            autoFocus
+          />
+          <span className="field-hint">Shown only on this page so you can identify it later.</span>
+        </label>
+        {error && <p className="form-error">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={generating}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn-primary" onClick={() => void submit()} disabled={generating}>
+            {generating ? 'Creating...' : 'Create key'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function NewApiKeyDialog({
+  result,
+  onClose,
+}: {
+  result: CreateApiKeyResponse | null;
+  onClose: () => void;
+}): ReactElement | null {
+  const [copied, setCopied] = useState(false);
+
+  if (!result) return null;
+
+  const copy = (): void => {
+    void navigator.clipboard.writeText(result.key).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  return (
+    <Modal open title="API key created" onClose={onClose}>
+      <div className="space-y-4 text-sm text-foreground">
+        <p>
+          Store this key as a secret in your automation (e.g. a{' '}
+          <code className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">BOOKED_API_KEY</code>{' '}
+          repository secret). This is the only time it will be shown — create a new one if you lose
+          it.
+        </p>
+        <div className="space-y-2">
+          <code className="block bg-muted rounded p-3 font-mono text-xs break-all">
+            {result.key}
+          </code>
+          <div className="flex justify-end">
+            <button type="button" className="btn btn-secondary" onClick={copy}>
+              {copied ? 'Copied' : 'Copy to clipboard'}
+            </button>
+          </div>
+        </div>
+        <p className="text-muted-foreground">
+          Treat this key like a password. Anyone with it can publish content to your account.
+          Revoke it from the keys list if it leaks.
         </p>
         <div className="flex justify-end">
           <button type="button" className="btn btn-primary" onClick={onClose}>
