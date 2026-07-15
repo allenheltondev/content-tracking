@@ -37,11 +37,12 @@ export function registerAgentRoutes(app) {
     // Cognito-only: the blog assistant is a dashboard feature.
     requireTenantId(event);
 
+    const authorization = getAuthorization(event);
     const session = await createRuntimeSession({
-      authorization: getAuthorization(event),
+      authorization,
       systemPrompt: BLOG_ASSISTANT_PROMPT,
       title: "Ask your blog",
-      mcpServers: buildBlogMcpServers(),
+      mcpServers: buildBlogMcpServers(authorization),
     });
 
     return jsonResponse(201, { sessionId: session.sessionId, title: session.title });
@@ -51,16 +52,26 @@ export function registerAgentRoutes(app) {
 // Points the session at the blog-search AgentCore Gateway, or undefined when
 // grounding is off (EnableBlogGrounding="false") so the session is an ungrounded
 // assistant. The gateway URL is wired from the in-stack resource; the flag gates
-// activation until the runtime side is ready (allowlist + token — rsc-core
-// #196/#199). No authHeader: the runtime presents the caller's Cognito token to
-// the gateway. Env is read per-call so the toggle takes effect without a cold
-// start and tests can flip it.
-function buildBlogMcpServers() {
+// activation until the runtime side is ready (allowlist — rsc-core#196).
+//
+// Auth: we forward the caller's Cognito id token as the gateway's Authorization
+// header (the runtime folds `authHeader` into the outbound headers, rsc-core
+// #197; the gateway's CUSTOM_JWT authorizer validates it and its interceptor
+// reads the sub). NOTE: this token is stored in the session config and lives
+// only ~1h, so a session grounds for about an hour after creation — acceptable
+// for now; the durable fix is per-connection token vending in the runtime
+// (readysetcloud/rsc-core#199). Env is read per-call so the toggle takes effect
+// without a cold start and tests can flip it.
+function buildBlogMcpServers(authorization) {
   if (process.env.BLOG_GROUNDING_ENABLED !== "true") return undefined;
   const url = process.env.BLOG_GATEWAY_URL;
-  if (!url) return undefined;
+  if (!url || !authorization) return undefined;
   return {
-    blog: { transport: "streamable-http", url },
+    blog: {
+      transport: "streamable-http",
+      url,
+      authHeader: { name: "Authorization", value: authorization },
+    },
   };
 }
 

@@ -65,7 +65,7 @@ describe("POST /agent/sessions", () => {
     expect(arg.title).toBe("Ask your blog");
   });
 
-  test("points the session at the gateway (no client-minted auth) when grounding is enabled", async () => {
+  test("points the session at the gateway and forwards the caller's token when grounding is enabled", async () => {
     process.env.BLOG_GROUNDING_ENABLED = "true";
 
     await routes["POST /agent/sessions"](ctx());
@@ -73,7 +73,8 @@ describe("POST /agent/sessions", () => {
     const { mcpServers } = createRuntimeSession.mock.calls[0][0];
     expect(mcpServers.blog.url).toBe("https://abc123.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp");
     expect(mcpServers.blog.transport).toBe("streamable-http");
-    // No Booked-minted credential — the runtime presents the caller's Cognito token.
-    expect(mcpServers.blog.authHeader).toBeUndefined();
+    // The caller's Cognito token rides as the gateway Authorization header so the
+    // gateway can validate it and the interceptor can read the sub.
+    expect(mcpServers.blog.authHeader).toEqual({ name: "Authorization", value: "Bearer id-token" });
   });
 });

@@ -1212,7 +1212,10 @@ Resources:
       AuthorizerConfiguration:
         CustomJWTAuthorizer:
           DiscoveryUrl: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPoolId}/.well-known/openid-configuration"
-          AllowedClients:
+          # The dashboard sends Cognito ID tokens (getFreshIdToken), which carry
+          # `aud` = the app client id (not a `client_id` claim), so validate the
+          # audience. The interceptor reads `sub` from the same token.
+          AllowedAudience:
             - !Ref UserPoolClient
       InterceptorConfigurations:
         - InterceptionPoints: [REQUEST]
