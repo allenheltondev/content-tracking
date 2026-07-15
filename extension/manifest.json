@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Booked Social Analytics",
+  "name": "Booked",
   "version": "0.1.0",
-  "description": "Automatically captures engagement on your tracked social posts and syncs it to the Booked app.",
-  "permissions": ["storage", "alarms"],
+  "description": "Your Booked creator companion: quietly syncs engagement on your tracked posts, and grows your Content Radar from the sites you read.",
+  "permissions": ["storage", "alarms", "activeTab", "scripting"],
   "host_permissions": [
     "https://x.com/*",
     "https://twitter.com/*",
@@ -21,7 +21,7 @@
   },
   "action": {
     "default_popup": "src/popup.html",
-    "default_title": "Booked Social Analytics"
+    "default_title": "Booked"
   },
   "content_scripts": [
     {

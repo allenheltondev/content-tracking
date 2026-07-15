@@ -3,9 +3,14 @@
 // forwards button intents.
 
 import { getConfig } from "./config.js";
+import { normalizeDiscoveredFeeds, sameFeed } from "./feeds.js";
 
 const content = document.getElementById("content");
 const syncedEl = document.getElementById("synced");
+
+// The API's title label caps at 200 chars; clamp client-side so a long
+// document.title doesn't get bounced with a 400.
+const FEED_TITLE_MAX = 200;
 
 // Asks Chrome for cross-origin access to the API host. The packaged zip
 // bakes this into manifest host_permissions at build time (so this call
@@ -27,6 +32,143 @@ async function ensureApiHostAccess() {
 
 function send(message) {
   return chrome.runtime.sendMessage(message);
+}
+
+// ---- Content Radar capture ------------------------------------------------
+//
+// Runs in the active tab's page context (injected via chrome.scripting).
+// Self-contained by necessity — executeScript serializes the function, so it
+// can't close over anything in the popup. Returns the raw <link> feed data plus
+// the page URL/title for normalizeDiscoveredFeeds to turn into candidates.
+function collectFeedLinksInPage() {
+  const links = Array.from(document.querySelectorAll('link[rel~="alternate"]')).map((el) => ({
+    rel: el.getAttribute("rel") || "",
+    type: el.getAttribute("type") || "",
+    href: el.getAttribute("href") || "",
+    title: el.getAttribute("title") || "",
+  }));
+  const og = document.querySelector('meta[property="og:site_name"]');
+  return {
+    links,
+    baseUrl: location.href,
+    pageTitle: document.title || "",
+    siteName: og ? og.getAttribute("content") || "" : "",
+  };
+}
+
+// Discover the RSS/Atom feed(s) advertised by the page in the active tab.
+// Returns { feeds, siteTitle } or null when there's nothing to add (a
+// restricted page, a non-http(s) tab, or a page with no feed link). Relies on
+// activeTab — opening the popup is the user gesture that grants scripting on the
+// current tab, so no broad host permission is needed.
+async function discoverActiveTabFeeds() {
+  let tab;
+  try {
+    [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  } catch {
+    return null;
+  }
+  if (!tab?.id) return null;
+  // tab.url is populated for the active tab under activeTab; when present, skip
+  // pages that can't carry a feed we can add (chrome://, the web store, etc.).
+  if (tab.url && !/^https?:/i.test(tab.url)) return null;
+
+  let raw;
+  try {
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: collectFeedLinksInPage,
+    });
+    raw = res?.result;
+  } catch {
+    // executeScript rejects on restricted pages (chrome://, PDF viewer, the
+    // Chrome Web Store) — treat as "no feed here" rather than an error.
+    return null;
+  }
+  if (!raw || !/^https?:/i.test(raw.baseUrl || "")) return null;
+  return normalizeDiscoveredFeeds(raw);
+}
+
+// The Content Radar section of the paired popup. Renders a placeholder
+// synchronously and fills it in once discovery + the existing-source check
+// resolve, so it never blocks the rest of the popup from painting.
+function renderRadarSection() {
+  const section = document.createElement("section");
+  section.className = "radar";
+  const head = document.createElement("div");
+  head.className = "radar-head";
+  head.textContent = "Content Radar";
+  const body = document.createElement("div");
+  body.className = "radar-body muted";
+  body.textContent = "Checking this page…";
+  section.append(head, body);
+  void populateRadar(body);
+  return section;
+}
+
+async function populateRadar(body) {
+  const discovered = await discoverActiveTabFeeds();
+  const feed = discovered?.feeds?.[0];
+  if (!feed) {
+    body.textContent = "No RSS/Atom feed found on this page.";
+    return;
+  }
+
+  // Compare against the current radar so we offer "add" only for a new source —
+  // the API doesn't dedupe by URL. A read failure here is non-fatal; we fall
+  // through to the add button and let the add path surface any real error.
+  const existing = await send({ type: "booked:radarFeeds" });
+  const already = (existing?.feeds ?? []).some((f) => sameFeed(f.url, feed.url));
+
+  body.classList.remove("muted");
+  body.replaceChildren();
+
+  const label = document.createElement("div");
+  label.className = "radar-feed";
+  const name = document.createElement("span");
+  name.className = "radar-feed-name";
+  name.textContent = feed.title;
+  const url = document.createElement("span");
+  url.className = "radar-feed-url";
+  url.textContent = feed.url;
+  label.append(name, url);
+  body.appendChild(label);
+
+  if (already) {
+    const done = document.createElement("p");
+    done.className = "radar-note";
+    done.textContent = "Already on your radar.";
+    body.appendChild(done);
+    return;
+  }
+
+  const add = document.createElement("button");
+  add.className = "primary";
+  add.textContent = "Add to Content Radar";
+  const status = document.createElement("p");
+  status.hidden = true;
+  add.addEventListener("click", async () => {
+    add.disabled = true;
+    add.textContent = "Adding…";
+    const res = await send({
+      type: "booked:addRadarFeed",
+      url: feed.url,
+      title: feed.title.slice(0, FEED_TITLE_MAX),
+    });
+    if (res?.error) {
+      add.disabled = false;
+      add.textContent = "Add to Content Radar";
+      status.hidden = false;
+      status.className = "radar-note error";
+      status.textContent = res.error;
+    } else {
+      add.remove();
+      status.hidden = false;
+      status.className = "radar-note ok";
+      status.textContent = "Added to your radar ✓";
+    }
+  });
+  body.append(add, status);
 }
 
 // Dashboard URL is baked in at packaging time; an unfilled placeholder
@@ -138,7 +280,7 @@ function renderPaired(status) {
 
   const summary = document.createElement("p");
   summary.className = "muted";
-  summary.textContent = `${status.activeCount} post${status.activeCount === 1 ? "" : "s"} on active campaigns being tracked.`;
+  summary.textContent = `Syncing engagement on ${status.activeCount} tracked post${status.activeCount === 1 ? "" : "s"}.`;
   content.appendChild(summary);
 
   if (status.lastError) {
@@ -160,6 +302,8 @@ function renderPaired(status) {
   });
   actions.appendChild(refresh);
   content.appendChild(actions);
+
+  content.appendChild(renderRadarSection());
 
   if (status.posts?.length) {
     const scroll = document.createElement("div");

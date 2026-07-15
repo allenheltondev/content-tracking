@@ -6,7 +6,7 @@
 
 import { getConfig, isConfigured } from "./config.js";
 import { adapters, PLATFORM_BUCKET } from "./adapters.js";
-import { getMonitoringWorkingSet, putAnalytics } from "./api.js";
+import { getMonitoringWorkingSet, putAnalytics, listRadarFeeds, addRadarFeed } from "./api.js";
 import {
   clearPairing,
   getPairingMetadata,
@@ -516,6 +516,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       ensureFeed(true)
         .then(() => buildStatus())
         .then(sendResponse);
+      return true;
+    case "booked:radarFeeds":
+      listRadarFeeds()
+        .then((feeds) => sendResponse({ feeds }))
+        .catch((err) => sendResponse({ error: String(err?.message || err) }));
+      return true;
+    case "booked:addRadarFeed":
+      addRadarFeed(msg.url, msg.title)
+        .then((feed) => sendResponse({ ok: true, feed }))
+        .catch((err) => sendResponse({ error: String(err?.message || err) }));
       return true;
     case "booked:pair":
       setPairingToken(msg.token)

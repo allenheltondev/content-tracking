@@ -23,11 +23,13 @@ consumes for campaign-level rollups.
   URL and the short-link host, and calls newsletter-service's mint and
   analytics endpoints from inside its Lambdas.
 
-A companion Chrome extension (`extension/`) signs in through the same
-Cognito pool, reads the social post URLs on active campaigns, and as you
-browse those posts on X/Twitter, LinkedIn, and Instagram it captures
-engagement off each platform's own traffic and writes it back via
-`PUT /campaigns/{id}/social-posts/{postId}/analytics`. See
+A companion Chrome extension (`extension/`) pairs through the same Cognito
+pool. It reads the social post URLs on active campaigns, and as you browse
+those posts on X/Twitter, LinkedIn, and Instagram it captures engagement off
+each platform's own traffic and writes it back via
+`PUT /campaigns/{id}/social-posts/{postId}/analytics`. It also grows your
+[Content Radar](docs/content-radar.md): the popup surfaces the RSS/Atom feed of
+whatever site you're reading and adds it as a source with one click. See
 [`extension/README.md`](extension/README.md).
 
 Dashboard work is tracked separately.

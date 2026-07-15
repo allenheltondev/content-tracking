@@ -1,12 +1,18 @@
-# Booked Social Analytics — Chrome extension
+# Booked — Chrome extension
 
-A companion Chrome extension for [Booked](../README.md). It reads the post
-URLs attached to your **active** campaigns — social posts on X/Twitter,
-LinkedIn, Instagram, and Bluesky, plus long-form content posts on Medium and
-dev.to —
-and as you browse those posts it captures the engagement numbers straight
-off each platform's own API traffic and writes them back to Booked
-automatically. Every write stamps a `last_fetched` timestamp on the post.
+The companion Chrome extension for [Booked](../README.md), the creator
+platform. It does two things as you browse:
+
+1. **Sync engagement automatically.** It reads the post URLs attached to your
+   **active** campaigns — social posts on X/Twitter, LinkedIn, Instagram, and
+   Bluesky, plus long-form content posts on Medium and dev.to — and as you
+   browse those posts it captures the engagement numbers straight off each
+   platform's own API traffic and writes them back to Booked automatically.
+   Every write stamps a `last_fetched` timestamp on the post.
+2. **Grow your Content Radar.** On any site you read, the popup surfaces the
+   site's RSS/Atom feed with one click to add it as a
+   [Content Radar](../docs/content-radar.md) source — so the blogs and
+   publications you actually follow feed the content-angles agent.
 
 It also injects a **Booked** menu into the host site so you can jump
 straight to the posts you're monitoring: a nav item on X and LinkedIn, and
@@ -48,6 +54,21 @@ alone. This is also what the dashboard's **Refresh Stats** button drives.
 The extension only ever **reads** post engagement that the page already
 loaded for you; it does not scrape logged-out data or take any action on
 the platforms.
+
+## Content Radar capture
+
+Open the popup on any blog or news site you're reading and it looks for the
+page's advertised RSS/Atom feed (`<link rel="alternate">`) and offers to add it
+to your [Content Radar](../docs/content-radar.md) with one click
+(`POST /content-radar/feeds`). If the feed is already a source it says so
+instead of adding a duplicate; if the page advertises no feed it says that too.
+
+This runs only when you open the popup, on the tab you're looking at — it uses
+the `activeTab` + `scripting` permissions (opening the popup is the user gesture
+that grants them), so the extension carries **no** always-on access to every
+site. It reads one thing from the page — the feed `<link>` tags — and only when
+you ask. The server re-validates every feed URL (public http(s), SSRF-guarded)
+before storing it.
 
 ## Install
 
