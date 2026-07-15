@@ -302,10 +302,75 @@ const ACTIVE_SCRAPE_TABS = new Map(); // post_id -> { tabId, timeoutHandle }
 const AUTO_SCRAPE_TTL_MS = 5 * 60 * 1000; // don't re-open within 5 min
 const AUTO_SCRAPE_MAX_LIFETIME_MS = 60 * 1000; // hard cap on tab lifetime
 
+// ---- full-sync tab group --------------------------------------------------
+//
+// The popup's "Sync now" button sweeps every monitored post in one go, opening
+// each post's capture page in a background tab gathered under a single "Booked"
+// Chrome tab group. Tabs open a few at a time (MAX_CONCURRENT_SCRAPE_TABS) and
+// close as each post syncs, so the group drains itself and vanishes once the
+// sweep finishes — the same scrape-and-close pipeline the auto-scrape path uses,
+// just fanned out across the whole working set instead of one post at a time.
+const SYNC_GROUP_TITLE = "Booked";
+const MAX_CONCURRENT_SCRAPE_TABS = 5;
+let syncGroupId = null; // tabGroups id for the active sweep, if any
+const syncQueue = []; // pending { post, url } waiting for a free tab slot
+let openingCount = 0; // tabs mid-creation, reserved against the concurrency cap
+
+// Fold a freshly opened scrape tab into the shared "Booked" group, creating and
+// labeling the group the first time. The group id is reused across the sweep; if
+// Chrome has already torn it down (all its tabs closed), a new one is opened.
+async function addTabToSyncGroup(tabId) {
+  if (syncGroupId != null) {
+    try {
+      await chrome.tabs.group({ tabIds: [tabId], groupId: syncGroupId });
+      return;
+    } catch {
+      // Group no longer exists (it drained) — fall through and start a new one.
+      syncGroupId = null;
+    }
+  }
+  syncGroupId = await chrome.tabs.group({ tabIds: [tabId] });
+  try {
+    await chrome.tabGroups.update(syncGroupId, {
+      title: SYNC_GROUP_TITLE,
+      color: "blue",
+    });
+  } catch (err) {
+    console.warn("[booked] tab group label failed:", err);
+  }
+}
+
+// Drain the sync queue up to the concurrency cap. Each opened tab counts against
+// the cap until it closes (post synced) or times out; both paths call back here
+// so the next queued post starts the moment a slot frees.
+function pumpSyncQueue() {
+  while (
+    syncQueue.length &&
+    ACTIVE_SCRAPE_TABS.size + openingCount < MAX_CONCURRENT_SCRAPE_TABS
+  ) {
+    const next = syncQueue.shift();
+    if (ACTIVE_SCRAPE_TABS.has(next.post.post_id)) continue;
+    // Reserve the slot synchronously so the loop can't overshoot the cap while
+    // chrome.tabs.create is still in flight.
+    openingCount += 1;
+    openScrapeTab(next.post, next.url, { group: true })
+      .catch((err) => console.warn("[booked] sync scrape failed:", err))
+      .finally(() => {
+        openingCount -= 1;
+        // A create that resolved just handed its reservation to
+        // ACTIVE_SCRAPE_TABS (net-zero on the cap); pump again to cover the
+        // case where the open early-returned (e.g. a duplicate) and freed a
+        // slot outright.
+        pumpSyncQueue();
+      });
+  }
+}
+
 // Open a background tab for the given tracked post and register it so the
 // scrape-and-close pipeline can clean it up once metrics land. No-op if a
-// scrape tab is already in flight for this post.
-async function openScrapeTab(post, url) {
+// scrape tab is already in flight for this post. When `group` is set, the tab
+// joins the "Booked" sync tab group.
+async function openScrapeTab(post, url, { group = false } = {}) {
   if (ACTIVE_SCRAPE_TABS.has(post.post_id)) return;
   let newTab;
   try {
@@ -314,11 +379,20 @@ async function openScrapeTab(post, url) {
     console.warn("[booked] scrape tab open failed:", err);
     return;
   }
+  if (group) {
+    try {
+      await addTabToSyncGroup(newTab.id);
+    } catch (err) {
+      console.warn("[booked] grouping scrape tab failed:", err);
+    }
+  }
   const timeoutHandle = setTimeout(() => {
     // Fallback: nothing reported back (page errored, user wasn't logged
     // in, platform changed its DOM/API shape, etc.). Close the orphan.
     ACTIVE_SCRAPE_TABS.delete(post.post_id);
     chrome.tabs.remove(newTab.id).catch(() => {});
+    // Freeing this slot may let a queued sync scrape start.
+    pumpSyncQueue();
   }, AUTO_SCRAPE_MAX_LIFETIME_MS);
   ACTIVE_SCRAPE_TABS.set(post.post_id, { tabId: newTab.id, timeoutHandle });
 }
@@ -473,6 +547,50 @@ async function refreshStaleForCampaign(campaignId) {
   return { triggered };
 }
 
+// Popup "Sync now" entry point. One button, whole working set: force a fresh
+// feed, then sweep *every* monitored post across *all* campaigns — open each
+// one's capture page in a background tab collected under the "Booked" tab group,
+// throttled to MAX_CONCURRENT_SCRAPE_TABS at a time. The scrape-and-close
+// pipeline (handleScraped / handleCaptured) syncs each post and closes its tab,
+// draining the group as it goes. Returns how many posts were queued so the popup
+// can acknowledge the sweep.
+async function syncAllContent() {
+  await ensureFeed(true);
+  if (!feed?.length) return { triggered: 0, total: 0 };
+
+  const urnMap = await getLinkedInUrnMap();
+  const seen = new Set();
+  let triggered = 0;
+  for (const post of feed) {
+    if (seen.has(post.post_id)) continue;
+    seen.add(post.post_id);
+
+    const url = await scrapeUrlForPost(post, urnMap);
+    if (!url) continue;
+
+    // Drop a stale tracking entry whose tab is already gone so the post can be
+    // re-swept; skip one whose tab is still live (a sweep already in progress).
+    const existing = ACTIVE_SCRAPE_TABS.get(post.post_id);
+    if (existing) {
+      try {
+        await chrome.tabs.get(existing.tabId);
+        continue;
+      } catch {
+        clearTimeout(existing.timeoutHandle);
+        ACTIVE_SCRAPE_TABS.delete(post.post_id);
+      }
+    }
+    // Bypass the 5-min recent-scrape guard so an explicit full sync always runs.
+    RECENT_AUTO_SCRAPES.delete(post.post_id);
+
+    syncQueue.push({ post, url });
+    triggered += 1;
+  }
+
+  pumpSyncQueue();
+  return { triggered, total: feed.length };
+}
+
 async function closeBackgroundScrapeTab(postId) {
   const info = ACTIVE_SCRAPE_TABS.get(postId);
   if (!info) return;
@@ -486,6 +604,8 @@ async function closeBackgroundScrapeTab(postId) {
   } catch {
     /* tab already closed */
   }
+  // A scrape tab just closed — start the next queued sync scrape, if any.
+  pumpSyncQueue();
 }
 
 chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
@@ -509,6 +629,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true;
     case "booked:refreshStale":
       refreshStaleForCampaign(msg.campaignId)
+        .then(sendResponse)
+        .catch((err) => sendResponse({ error: String(err?.message || err) }));
+      return true;
+    case "booked:syncAll":
+      syncAllContent()
         .then(sendResponse)
         .catch((err) => sendResponse({ error: String(err?.message || err) }));
       return true;

@@ -292,16 +292,72 @@ function renderPaired(status) {
 
   const actions = document.createElement("div");
   actions.className = "actions";
+
+  // Primary action: sweep every monitored post at once. The worker opens each
+  // post's capture page in a background "Booked" tab group and closes it as the
+  // data lands — one button in place of visiting each post yourself.
+  const sync = document.createElement("button");
+  sync.className = "primary";
+  sync.textContent = "Sync now";
+  sync.title =
+    'Open a "Booked" tab group, scrape every monitored post, and close each tab once its stats sync';
+
+  const syncNote = document.createElement("p");
+  syncNote.className = "sync-note muted";
+  syncNote.hidden = true;
+
+  sync.addEventListener("click", async () => {
+    sync.disabled = true;
+    sync.textContent = "Syncing…";
+    syncNote.hidden = true;
+
+    let res;
+    try {
+      res = await send({ type: "booked:syncAll" });
+    } catch (err) {
+      res = { error: String(err?.message || err) };
+    }
+
+    const restore = () => {
+      sync.disabled = false;
+      sync.textContent = "Sync now";
+    };
+
+    if (res?.error) {
+      syncNote.className = "sync-note error";
+      syncNote.textContent = res.error;
+      syncNote.hidden = false;
+      restore();
+      return;
+    }
+
+    const opened = res?.triggered ?? 0;
+    syncNote.className = "sync-note muted";
+    if (!res?.total) {
+      syncNote.textContent = "No monitored posts to sync yet.";
+    } else if (opened === 0) {
+      syncNote.textContent = "A sync is already in progress.";
+    } else {
+      syncNote.textContent = `Opened ${opened} post${opened === 1 ? "" : "s"} in the "Booked" tab group. Each tab closes as its stats sync.`;
+    }
+    syncNote.hidden = false;
+    // Let the background sweep run in its own tabs; re-enable the button after a
+    // beat so the user sees the acknowledgement.
+    setTimeout(restore, 4000);
+  });
+
   const refresh = document.createElement("button");
-  refresh.className = "primary";
+  refresh.className = "secondary";
   refresh.textContent = "Refresh list";
   refresh.addEventListener("click", async () => {
     refresh.disabled = true;
     refresh.textContent = "Refreshing…";
     render(await send({ type: "booked:refreshFeed" }));
   });
-  actions.appendChild(refresh);
+
+  actions.append(sync, refresh);
   content.appendChild(actions);
+  content.appendChild(syncNote);
 
   content.appendChild(renderRadarSection());
 

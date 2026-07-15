@@ -22,6 +22,16 @@ behind a separate analytics/stats page, so for those the worker opens that
 page in a background tab, syncs, and closes it — your current tab is left
 alone. This is also what the dashboard's **Refresh Stats** button drives.
 
+### Sync now
+
+The popup's **Sync now** button rolls all of that into one click. It sweeps
+**every** post you're monitoring — across all campaigns and platforms — and
+opens each one's capture page in background tabs collected under a fresh
+**"Booked"** Chrome tab group. Tabs open a few at a time (throttled so the
+browser isn't swamped) and each closes itself the moment its stats sync, so the
+group drains and disappears once the sweep finishes. Nothing is left open and
+you never have to visit each post by hand.
+
 ## How it works
 
 ```

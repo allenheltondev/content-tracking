@@ -3,7 +3,7 @@
   "name": "Booked",
   "version": "0.1.0",
   "description": "Your Booked creator companion: quietly syncs engagement on your tracked posts, and grows your Content Radar from the sites you read.",
-  "permissions": ["storage", "alarms", "activeTab", "scripting"],
+  "permissions": ["storage", "alarms", "activeTab", "scripting", "tabGroups"],
   "host_permissions": [
     "https://x.com/*",
     "https://twitter.com/*",

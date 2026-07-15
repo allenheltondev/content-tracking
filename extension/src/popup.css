@@ -94,6 +94,26 @@ button.primary:disabled {
   cursor: default;
 }
 
+button.secondary {
+  background: #fff;
+  color: var(--primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.secondary:hover {
+  border-color: var(--primary);
+}
+
+button.secondary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 button.link {
   background: none;
   border: none;
@@ -110,6 +130,12 @@ button.link:hover {
 .actions {
   display: flex;
   gap: 8px;
+}
+
+.sync-note {
+  font-size: 12px;
+  margin: 0;
+  line-height: 1.4;
 }
 
 .posts-scroll {
