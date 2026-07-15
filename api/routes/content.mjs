@@ -17,7 +17,7 @@ import { getBlogCredentials } from "../services/blog-credentials.mjs";
 import { transformBlogForPlatform } from "../services/parse-blog.mjs";
 import { getAdapter } from "../services/blog-platforms/index.mjs";
 import { validateCrosspostRequest } from "../validation/blog.mjs";
-import { requireTenantId } from "../services/identity.mjs";
+import { requirePublisherTenantId, requireTenantId } from "../services/identity.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import { decodeCursor, encodeCursor, parseLimit } from "../services/pagination.mjs";
 import { emptyResponse, jsonResponse } from "../services/http-handler.mjs";
@@ -57,7 +57,8 @@ function requireCampaignId(value) {
 
 export function registerContentRoutes(app) {
   app.post("/content", withIdempotency(async ({ event }) => {
-    const tenantId = requireTenantId(event);
+    // Publish endpoint — dashboard or CI token (see requirePublisherTenantId).
+    const tenantId = requirePublisherTenantId(event);
     const fields = validateContentCreate(parseBody(event));
     const item = await createContent(tenantId, fields);
     return jsonResponse(201, formatContent(item));
@@ -210,7 +211,7 @@ export function registerContentRoutes(app) {
   // same platform updates it). Independent of the campaign machinery, so an
   // unsponsored piece can track its own distribution.
   app.post("/content/:contentId/publish", withIdempotency(async ({ event, params }) => {
-    const tenantId = requireTenantId(event);
+    const tenantId = requirePublisherTenantId(event);
     await getContent(tenantId, params.contentId); // 404 if the piece is gone
     const { platform, ...fields } = validatePublishVariant(parseBody(event));
     const item = await putPublishVariant(tenantId, params.contentId, platform, fields);
@@ -252,7 +253,7 @@ export function registerContentRoutes(app) {
   // analytics. Platforms already published (a variant with a url exists) are
   // skipped so a re-invoke can't create duplicate posts.
   app.post("/content/:contentId/crosspost", withIdempotency(async ({ event, params }) => {
-    const tenantId = requireTenantId(event);
+    const tenantId = requirePublisherTenantId(event);
     const { contentId } = params;
     const content = await getContent(tenantId, contentId);
     const { platforms } = validateCrosspostRequest(parseBody(event));

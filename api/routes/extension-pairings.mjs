@@ -36,7 +36,9 @@ export function registerExtensionPairingRoutes(app) {
 
   app.get("/extensions/pairings", async ({ event }) => {
     const sub = requireCognitoSub(event);
-    const pairings = await listPairings({ sub });
+    // Scope to extension tokens so CI tokens (same sort-key prefix, different
+    // source) don't surface on the extension settings page.
+    const pairings = await listPairings({ sub, source: "extension" });
     return jsonResponse(200, { pairings });
   });
 

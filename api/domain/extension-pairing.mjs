@@ -9,28 +9,39 @@ import { TABLE_NAME, ddb } from "../services/ddb.mjs";
 import { NotFoundError } from "../services/errors.mjs";
 import { newJti, signToken } from "../services/extension-token.mjs";
 
-// Pairing tokens issued to the Chrome extension. The dashboard mints
-// them on the Settings → Extension page; the user pastes the token into
-// the extension's Options. The token itself is signed (HMAC-SHA256) so
-// the API authorizer can verify it without a database hit; the metadata
-// row written here exists so the authorizer can also confirm the jti
-// hasn't been revoked, and so the dashboard can list/revoke the user's
-// active pairings.
+// HMAC-signed API tokens issued to non-browser clients. Two flavours share
+// this one mechanism, distinguished by the `source` tag on the persisted row:
+//   - "extension" — the Chrome extension. Minted on Settings → Extension and
+//     pasted into the extension's Options.
+//   - "ci"        — an automation/CI token (e.g. a GitHub Actions publish
+//     hook). Minted on the dashboard and stored as a repo secret.
+// The token itself is signed (HMAC-SHA256) so the API authorizer can verify
+// it without a database hit; the metadata row written here exists so the
+// authorizer can also confirm the jti hasn't been revoked (and read the
+// source to stamp requestContext.authorizer.authSource), and so the dashboard
+// can list/revoke the user's active tokens.
 //
 // Storage:
 //   pk = USER#{cognitoSub}, sk = EXTTOKEN#{jti}
-//   entity = "ExtensionPairing"
+//   entity = "ExtensionPairing" | "CiToken", source = "extension" | "ci"
+//
+// Both flavours share the EXTTOKEN# sort-key prefix so the authorizer's
+// revocation lookup (touchPairing) needs only sub + jti — the source lives in
+// the row, not the token. listPairings filters by source so each surface only
+// sees its own tokens. Legacy rows written before the source tag existed are
+// treated as "extension".
 //
 // Only the metadata is persisted — the token value itself is returned
 // once at mint time and never stored anywhere on our side.
 
 const SK_PREFIX = "EXTTOKEN#";
+const DEFAULT_SOURCE = "extension";
 
 function pairingKey(sub, jti) {
   return { pk: `USER#${sub}`, sk: `${SK_PREFIX}${jti}` };
 }
 
-export async function mintPairing({ sub, label, signingSecret }) {
+export async function mintPairing({ sub, label, signingSecret, source = DEFAULT_SOURCE }) {
   if (!sub) {
     throw new Error("mintPairing requires sub.");
   }
@@ -41,7 +52,8 @@ export async function mintPairing({ sub, label, signingSecret }) {
   const now = new Date().toISOString();
   const item = {
     ...pairingKey(sub, jti),
-    entity: "ExtensionPairing",
+    entity: source === "ci" ? "CiToken" : "ExtensionPairing",
+    source,
     jti,
     sub,
     label: label?.trim() || "Unnamed device",
@@ -58,7 +70,10 @@ export async function mintPairing({ sub, label, signingSecret }) {
   return { pairing: toPublic(item), token };
 }
 
-export async function listPairings({ sub }) {
+// `source`, when supplied, restricts the result to tokens of that flavour so
+// the extension and CI dashboards don't leak each other's tokens. A row with
+// no source attribute (minted before the tag existed) counts as "extension".
+export async function listPairings({ sub, source }) {
   const result = await ddb.send(new QueryCommand({
     TableName: TABLE_NAME,
     KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
@@ -67,7 +82,10 @@ export async function listPairings({ sub }) {
       ":sk": SK_PREFIX,
     },
   }));
-  return (result.Items ?? []).map(toPublic);
+  const items = (result.Items ?? []).filter(
+    (item) => source === undefined || (item.source ?? DEFAULT_SOURCE) === source,
+  );
+  return items.map(toPublic);
 }
 
 export async function revokePairing({ sub, jti }) {

@@ -32,3 +32,22 @@ export function resolveTenantId(event) {
   }
   return auth.sub;
 }
+
+// Resolves the calling tenant for content *publish* endpoints, which a human
+// on the dashboard (authSource="cognito") OR an automated CI token
+// (authSource="ci") may call — e.g. a GitHub Actions hook that registers a
+// blog on publish. The Chrome extension (authSource="extension") is
+// deliberately excluded: its tokens are scoped to the working-set feeds, not
+// content creation. Like requireTenantId, the sub is read only from the
+// verified authorizer context, so a CI token can only ever write into its own
+// tenant partition.
+export function requirePublisherTenantId(event) {
+  const auth = event?.requestContext?.authorizer ?? {};
+  if (auth.authSource !== "cognito" && auth.authSource !== "ci") {
+    throw new UnauthorizedError("This endpoint requires dashboard sign-in or a CI token.");
+  }
+  if (!auth.sub) {
+    throw new UnauthorizedError("Missing caller identity.");
+  }
+  return auth.sub;
+}

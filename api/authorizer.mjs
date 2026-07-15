@@ -6,13 +6,15 @@ import { logger } from "./services/logger.mjs";
 
 // Lambda TOKEN authorizer for the API. Accepts either:
 //   - a Cognito id token (dashboard sign-in) — verified via JWKS
-//   - an extension pairing token (HMAC-SHA256) — verified against the
-//     signing secret, then GetItem to confirm the jti hasn't been revoked
+//   - an HMAC-SHA256 API token (Chrome extension or CI) — verified against
+//     the signing secret, then a DynamoDB write confirms the jti hasn't been
+//     revoked. The persisted row carries the token's source ("extension" or
+//     "ci"), which becomes context.authSource.
 //
 // Returns an IAM policy plus a context object the routes read via
 // event.requestContext.authorizer to know who the caller is and which
-// auth path they came in on. Routes that should only run for human
-// dashboard users gate on context.authSource === "cognito".
+// auth path they came in on. Routes gate on context.authSource — human-only
+// endpoints require "cognito"; publish endpoints also accept "ci".
 
 const USER_POOL_ID = process.env.USER_POOL_ID;
 const USER_POOL_CLIENT_ID = process.env.USER_POOL_CLIENT_ID;
@@ -42,7 +44,7 @@ export async function handler(event) {
 
   try {
     if (looksLikeJwt(token, "HS256")) {
-      return await authorizeExtensionToken(token, methodArn);
+      return await authorizeHmacToken(token, methodArn);
     }
     // Default: treat as a Cognito id token. Catches RS256, ES256, or any
     // shape we didn't issue ourselves — let the Cognito verifier reject
@@ -66,23 +68,26 @@ async function authorizeCognitoToken(token, methodArn) {
   });
 }
 
-async function authorizeExtensionToken(token, methodArn) {
+async function authorizeHmacToken(token, methodArn) {
   const secret = getExtensionSigningSecret();
   const { sub, jti } = verifyToken(token, secret);
 
   // Revocation check + last_used_at bump in a single conditional update.
   // The dashboard's DELETE removes this item, so a revoked token fails
   // the attribute_exists guard here even though its signature still
-  // matches.
+  // matches. The returned row also tells us the token's source.
   const pairing = await touchPairing({ sub, jti });
   if (!pairing) {
-    throw new Error("Pairing has been revoked.");
+    throw new Error("Token has been revoked.");
   }
 
+  // Source lives on the persisted row, not the token, so the same signed
+  // shape covers both flavours. Rows minted before the tag existed are
+  // treated as extension tokens.
   return allow({
     principalId: sub,
     methodArn,
-    context: { sub, authSource: "extension", jti },
+    context: { sub, authSource: pairing.source ?? "extension", jti },
   });
 }
 
