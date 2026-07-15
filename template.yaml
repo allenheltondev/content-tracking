@@ -46,27 +46,17 @@ Parameters:
       https://api.readysetcloud.io/core). Resolved at deploy time from the
       rsc-core-owned SSM parameter. POST /agent/sessions proxies agent-session
       creation here so the browser never calls rsc-core with a Booked secret.
-  BlogMcpUrl:
+  BlogGatewayUrl:
     Type: String
     Default: ""
     Description: |
-      Endpoint of Booked's blog-search MCP server (#204). While empty, the
-      "Ask your blog" session is created ungrounded (no mcpServers), so this
-      stack ships before the MCP server exists; set it to turn grounding on.
-      Its host must also be on the runtime's MCP allowlist
-      (readysetcloud/rsc-core#196).
-  BlogMcpSigningKey:
-    Type: String
-    NoEcho: true
-    Default: ""
-    Description: |
-      HMAC-SHA256 signing key for the blog-search grant that authenticates the
-      runtime -> Booked MCP call (minted in POST /agent/sessions, verified in
-      the MCP server). Generate with
-      `node scripts/generate-blog-mcp-signing-key.mjs` and store as the GitHub
-      secret BLOG_MCP_SIGNING_KEY. Optional until BlogMcpUrl is set (grounding
-      off), then required. Rotation: change the secret (and bump the grant key
-      version) and redeploy to invalidate outstanding grants.
+      MCP endpoint of the blog-search AgentCore Gateway (the BlogGateway
+      resource's GatewayUrl output). While empty, the "Ask your blog" session is
+      created ungrounded (no mcpServers). Activation is staged so it can't break
+      session creation: deploy, read the BlogGatewayUrl stack output, add its
+      host to the runtime's MCP allowlist (readysetcloud/rsc-core#196) and ensure
+      the runtime can present the caller's Cognito token, then set this parameter
+      to that URL on a follow-up deploy.
   NewsletterMintApiKey:
     Type: String
     NoEcho: true
@@ -250,15 +240,12 @@ Globals:
         EXTENSION_TOKEN_SIGNING_KEY: !Ref ExtensionTokenSigningKey
         # "Ask your blog" agent (POST /agent/sessions). CORE_API_URL is the
         # shared rsc-core Core API (SSM /readysetcloud/api-url), which the mint
-        # endpoint proxies session creation to. BLOG_MCP_SIGNING_KEY signs the
-        # per-user grant that authenticates the runtime -> Booked blog-search
-        # MCP call (mint here, verify in the MCP server, #204). BLOG_MCP_URL is
-        # that MCP server's endpoint: while it's empty the session is created
-        # ungrounded (no mcpServers), so this ships before the MCP server exists
-        # and grounding turns on by setting the URL. See api/routes/agent.mjs.
+        # endpoint proxies session creation to. BLOG_GATEWAY_URL is the
+        # blog-search AgentCore Gateway's MCP endpoint: while empty the session
+        # is created ungrounded (no mcpServers); setting it (post-allowlist) turns
+        # grounding on. See api/routes/agent.mjs.
         CORE_API_URL: !Ref CoreApiUrl
-        BLOG_MCP_URL: !Ref BlogMcpUrl
-        BLOG_MCP_SIGNING_KEY: !Ref BlogMcpSigningKey
+        BLOG_GATEWAY_URL: !Ref BlogGatewayUrl
         # Vendor-report static HTML lives in a private bucket fronted by a
         # CloudFront distribution that requires signed URLs. The API Lambda
         # writes the HTML to VENDOR_REPORTS_BUCKET, then signs a URL against
@@ -1108,23 +1095,25 @@ Resources:
               Resource:
                 - !GetAtt ContentTrackingTable.Arn
 
-  # Booked's blog-search MCP server (#204). The shared rsc-core AgentCore
-  # runtime connects here over MCP Streamable HTTP when an "Ask your blog"
-  # session references it (set via POST /agent/sessions when BLOG_MCP_URL is
-  # configured). Behind a Function URL (AuthType NONE) because the caller is the
-  # runtime, not the browser: it presents the Booked-minted grant in a header,
-  # which the handler verifies in-process (grant sub === tenantId). Inherits
-  # embedding/vector env from Globals; no DynamoDB access needed — it only
-  # embeds the query and reads the content vector index.
+  # === "Ask your blog" grounding via Amazon Bedrock AgentCore Gateway ===
   #
-  # Activation is a deliberate, staged operation (avoids breaking session
-  # creation): deploy this -> read the BlogMcpUrl output (the stable
-  # mcp.booked.<domain> when a custom domain is configured) -> add its host to
-  # the runtime's MCP allowlist (readysetcloud/rsc-core#196) -> set the
-  # BlogMcpUrl parameter to that URL and the BLOG_MCP_SIGNING_KEY secret. Until
-  # then the URL exists but no session references it. A custom domain (see
-  # BlogMcpDistribution below) keeps that allowlist entry stable across deploys.
-  BlogMcpFunction:
+  # The shared rsc-core AgentCore Runtime reaches the creator's blog through an
+  # AgentCore Gateway that exposes ONE tool, search_blog, backed by a Lambda
+  # target. The gateway IS the MCP server (no hand-rolled protocol): it validates
+  # the caller's Cognito token (CUSTOM_JWT -> shared pool) and a REQUEST
+  # interceptor forwards the verified sub to the tenant-scoped tool.
+  #
+  # Activation is staged so it can't break session creation: deploy, read the
+  # BlogGatewayUrl output, add its host to the runtime's MCP allowlist
+  # (readysetcloud/rsc-core#196) and make sure the runtime can present the
+  # caller's Cognito token, then set the BlogGatewayUrl parameter. Until then the
+  # gateway exists but no session references it.
+
+  # The tool. A plain Lambda the gateway invokes (no Function URL). Embeds the
+  # query and reads the content vector index, scoped to the caller's tenant (the
+  # sub the interceptor injects as _callerSub). Inherits embedding/vector env
+  # from Globals.
+  BlogSearchToolFunction:
     Type: AWS::Serverless::Function
     Metadata:
       BuildMethod: esbuild
@@ -1133,16 +1122,10 @@ Resources:
         EntryPoints:
           - index.mjs
     Properties:
-      CodeUri: functions/blog-mcp
+      CodeUri: functions/blog-search-tool
       Handler: index.handler
       MemorySize: 512
       Timeout: 30
-      FunctionUrlConfig:
-        # No Cors block: the caller is the AgentCore runtime (server-to-server),
-        # not a browser, so no preflight is involved. Auth is the grant header,
-        # verified in the handler.
-        AuthType: NONE
-        InvokeMode: BUFFERED
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: 2012-10-17
@@ -1163,75 +1146,108 @@ Resources:
                 - !GetAtt BlogVectorBucket.VectorBucketArn
                 - !GetAtt ContentVectorIndex.IndexArn
 
-  # Stable custom domain (mcp.booked.<BaseCustomDomain>) in front of the MCP
-  # Function URL, so the runtime's MCP allowlist (readysetcloud/rsc-core#196)
-  # gets ONE entry that never changes — a Function URL's generated host would
-  # otherwise have to be re-allowlisted if the URL is ever recreated. CloudFront
-  # is used because a Lambda Function URL can't take a custom domain directly;
-  # same pattern as the dashboard/vendor-reports distributions. Caching is
-  # disabled and all viewer headers except Host are forwarded, so the grant
-  # header reaches the origin and every JSON-RPC POST is proxied uncached. Only
-  # deployed when a custom domain is configured; otherwise callers use the
-  # Function URL host directly (stable per environment).
-  BlogMcpCertificate:
-    Type: AWS::CertificateManager::Certificate
-    Condition: DeployCustomDomain
+  # The identity bridge. A REQUEST interceptor the gateway runs before the
+  # target: it decodes the gateway-validated Cognito JWT and injects the verified
+  # sub into the tool arguments (the gateway->Lambda contract carries no caller
+  # identity otherwise). No extra IAM — it only rewrites the request it's handed.
+  BlogGatewayInterceptorFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - index.mjs
     Properties:
-      DomainName: !Sub "mcp.booked.${BaseCustomDomain}"
-      ValidationMethod: DNS
-      DomainValidationOptions:
-        - DomainName: !Sub "mcp.booked.${BaseCustomDomain}"
-          HostedZoneId: !Ref HostedZoneId
+      CodeUri: functions/blog-gateway-interceptor
+      Handler: index.handler
+      MemorySize: 256
+      Timeout: 10
 
-  BlogMcpDistribution:
-    Type: AWS::CloudFront::Distribution
-    Condition: DeployCustomDomain
+  # Execution role the gateway assumes to invoke the target + interceptor
+  # Lambdas. Scoped to exactly those two functions (no wildcards), per AgentCore
+  # security guidance.
+  BlogGatewayRole:
+    Type: AWS::IAM::Role
     Properties:
-      DistributionConfig:
-        Enabled: true
-        Comment: !Sub "${AWS::StackName} blog-search MCP (${Environment})"
-        HttpVersion: http2
-        IPV6Enabled: true
-        PriceClass: PriceClass_100
-        Aliases:
-          - !Sub "mcp.booked.${BaseCustomDomain}"
-        ViewerCertificate:
-          AcmCertificateArn: !Ref BlogMcpCertificate
-          SslSupportMethod: sni-only
-          MinimumProtocolVersion: TLSv1.2_2021
-        Origins:
-          - Id: blog-mcp-origin
-            # The Function URL host (strip scheme + trailing slash).
-            DomainName: !Select [2, !Split ["/", !GetAtt BlogMcpFunctionUrl.FunctionUrl]]
-            CustomOriginConfig:
-              OriginProtocolPolicy: https-only
-              OriginSSLProtocols: [TLSv1.2]
-        DefaultCacheBehavior:
-          TargetOriginId: blog-mcp-origin
-          ViewerProtocolPolicy: redirect-to-https
-          # A JSON-RPC API: every method must reach the origin, nothing cached.
-          AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
-          CachedMethods: [GET, HEAD]
-          Compress: true
-          # CachingDisabled + AllViewerExceptHostHeader — AWS managed policy ids.
-          # The latter forwards every viewer header (incl. the grant) except Host,
-          # which CloudFront sets to the Function URL origin as required.
-          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
-          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock-agentcore.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: invoke-blog-tools
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource:
+                  - !GetAtt BlogSearchToolFunction.Arn
+                  - !GetAtt BlogGatewayInterceptorFunction.Arn
 
-  # A alias to the distribution. Z2FDTNDATAQYW2 is the constant CloudFront
-  # alias hosted zone, same as the other distribution records.
-  BlogMcpDnsRecord:
-    Type: AWS::Route53::RecordSet
-    Condition: DeployCustomDomain
+  # The gateway (MCP server). CUSTOM_JWT inbound auth against the shared rsc-core
+  # Cognito pool; the interceptor carries the caller identity to the tool.
+  BlogGateway:
+    Type: AWS::BedrockAgentCore::Gateway
     Properties:
-      HostedZoneId: !Ref HostedZoneId
-      Name: !Sub "mcp.booked.${BaseCustomDomain}"
-      Type: A
-      AliasTarget:
-        DNSName: !GetAtt BlogMcpDistribution.DomainName
-        HostedZoneId: Z2FDTNDATAQYW2
-        EvaluateTargetHealth: false
+      Name: !Sub "booked-blog-${Environment}"
+      ProtocolType: MCP
+      RoleArn: !GetAtt BlogGatewayRole.Arn
+      AuthorizerType: CUSTOM_JWT
+      AuthorizerConfiguration:
+        CustomJWTAuthorizer:
+          DiscoveryUrl: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPoolId}/.well-known/openid-configuration"
+          AllowedClients:
+            - !Ref UserPoolClient
+      InterceptorConfigurations:
+        - InterceptionPoints: [REQUEST]
+          InputConfiguration:
+            PassRequestHeaders: true
+          Interceptor:
+            Lambda:
+              Arn: !GetAtt BlogGatewayInterceptorFunction.Arn
+
+  # The tool target: the search_blog Lambda + its inline schema. The gateway
+  # invokes it with its execution role (GATEWAY_IAM_ROLE). _callerSub is a
+  # reserved property the interceptor overwrites with the verified sub.
+  BlogGatewayTarget:
+    Type: AWS::BedrockAgentCore::GatewayTarget
+    Properties:
+      GatewayIdentifier: !Ref BlogGateway
+      Name: blog
+      CredentialProviderConfigurations:
+        - CredentialProviderType: GATEWAY_IAM_ROLE
+      TargetConfiguration:
+        Mcp:
+          Lambda:
+            LambdaArn: !GetAtt BlogSearchToolFunction.Arn
+            ToolSchema:
+              InlinePayload:
+                - Name: search_blog
+                  Description: "Search the creator's OWN published blog posts for passages relevant to a query. Returns matching excerpts plus each post's title/slug so you can cite sources. Use this to ground any answer about their blog."
+                  InputSchema:
+                    Type: object
+                    Properties:
+                      query:
+                        Type: string
+                        Description: "Natural-language search query."
+                      topK:
+                        Type: integer
+                        Description: "Max passages to return (1-20, default 8)."
+                      blogId:
+                        Type: string
+                        Description: "Optional: restrict the search to a single post id."
+                      _callerSub:
+                        Type: string
+                        Description: "Reserved. Set by the gateway from the verified caller identity; do not populate."
+                    Required:
+                      - query
 
   # Static hosting for the dashboard UI. Bucket is private; only the
   # CloudFront distribution (via OAC) can read it. SPA routing is
@@ -1730,18 +1746,14 @@ Outputs:
       back to the buffered REST endpoints.
     Value: !GetAtt StreamGenerateFunctionUrl.FunctionUrl
 
-  BlogMcpUrl:
+  BlogGatewayUrl:
     Description: |
-      Endpoint of the blog-search MCP server (#204): the stable custom domain
-      (mcp.booked.<BaseCustomDomain>) when one is configured, else the Function
-      URL. To turn "Ask your blog" grounding on: add this URL's host to the
-      runtime's MCP allowlist (readysetcloud/rsc-core#196), then set the
-      BlogMcpUrl parameter to this value (and the BLOG_MCP_SIGNING_KEY secret).
-      Until then it's deployed but unreferenced.
-    Value: !If
-      - DeployCustomDomain
-      - !Sub "https://mcp.booked.${BaseCustomDomain}"
-      - !GetAtt BlogMcpFunctionUrl.FunctionUrl
+      MCP endpoint of the blog-search AgentCore Gateway. To turn "Ask your blog"
+      grounding on: add this URL's host to the runtime's MCP allowlist
+      (readysetcloud/rsc-core#196), make sure the runtime can present the
+      caller's Cognito token to it, then set the BlogGatewayUrl parameter to this
+      value. Until then the gateway is deployed but unreferenced.
+    Value: !GetAtt BlogGateway.GatewayUrl
 
   HelloDurableFunctionAliasArn:
     Description: |
