@@ -1118,10 +1118,12 @@ Resources:
   # embeds the query and reads the content vector index.
   #
   # Activation is a deliberate, staged operation (avoids breaking session
-  # creation): deploy this -> read the BlogMcpUrl output -> add its host to the
-  # runtime's MCP allowlist (readysetcloud/rsc-core#196) -> set the BlogMcpUrl
-  # parameter to that URL and the BLOG_MCP_SIGNING_KEY secret. Until then the URL
-  # exists but no session references it.
+  # creation): deploy this -> read the BlogMcpUrl output (the stable
+  # mcp.booked.<domain> when a custom domain is configured) -> add its host to
+  # the runtime's MCP allowlist (readysetcloud/rsc-core#196) -> set the
+  # BlogMcpUrl parameter to that URL and the BLOG_MCP_SIGNING_KEY secret. Until
+  # then the URL exists but no session references it. A custom domain (see
+  # BlogMcpDistribution below) keeps that allowlist entry stable across deploys.
   BlogMcpFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -1160,6 +1162,76 @@ Resources:
               Resource:
                 - !GetAtt BlogVectorBucket.VectorBucketArn
                 - !GetAtt ContentVectorIndex.IndexArn
+
+  # Stable custom domain (mcp.booked.<BaseCustomDomain>) in front of the MCP
+  # Function URL, so the runtime's MCP allowlist (readysetcloud/rsc-core#196)
+  # gets ONE entry that never changes — a Function URL's generated host would
+  # otherwise have to be re-allowlisted if the URL is ever recreated. CloudFront
+  # is used because a Lambda Function URL can't take a custom domain directly;
+  # same pattern as the dashboard/vendor-reports distributions. Caching is
+  # disabled and all viewer headers except Host are forwarded, so the grant
+  # header reaches the origin and every JSON-RPC POST is proxied uncached. Only
+  # deployed when a custom domain is configured; otherwise callers use the
+  # Function URL host directly (stable per environment).
+  BlogMcpCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Condition: DeployCustomDomain
+    Properties:
+      DomainName: !Sub "mcp.booked.${BaseCustomDomain}"
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Sub "mcp.booked.${BaseCustomDomain}"
+          HostedZoneId: !Ref HostedZoneId
+
+  BlogMcpDistribution:
+    Type: AWS::CloudFront::Distribution
+    Condition: DeployCustomDomain
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "${AWS::StackName} blog-search MCP (${Environment})"
+        HttpVersion: http2
+        IPV6Enabled: true
+        PriceClass: PriceClass_100
+        Aliases:
+          - !Sub "mcp.booked.${BaseCustomDomain}"
+        ViewerCertificate:
+          AcmCertificateArn: !Ref BlogMcpCertificate
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        Origins:
+          - Id: blog-mcp-origin
+            # The Function URL host (strip scheme + trailing slash).
+            DomainName: !Select [2, !Split ["/", !GetAtt BlogMcpFunctionUrl.FunctionUrl]]
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+        DefaultCacheBehavior:
+          TargetOriginId: blog-mcp-origin
+          ViewerProtocolPolicy: redirect-to-https
+          # A JSON-RPC API: every method must reach the origin, nothing cached.
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          # CachingDisabled + AllViewerExceptHostHeader — AWS managed policy ids.
+          # The latter forwards every viewer header (incl. the grant) except Host,
+          # which CloudFront sets to the Function URL origin as required.
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+
+  # A alias to the distribution. Z2FDTNDATAQYW2 is the constant CloudFront
+  # alias hosted zone, same as the other distribution records.
+  BlogMcpDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: DeployCustomDomain
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub "mcp.booked.${BaseCustomDomain}"
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt BlogMcpDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+        EvaluateTargetHealth: false
 
   # Static hosting for the dashboard UI. Bucket is private; only the
   # CloudFront distribution (via OAC) can read it. SPA routing is
@@ -1660,12 +1732,16 @@ Outputs:
 
   BlogMcpUrl:
     Description: |
-      Function URL of the blog-search MCP server (#204). To turn "Ask your blog"
-      grounding on: add this URL's host to the runtime's MCP allowlist
-      (readysetcloud/rsc-core#196), then set the BlogMcpUrl parameter to this
-      value (and the BLOG_MCP_SIGNING_KEY secret). Until then it's deployed but
-      unreferenced.
-    Value: !GetAtt BlogMcpFunctionUrl.FunctionUrl
+      Endpoint of the blog-search MCP server (#204): the stable custom domain
+      (mcp.booked.<BaseCustomDomain>) when one is configured, else the Function
+      URL. To turn "Ask your blog" grounding on: add this URL's host to the
+      runtime's MCP allowlist (readysetcloud/rsc-core#196), then set the
+      BlogMcpUrl parameter to this value (and the BLOG_MCP_SIGNING_KEY secret).
+      Until then it's deployed but unreferenced.
+    Value: !If
+      - DeployCustomDomain
+      - !Sub "https://mcp.booked.${BaseCustomDomain}"
+      - !GetAtt BlogMcpFunctionUrl.FunctionUrl
 
   HelloDurableFunctionAliasArn:
     Description: |
