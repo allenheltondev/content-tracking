@@ -29,6 +29,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1085.0",
     "@aws-sdk/util-dynamodb": "^3.996.2",
     "@aws/durable-execution-sdk-js": "^2.1.0",
+    "@readysetcloud/agent": "^0.2.0",
     "aws-jwt-verify": "^5.2.1",
     "remark": "^15.0.1",
     "ulid": "^3.0.2",
