@@ -635,6 +635,27 @@ export interface CreateExtensionPairingResponse {
   token: string;
 }
 
+// CI / automation tokens. Same one-time-view rule as pairing tokens: the
+// secret is only present on the create response; GET returns metadata only.
+export interface CiToken {
+  jti: string;
+  label: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface ListCiTokensResponse {
+  tokens: CiToken[];
+}
+
+export interface CreateCiTokenRequest {
+  label?: string;
+}
+
+export interface CreateCiTokenResponse extends CiToken {
+  token: string;
+}
+
 export interface Ga4Totals {
   pageviews: number;
   users: number;

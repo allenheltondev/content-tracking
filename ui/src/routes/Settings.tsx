@@ -8,7 +8,14 @@ import {
   listExtensionPairings,
   revokeExtensionPairing,
 } from '../api/extensions';
+import {
+  createCiToken,
+  listCiTokens,
+  revokeCiToken,
+} from '../api/ciTokens';
 import type {
+  CiToken,
+  CreateCiTokenResponse,
   CreateExtensionPairingResponse,
   ExtensionPairing,
   ProfileResponse,
@@ -16,12 +23,13 @@ import type {
 } from '../api/types';
 import Modal from '../components/Modal';
 
-type SettingsTab = 'integrations' | 'extension';
+type SettingsTab = 'integrations' | 'extension' | 'api';
 
 const TAB_PARAM = 'tab';
 
 function parseTab(value: string | null): SettingsTab {
   if (value === 'extension') return 'extension';
+  if (value === 'api') return 'api';
   return 'integrations';
 }
 
@@ -58,10 +66,16 @@ export default function Settings(): ReactElement {
           active={activeTab === 'extension'}
           onClick={() => selectTab('extension')}
         />
+        <TabButton
+          label="API"
+          active={activeTab === 'api'}
+          onClick={() => selectTab('api')}
+        />
       </nav>
 
       {activeTab === 'integrations' && <IntegrationsTab />}
       {activeTab === 'extension' && <ExtensionTab />}
+      {activeTab === 'api' && <ApiTokensTab />}
     </section>
   );
 }
@@ -618,6 +632,277 @@ function NewPairingDialog({
         <p className="text-muted-foreground">
           Treat this code like a password. Anyone with it can read and update your campaign data.
           Revoke it from the Paired devices list if it leaks.
+        </p>
+        <div className="flex justify-end">
+          <button type="button" className="btn btn-primary" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ApiTokensTab(): ReactElement {
+  const apiFetch = useApiFetch();
+
+  const [tokens, setTokens] = useState<CiToken[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const [generateOpen, setGenerateOpen] = useState(false);
+  const [justMinted, setJustMinted] = useState<CreateCiTokenResponse | null>(null);
+
+  const [revoking, setRevoking] = useState<string | null>(null);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoadError(null);
+    setLoading(true);
+    try {
+      const res = await listCiTokens(apiFetch);
+      setTokens(res.tokens);
+    } catch (err) {
+      setLoadError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [apiFetch]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const onGenerated = (res: CreateCiTokenResponse): void => {
+    const { token: _token, ...meta } = res;
+    setTokens((prev) => [...prev, meta]);
+    setGenerateOpen(false);
+    setJustMinted(res);
+  };
+
+  const revoke = async (jti: string): Promise<void> => {
+    setRevokeError(null);
+    setRevoking(jti);
+    try {
+      await revokeCiToken(apiFetch, jti);
+      setTokens((prev) => prev.filter((t) => t.jti !== jti));
+    } catch (err) {
+      setRevokeError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setRevoking(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-muted-foreground">
+        API tokens let automation — like a GitHub Actions workflow in your writing repo — publish
+        to Booked without a dashboard sign-in. Each token is a long-lived, revocable credential
+        scoped to your account.
+      </p>
+
+      <div className="card card-body space-y-3 text-sm text-foreground">
+        <h2 className="text-lg font-semibold text-foreground">What a token can do</h2>
+        <p className="text-muted-foreground">
+          API tokens are accepted only on the content <span className="font-medium">publish</span>{' '}
+          endpoints — creating a blog or content item, recording a publish, and cross-posting.
+          Everything else (reading, editing, deleting, campaigns, revenue) still requires signing
+          in here, so a leaked token can only ever add content.
+        </p>
+        <p className="text-muted-foreground">
+          Send it as an <code className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">Authorization</code>{' '}
+          header on your request, e.g.{' '}
+          <code className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">
+            Authorization: Bearer &lt;token&gt;
+          </code>
+          . Include an{' '}
+          <code className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">Idempotency-Key</code>{' '}
+          (your commit SHA works well) so a re-run won't create duplicates.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-foreground">Your tokens</h2>
+          <button
+            type="button"
+            className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary-600 text-white hover:bg-primary-700 text-xl leading-none"
+            onClick={() => setGenerateOpen(true)}
+            aria-label="Create a new API token"
+            title="Create a new API token"
+          >
+            +
+          </button>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Create one token per automation and give it a label so you can tell them apart. Revoke a
+          row to cut that automation off immediately.
+        </p>
+        {loadError && <p className="form-error">Could not load tokens: {loadError}</p>}
+        {revokeError && <p className="form-error">{revokeError}</p>}
+        {loading ? (
+          <p className="text-muted-foreground">Loading...</p>
+        ) : tokens.length === 0 ? (
+          <p className="text-muted-foreground">No API tokens yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Label</th>
+                  <th>Created</th>
+                  <th>Last used</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {tokens.map((t) => (
+                  <tr key={t.jti}>
+                    <td>{t.label}</td>
+                    <td className="text-muted-foreground">{t.created_at.slice(0, 10)}</td>
+                    <td className="text-muted-foreground">
+                      {t.last_used_at ? new Date(t.last_used_at).toLocaleString() : 'never'}
+                    </td>
+                    <td className="text-right">
+                      <button
+                        type="button"
+                        className="btn-link text-error-600"
+                        onClick={() => void revoke(t.jti)}
+                        disabled={revoking === t.jti}
+                      >
+                        {revoking === t.jti ? 'Revoking...' : 'Revoke'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <GenerateCiTokenDialog
+        open={generateOpen}
+        onClose={() => setGenerateOpen(false)}
+        onGenerated={onGenerated}
+      />
+
+      <NewCiTokenDialog result={justMinted} onClose={() => setJustMinted(null)} />
+    </div>
+  );
+}
+
+function GenerateCiTokenDialog({
+  open,
+  onClose,
+  onGenerated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onGenerated: (res: CreateCiTokenResponse) => void;
+}): ReactElement | null {
+  const apiFetch = useApiFetch();
+  const [label, setLabel] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setLabel('');
+      setError(null);
+      setGenerating(false);
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  const submit = async (): Promise<void> => {
+    setError(null);
+    setGenerating(true);
+    try {
+      const res = await createCiToken(apiFetch, { label: label.trim() || undefined });
+      onGenerated(res);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <Modal open title="Create an API token" onClose={onClose}>
+      <div className="space-y-4 text-sm text-foreground">
+        <p className="text-muted-foreground">
+          Give the token a label so you can tell your automations apart later when you revoke one.
+        </p>
+        <label className="block">
+          <span className="field-label">Label (optional)</span>
+          <input
+            type="text"
+            className="input"
+            placeholder="e.g. writing-repo publish"
+            value={label}
+            maxLength={60}
+            onChange={(e) => setLabel(e.target.value)}
+            disabled={generating}
+            autoFocus
+          />
+          <span className="field-hint">Shown only on this page so you can identify it later.</span>
+        </label>
+        {error && <p className="form-error">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={generating}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn-primary" onClick={() => void submit()} disabled={generating}>
+            {generating ? 'Creating...' : 'Create token'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function NewCiTokenDialog({
+  result,
+  onClose,
+}: {
+  result: CreateCiTokenResponse | null;
+  onClose: () => void;
+}): ReactElement | null {
+  const [copied, setCopied] = useState(false);
+
+  if (!result) return null;
+
+  const copy = (): void => {
+    void navigator.clipboard.writeText(result.token).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  return (
+    <Modal open title="API token created" onClose={onClose}>
+      <div className="space-y-4 text-sm text-foreground">
+        <p>
+          Store this token as a secret in your automation (e.g. a{' '}
+          <code className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">BOOKED_API_TOKEN</code>{' '}
+          repository secret). This is the only time it will be shown — create a new one if you lose
+          it.
+        </p>
+        <div className="space-y-2">
+          <code className="block bg-muted rounded p-3 font-mono text-xs break-all">
+            {result.token}
+          </code>
+          <div className="flex justify-end">
+            <button type="button" className="btn btn-secondary" onClick={copy}>
+              {copied ? 'Copied' : 'Copy to clipboard'}
+            </button>
+          </div>
+        </div>
+        <p className="text-muted-foreground">
+          Treat this token like a password. Anyone with it can publish content to your account.
+          Revoke it from the tokens list if it leaks.
         </p>
         <div className="flex justify-end">
           <button type="button" className="btn btn-primary" onClick={onClose}>
