@@ -77,7 +77,12 @@ export default function ChatWidget(): ReactElement | null {
   };
 
   // Hidden entirely when the shared Core API isn't configured for this build.
-  if (!agentChatEnabled()) return null;
+  // Warn so a missing VITE_CORE_API_URL is diagnosable rather than a silent
+  // no-icon (it renders nothing, so there's otherwise no signal).
+  if (!agentChatEnabled()) {
+    console.warn('[ChatWidget] hidden: VITE_CORE_API_URL is not set, so "Ask your blog" cannot presign its connection.');
+    return null;
+  }
 
   if (!open) {
     return (
