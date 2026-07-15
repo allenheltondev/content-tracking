@@ -49,11 +49,14 @@ export function registerAgentRoutes(app) {
 }
 
 // Points the session at the blog-search AgentCore Gateway, or undefined when
-// grounding isn't configured yet (BLOG_GATEWAY_URL unset) so the session is an
-// ungrounded assistant. No authHeader: the runtime presents the caller's Cognito
-// token to the gateway (see rsc-core token-vending). Env is read per-call so the
-// grounding toggle takes effect without a cold start and tests can flip it.
+// grounding is off (EnableBlogGrounding="false") so the session is an ungrounded
+// assistant. The gateway URL is wired from the in-stack resource; the flag gates
+// activation until the runtime side is ready (allowlist + token — rsc-core
+// #196/#199). No authHeader: the runtime presents the caller's Cognito token to
+// the gateway. Env is read per-call so the toggle takes effect without a cold
+// start and tests can flip it.
 function buildBlogMcpServers() {
+  if (process.env.BLOG_GROUNDING_ENABLED !== "true") return undefined;
   const url = process.env.BLOG_GATEWAY_URL;
   if (!url) return undefined;
   return {

@@ -198,6 +198,22 @@ distributions, response-headers policies, and origin access controls;
 busting), Route53 (when a custom domain is used), and CloudWatch Logs
 permissions sufficient to manage the stack.
 
+The blog-search assistant adds an **Amazon Bedrock AgentCore Gateway**, so
+the deploy role also needs:
+
+- `bedrock-agentcore:*` on gateways/targets — at minimum `CreateGateway`,
+  `UpdateGateway`, `DeleteGateway`, `GetGateway`, `CreateGatewayTarget`,
+  `UpdateGatewayTarget`, `DeleteGatewayTarget`, `GetGatewayTarget`, plus
+  `TagResource`/`ListTagsForResource`.
+- `iam:PassRole` on the gateway execution role (`content-tracking-BlogGatewayRole-*`)
+  to `bedrock-agentcore.amazonaws.com` — CloudFormation passes it to the gateway.
+- `iam:CreateServiceLinkedRole` for
+  `runtime-identity.bedrock-agentcore.amazonaws.com` (AgentCore provisions a
+  service-linked role for workload identity on first use).
+
+Without these the stack fails creating `BlogGateway` with an `AccessDenied`
+(`bedrock-agentcore:CreateGateway`).
+
 Store the role ARN as the `AWS_DEPLOY_ROLE_ARN` secret on the matching
 GitHub Environment.
 

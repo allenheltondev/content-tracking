@@ -40,7 +40,8 @@ function ctx({ authSource = "cognito", sub = SUB, authorization = "Bearer id-tok
 beforeEach(() => {
   jest.clearAllMocks();
   createRuntimeSession.mockResolvedValue({ sessionId: "sess-1", title: "Ask your blog" });
-  delete process.env.BLOG_GATEWAY_URL;
+  delete process.env.BLOG_GROUNDING_ENABLED;
+  process.env.BLOG_GATEWAY_URL = "https://abc123.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp";
 });
 
 describe("POST /agent/sessions", () => {
@@ -50,7 +51,8 @@ describe("POST /agent/sessions", () => {
     expect(createRuntimeSession).not.toHaveBeenCalled();
   });
 
-  test("creates an ungrounded session (no mcpServers) when BLOG_GATEWAY_URL is unset", async () => {
+  test("creates an ungrounded session (no mcpServers) when grounding is disabled", async () => {
+    // BLOG_GROUNDING_ENABLED unset (default off) even though a gateway URL exists.
     const res = await routes["POST /agent/sessions"](ctx());
 
     expect(res.statusCode).toBe(201);
@@ -63,8 +65,8 @@ describe("POST /agent/sessions", () => {
     expect(arg.title).toBe("Ask your blog");
   });
 
-  test("points the session at the gateway (no client-minted auth) when grounding is configured", async () => {
-    process.env.BLOG_GATEWAY_URL = "https://abc123.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp";
+  test("points the session at the gateway (no client-minted auth) when grounding is enabled", async () => {
+    process.env.BLOG_GROUNDING_ENABLED = "true";
 
     await routes["POST /agent/sessions"](ctx());
 

@@ -46,17 +46,19 @@ Parameters:
       https://api.readysetcloud.io/core). Resolved at deploy time from the
       rsc-core-owned SSM parameter. POST /agent/sessions proxies agent-session
       creation here so the browser never calls rsc-core with a Booked secret.
-  BlogGatewayUrl:
+  EnableBlogGrounding:
     Type: String
-    Default: ""
+    AllowedValues: ["true", "false"]
+    Default: "false"
     Description: |
-      MCP endpoint of the blog-search AgentCore Gateway (the BlogGateway
-      resource's GatewayUrl output). While empty, the "Ask your blog" session is
-      created ungrounded (no mcpServers). Activation is staged so it can't break
-      session creation: deploy, read the BlogGatewayUrl stack output, add its
-      host to the runtime's MCP allowlist (readysetcloud/rsc-core#196) and ensure
-      the runtime can present the caller's Cognito token, then set this parameter
-      to that URL on a follow-up deploy.
+      Whether "Ask your blog" sessions reference the blog-search AgentCore
+      Gateway (its URL is wired automatically from the in-stack BlogGateway
+      resource — you never paste it in). Kept off by default so activation can't
+      break session creation: deploy first, then add the gateway host (the
+      BlogGatewayUrl output) to the runtime's MCP allowlist
+      (readysetcloud/rsc-core#196) and make sure the runtime can present the
+      caller's Cognito token (readysetcloud/rsc-core#199), THEN set this to
+      "true". With it "false" the session is created ungrounded.
   NewsletterMintApiKey:
     Type: String
     NoEcho: true
@@ -240,12 +242,10 @@ Globals:
         EXTENSION_TOKEN_SIGNING_KEY: !Ref ExtensionTokenSigningKey
         # "Ask your blog" agent (POST /agent/sessions). CORE_API_URL is the
         # shared rsc-core Core API (SSM /readysetcloud/api-url), which the mint
-        # endpoint proxies session creation to. BLOG_GATEWAY_URL is the
-        # blog-search AgentCore Gateway's MCP endpoint: while empty the session
-        # is created ungrounded (no mcpServers); setting it (post-allowlist) turns
-        # grounding on. See api/routes/agent.mjs.
+        # endpoint proxies session creation to. The blog-search gateway URL +
+        # grounding flag live on ApiFunction (not here) so only it depends on the
+        # in-stack BlogGateway resource. See api/routes/agent.mjs.
         CORE_API_URL: !Ref CoreApiUrl
-        BLOG_GATEWAY_URL: !Ref BlogGatewayUrl
         # Vendor-report static HTML lives in a private bucket fronted by a
         # CloudFront distribution that requires signed URLs. The API Lambda
         # writes the HTML to VENDOR_REPORTS_BUCKET, then signs a URL against
@@ -509,6 +509,15 @@ Resources:
       # calls are the heaviest paths.
       MemorySize: 1024
       Timeout: 30
+      Environment:
+        Variables:
+          # Blog grounding (POST /agent/sessions). The gateway URL is wired
+          # straight from the in-stack BlogGateway resource — no manual param.
+          # BLOG_GROUNDING_ENABLED gates whether a session actually references it
+          # (see EnableBlogGrounding). Scoped here (not Globals) so only this
+          # function depends on the gateway resource.
+          BLOG_GATEWAY_URL: !GetAtt BlogGateway.GatewayUrl
+          BLOG_GROUNDING_ENABLED: !Ref EnableBlogGrounding
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: 2012-10-17
