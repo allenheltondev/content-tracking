@@ -74,6 +74,36 @@ Built in `functions/blog-mcp/` on branch `feat/blog-search-mcp`:
 2 / rsc-core) add the `BlogMcpUrl` host to `MCP_ALLOWED_HOSTS`. A live end-to-end
 check against the shared runtime's MCP client is the remaining verification.
 
+#### Hosting decision: direct MCP server, not AgentCore Gateway (for now)
+
+We evaluated hosting `search_blog` through **AgentCore Gateway** and chose the
+direct MCP server instead, because Gateway can't deliver the *verified* user
+identity to the tool without extra infrastructure our single read-only tool
+doesn't justify yet:
+
+- **Lambda target** — the Gateway invokes it with the gateway's own IAM role;
+  `event` is only the tool args and `context` only Gateway/tool IDs. The
+  authenticated `sub` never reaches it. The only fix is a REQUEST **interceptor
+  Lambda** that injects the `sub` into the args — custom, and a second Lambda.
+- **MCP-server / OpenAPI target** — Gateway *can* carry identity here, but only
+  via **OBO token exchange**, which requires a real OAuth2 IdP with RFC-8693
+  token exchange (the runtime would forward a real OAuth token, not our HMAC
+  `authHeader`). That's the standard/managed path, but it's meaningful infra.
+- **Sessions** bind a session to the verified user (anti-hijack) but don't hand
+  the identity to a Lambda target either — they add security/statefulness, not
+  last-hop delivery.
+
+Because our server **is** the MCP endpoint, it terminates the MCP session and
+reads the forwarded identity token directly (`auth.mjs`) — sidestepping
+interceptor/OBO/IdP entirely. That's the right trade for one per-tenant tool
+called by an already-MCP-native runtime.
+
+**Upgrade path (no rewrite):** this Function URL server is itself a valid Gateway
+**MCP-server target**. When Booked exposes multiple tools or wants the managed
+front door, put a Gateway in front (sessions + OBO) and register *this same
+server* as an MCP-server target — the tool logic (`server.mjs`) is unchanged; you
+add the OAuth IdP/OBO when you're ready to run it.
+
 ### Phase 2 — grounded session creation (Booked backend)
 - Booked's backend (the **authority**) creates the rsc-core session with
   `mcpServers.search_blog = { url, authHeader: mint(sub, sessionId) }`, minting the
