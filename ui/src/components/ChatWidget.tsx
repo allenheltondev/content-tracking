@@ -107,10 +107,14 @@ export default function ChatWidget(): ReactElement | null {
   }
 
   return (
+    // Mobile: fill the screen (inset-0 gives a definite height, which the Chat's
+    // flex-1 overflow-y-auto transcript needs to scroll — a max-h-only card
+    // leaves the height indefinite and the message list never scrolls on touch).
+    // sm+ restores the floating card, still with a definite height.
     <div
       role="dialog"
       aria-label="Ask your blog"
-      className="fixed bottom-4 right-4 z-40 flex w-[min(22rem,calc(100vw-2rem))] max-h-[min(70vh,34rem)] flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl"
+      className="fixed inset-0 z-50 flex w-full flex-col overflow-hidden bg-surface sm:inset-auto sm:bottom-4 sm:right-4 sm:z-40 sm:h-[min(70vh,34rem)] sm:w-[min(22rem,calc(100vw-2rem))] sm:rounded-xl sm:border sm:border-border sm:shadow-xl"
     >
       <div className="flex items-center justify-end gap-1 border-b border-border px-2 py-1.5">
         <button
@@ -131,7 +135,7 @@ export default function ChatWidget(): ReactElement | null {
         </button>
       </div>
 
-      <div className="flex-1 overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-hidden">
         {error ? (
           <div className="space-y-2 p-4 text-sm">
             <p className="form-error">Could not start the assistant: {error}</p>
