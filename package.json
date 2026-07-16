@@ -28,10 +28,12 @@
     "@aws-sdk/s3-request-presigner": "^3.1085.0",
     "@aws-sdk/util-dynamodb": "^3.996.2",
     "@aws/durable-execution-sdk-js": "^2.1.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "aws-jwt-verify": "^5.2.1",
     "remark": "^15.0.1",
     "ulid": "^3.0.2",
-    "unist-util-visit": "^5.1.0"
+    "unist-util-visit": "^5.1.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@babel/core": "^8.0.1",
