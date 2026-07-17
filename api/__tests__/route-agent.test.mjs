@@ -50,7 +50,7 @@ describe("POST /agent/sessions", () => {
     expect(requestSession).not.toHaveBeenCalled();
   });
 
-  test("requests a grounded session pointed at the gateway, forwarding the caller's token", async () => {
+  test("requests a grounded session pointed at the gateway via forwardConnectionToken", async () => {
     const res = await routes["POST /agent/sessions"](ctx());
 
     expect(res.statusCode).toBe(201);
@@ -62,8 +62,10 @@ describe("POST /agent/sessions", () => {
     expect(arg.title).toBe("Ask your blog");
     expect(arg.mcpServers.blog.url).toBe("https://abc123.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp");
     expect(arg.mcpServers.blog.transport).toBe("streamable-http");
-    // The caller's Cognito token rides as the gateway Authorization header so the
-    // gateway can validate it and the interceptor can read the sub.
-    expect(arg.mcpServers.blog.authHeader).toEqual({ name: "Authorization", value: "Bearer id-token" });
+    // The runtime attaches the connecting user's LIVE token per connection
+    // (rsc-core#199) — no token is baked into the session config, so grounding
+    // doesn't go stale at ~1h.
+    expect(arg.mcpServers.blog.forwardConnectionToken).toBe(true);
+    expect(arg.mcpServers.blog.authHeader).toBeUndefined();
   });
 });
