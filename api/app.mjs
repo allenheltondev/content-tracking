@@ -20,6 +20,7 @@ import { registerExtensionPairingRoutes } from "./routes/extension-pairings.mjs"
 import { registerApiKeyRoutes } from "./routes/api-keys.mjs";
 import { registerBlogRoutes } from "./routes/blogs.mjs";
 import { registerContentRoutes } from "./routes/content.mjs";
+import { registerContentReviewRoutes } from "./routes/content-review.mjs";
 import { registerVoiceRoutes } from "./routes/voice.mjs";
 import { registerFeedRoutes } from "./routes/feeds.mjs";
 import { registerAgentRoutes } from "./routes/agent.mjs";
@@ -50,6 +51,7 @@ registerExtensionPairingRoutes(app);
 registerApiKeyRoutes(app);
 registerBlogRoutes(app);
 registerContentRoutes(app);
+registerContentReviewRoutes(app);
 registerVoiceRoutes(app);
 registerFeedRoutes(app);
 registerAgentRoutes(app);
