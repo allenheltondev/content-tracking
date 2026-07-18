@@ -137,7 +137,9 @@ describe("domain/content-review", () => {
         return Promise.resolve({});
       });
 
-      const edited = BODY.replace("lazy", "energetic"); // "brown" context intact, "lazy" gone
+      // Insert text before the spans so a kept suggestion's offsets must move,
+      // and remove "lazy" so that suggestion is skipped.
+      const edited = `PREFIX. ${BODY}`.replace("lazy", "energetic");
       const res = await revalidateSuggestions(TENANT, CONTENT_ID, edited, { contentVersion: "v2" });
 
       expect(res).toEqual({ kept: 1, skipped: 1 });
@@ -145,7 +147,10 @@ describe("domain/content-review", () => {
       const updates = mockSend.mock.calls.filter((c) => c[0].input.UpdateExpression);
       const keepUpdate = updates.find((c) => c[0].input.Key.sk.endsWith("#keep"));
       const goneUpdate = updates.find((c) => c[0].input.Key.sk.endsWith("#gone"));
+      // kept: version re-stamped AND offsets re-located to the new position
       expect(keepUpdate[0].input.ExpressionAttributeValues[":v"]).toBe("v2");
+      expect(keepUpdate[0].input.ExpressionAttributeValues[":start"]).toBe(edited.indexOf("brown"));
+      expect(keepUpdate[0].input.ExpressionAttributeValues[":end"]).toBe(edited.indexOf("brown") + "brown".length);
       expect(goneUpdate[0].input.ExpressionAttributeValues[":skipped"]).toBe("skipped");
       expect(goneUpdate[0].input.ConditionExpression).toContain("#status = :pending");
     });

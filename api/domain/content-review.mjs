@@ -10,7 +10,7 @@ import { ulid } from "ulid";
 import { TABLE_NAME, ddb } from "../services/ddb.mjs";
 import { NotFoundError } from "../services/errors.mjs";
 import { tenantPartition } from "./blog.mjs";
-import { anchorSuggestion, isSuggestionAnchored } from "../services/suggestion-offsets.mjs";
+import { anchorSuggestion, isSuggestionAnchored, reanchorSuggestion } from "../services/suggestion-offsets.mjs";
 
 // Persistence for the content review feature: a Review run and the anchored
 // Suggestions it produced. Both hang off a piece of Content as child rows so
@@ -241,12 +241,36 @@ export async function revalidateSuggestions(tenantId, contentId, newBody, { cont
     const stillValid = isSuggestionAnchored(newBody, s);
     try {
       if (stillValid) {
+        // Re-locate the anchor in the new body and persist the fresh offsets +
+        // context. An edit *before* an otherwise-intact span shifts its
+        // position, so keeping only contentVersion would leave startOffset/
+        // endOffset pointing at stale positions and a later
+        // GET /suggestions would highlight the wrong span. Fall back to the
+        // stored anchor if re-location somehow fails.
+        const a = reanchorSuggestion(newBody, s) ?? {};
         await ddb.send(new UpdateCommand({
           TableName: TABLE_NAME,
           Key: suggestionKey(tenantId, contentId, s.suggestionId),
-          UpdateExpression: "SET #contentVersion = :v",
-          ExpressionAttributeNames: { "#contentVersion": "contentVersion" },
-          ExpressionAttributeValues: { ":v": contentVersion ?? s.contentVersion ?? null },
+          UpdateExpression:
+            "SET #contentVersion = :v, #startOffset = :start, #endOffset = :end, #anchorText = :anchor, #contextBefore = :cb, #contextAfter = :ca, #contextHash = :ch",
+          ExpressionAttributeNames: {
+            "#contentVersion": "contentVersion",
+            "#startOffset": "startOffset",
+            "#endOffset": "endOffset",
+            "#anchorText": "anchorText",
+            "#contextBefore": "contextBefore",
+            "#contextAfter": "contextAfter",
+            "#contextHash": "contextHash",
+          },
+          ExpressionAttributeValues: {
+            ":v": contentVersion ?? s.contentVersion ?? null,
+            ":start": a.startOffset ?? s.startOffset,
+            ":end": a.endOffset ?? s.endOffset,
+            ":anchor": a.anchorText ?? s.anchorText,
+            ":cb": a.contextBefore ?? s.contextBefore,
+            ":ca": a.contextAfter ?? s.contextAfter,
+            ":ch": a.contextHash ?? s.contextHash,
+          },
           ConditionExpression: "attribute_exists(sk)",
         }));
         kept += 1;

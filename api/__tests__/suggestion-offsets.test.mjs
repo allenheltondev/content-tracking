@@ -3,6 +3,7 @@ import {
   contextHash,
   findActualOffsets,
   isSuggestionAnchored,
+  reanchorSuggestion,
 } from "../services/suggestion-offsets.mjs";
 
 const BODY = "The quick brown fox jumps over the lazy dog. The fox runs fast.";
@@ -36,6 +37,13 @@ describe("findActualOffsets", () => {
       textToReplace: "fox",
     });
     expect(res.startOffset).toBe(second);
+  });
+
+  test("clamps an overshooting endOffset hint to the matched length", () => {
+    // slice() clamps a too-large endOffset, so the framed text still matches;
+    // the returned endOffset must be the real end, not the out-of-range hint.
+    expect(findActualOffsets("abc", { startOffset: 1, endOffset: 999, textToReplace: "bc" }))
+      .toEqual({ startOffset: 1, endOffset: 3 });
   });
 
   test("returns null when the text is not in the body", () => {
@@ -74,6 +82,36 @@ describe("anchorSuggestion", () => {
     const a = anchorSuggestion(BODY, { startOffset: -1, endOffset: -1, textToReplace: "quick" });
     const b = anchorSuggestion(BODY, { startOffset: -1, endOffset: -1, textToReplace: "quick" });
     expect(a.contextHash).toBe(b.contextHash);
+  });
+});
+
+describe("reanchorSuggestion", () => {
+  const stored = anchorSuggestion(BODY, { startOffset: -1, endOffset: -1, textToReplace: "brown" });
+
+  test("recomputes offsets after an edit shifts the span", () => {
+    const edited = `PREFIX INSERTED. ${BODY}`; // pushes every offset right
+    const a = reanchorSuggestion(edited, stored);
+    expect(a.startOffset).toBe(edited.indexOf("brown"));
+    expect(a.endOffset).toBe(edited.indexOf("brown") + "brown".length);
+    expect(a.anchorText).toBe("brown");
+    // the fresh hash reflects the (unchanged) surrounding context
+    expect(a.contextHash).toBe(contextHash(a.contextBefore, a.anchorText, a.contextAfter));
+  });
+
+  test("pins the correct occurrence via context when the anchor repeats", () => {
+    const s = anchorSuggestion(BODY, {
+      startOffset: BODY.indexOf("fox", 20),
+      endOffset: BODY.indexOf("fox", 20) + 3,
+      textToReplace: "fox",
+    });
+    const edited = `INTRO. ${BODY}`;
+    const a = reanchorSuggestion(edited, s);
+    // second "fox", not the first, located by its distinct surrounding context
+    expect(a.startOffset).toBe(edited.indexOf("fox", edited.indexOf("fox") + 1));
+  });
+
+  test("returns null when the anchor text is gone", () => {
+    expect(reanchorSuggestion("nothing relevant here", stored)).toBeNull();
   });
 });
 

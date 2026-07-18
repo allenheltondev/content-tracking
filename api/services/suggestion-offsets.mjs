@@ -55,13 +55,16 @@ export function findActualOffsets(body, { startOffset, endOffset, textToReplace 
 
   const hinted = Number.isInteger(startOffset) ? startOffset : -1;
 
-  // 1. Exact framing.
+  // 1. Exact framing. Derive endOffset from the matched length rather than
+  // echoing the hint: String.slice clamps a too-large endOffset, so an
+  // overshooting hint (e.g. endOffset past the body end) would otherwise pass
+  // this check and be persisted out of range.
   if (
     hinted >= 0 &&
     Number.isInteger(endOffset) &&
     body.slice(hinted, endOffset) === textToReplace
   ) {
-    return { startOffset: hinted, endOffset };
+    return { startOffset: hinted, endOffset: hinted + textToReplace.length };
   }
 
   // Collect every occurrence so we can pick the one nearest the model's hint.
@@ -114,6 +117,34 @@ export function anchorSuggestion(body, suggestion) {
     contextAfter,
     contextHash: contextHash(contextBefore, anchorText, contextAfter),
   };
+}
+
+// Re-locates an already-anchored suggestion in a (possibly edited) body and
+// returns a fresh anchor — new offsets, context window, and hash — so a kept
+// suggestion's persisted offsets track the current text instead of pointing at
+// where the span used to be. Locates by the full stored context first
+// (`contextBefore + anchorText + contextAfter`), which pins the exact
+// occurrence even when the anchor text repeats; falls back to the anchor text
+// alone (nearest the old position) when the surrounding text also shifted.
+// Returns null only when the anchor text is no longer present at all.
+export function reanchorSuggestion(newBody, stored) {
+  const { anchorText, contextBefore = "", contextAfter = "" } = stored ?? {};
+  if (typeof newBody !== "string" || typeof anchorText !== "string" || anchorText.length === 0) {
+    return null;
+  }
+
+  let startHint = Number.isInteger(stored.startOffset) ? stored.startOffset : -1;
+  const combined = `${contextBefore}${anchorText}${contextAfter}`;
+  const combinedIdx = newBody.indexOf(combined);
+  if (combinedIdx !== -1) {
+    startHint = combinedIdx + contextBefore.length;
+  }
+
+  return anchorSuggestion(newBody, {
+    startOffset: startHint,
+    endOffset: startHint >= 0 ? startHint + anchorText.length : -1,
+    textToReplace: anchorText,
+  });
 }
 
 // Decides whether an already-anchored suggestion still applies to a (possibly
