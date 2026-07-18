@@ -875,6 +875,78 @@ Resources:
               Resource:
                 - !GetAtt VectorizeContentDLQ.Arn
 
+  # Poison-record sink for the suggestion-revalidation stream consumer.
+  RevalidateSuggestionsDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "content-tracking-revalidate-suggestions-dlq-${Environment}"
+      MessageRetentionPeriod: 1209600 # 14 days
+
+  # Consumes the DynamoDB stream (filtered to Content root edits) and keeps a
+  # draft's open review suggestions in sync with the text: still-valid ones are
+  # re-anchored to the new body, ones the edit removed are marked `skipped`. The
+  # handler compares the old and new body first, so a MODIFY that didn't change
+  # the text (publish link mirroring, a title edit) is a no-op.
+  RevalidateSuggestionsFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - index.mjs
+    Properties:
+      CodeUri: functions/revalidate-suggestions
+      Handler: index.handler
+      MemorySize: 256
+      Timeout: 60
+      # TABLE_NAME is inherited from Globals (shared with the API Lambda).
+      Events:
+        ContentEditStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt ContentTrackingTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 5
+            MaximumRetryAttempts: 3
+            BisectBatchOnFunctionError: true
+            # Only content ROOT edits reach the function. INSERT can't have
+            # suggestions yet and REMOVE is handled by deleteContent's cascade,
+            # so we filter to MODIFY on the Content entity.
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"eventName":["MODIFY"],"dynamodb":{"NewImage":{"entity":{"S":["Content"]}}}}'
+            DestinationConfig:
+              OnFailure:
+                Destination: !GetAtt RevalidateSuggestionsDLQ.Arn
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            # Read the stream.
+            - Effect: Allow
+              Action:
+                - dynamodb:DescribeStream
+                - dynamodb:GetRecords
+                - dynamodb:GetShardIterator
+                - dynamodb:ListStreams
+              Resource:
+                - !GetAtt ContentTrackingTable.StreamArn
+                - !Sub "${ContentTrackingTable.StreamArn}/*"
+            # Query pending suggestions and re-stamp / skip them.
+            - Effect: Allow
+              Action:
+                - dynamodb:Query
+                - dynamodb:UpdateItem
+              Resource:
+                - !GetAtt ContentTrackingTable.Arn
+            # Deliver poison records to the DLQ.
+            - Effect: Allow
+              Action:
+                - sqs:SendMessage
+              Resource:
+                - !GetAtt RevalidateSuggestionsDLQ.Arn
+
   # Poison-record sink for the voice-memory stream consumer.
   VoiceMemoryDLQ:
     Type: AWS::SQS::Queue

@@ -144,16 +144,27 @@ storage is camelCase.
 `recordSuggestions` and `completeReview` are the seams the engine (Phase 3)
 calls; they're implemented and tested now, ahead of the engine.
 
-### Phase 2 — Cross-edit revalidation wiring
+### Phase 2 — Cross-edit revalidation wiring ✅ (landed)
 
-`revalidateSuggestions` exists and is tested; wire it to fire when the body
-changes. Preferred: a DynamoDB-stream consumer on `Content` roots (mirroring
-`VoiceMemoryFunction`/`VectorizeContentFunction`), diffing `contentMarkdown` and
-revalidating pending suggestions — keeps the write path fast and matches Booked's
-stream-driven conventions. Alternative: call it inline in the content update
-route. Also: mark suggestions `accepted`-adjacent bookkeeping if we later want
-the server to apply edits (today the client owns edit application + offset
-recalculation).
+`revalidateSuggestions` is now wired to a DynamoDB-stream consumer, mirroring
+`VectorizeContentFunction`/`VoiceMemoryFunction`:
+
+- `functions/revalidate-suggestions/index.mjs` — a third event-source mapping on
+  the shared table stream, filtered to Content root **MODIFY** (INSERT can't have
+  suggestions yet; REMOVE is handled by the delete cascade). The handler compares
+  the old vs new `contentMarkdown` and no-ops when the body is unchanged (a
+  title/link/id edit), so only real body edits trigger revalidation. Still-valid
+  suggestions are re-anchored to the new body; ones the edit removed are marked
+  `skipped`. It writes only `ContentSuggestion` rows, which the filter never
+  matches, so it can't re-trigger itself.
+- `template.yaml` — `RevalidateSuggestionsFunction` + `RevalidateSuggestionsDLQ`,
+  scoped to stream read + `Query`/`UpdateItem` on the table + DLQ send.
+- Tests: `functions/revalidate-suggestions/index.test.mjs` (6 tests — body-change
+  triggers, unchanged/​non-MODIFY/​non-Content no-ops, cleared-body, batch).
+
+Edit application itself stays client-side (the editor owns the live text + offset
+recalculation); the server records the decision and keeps the *other* pending
+suggestions correctly anchored.
 
 ### Phase 3 — The review engine (rsc-core-native)
 
