@@ -16,11 +16,12 @@ import { jsonResponse } from "../services/http-handler.mjs";
 //
 // Flow:
 //   1. Authorize (cognito-only) -> the verified sub (the session owner).
-//   2. Point the session at Booked's blog-search AgentCore Gateway (when
-//      grounding is enabled). The caller's Cognito id token rides as the
-//      gateway's Authorization header (rsc-core#197 folds `authHeader` into the
-//      outbound headers); the gateway validates it and its interceptor forwards
-//      the sub to the tool.
+//   2. Point the session at Booked's blog-search AgentCore Gateway via
+//      `forwardConnectionToken`, so the rsc-core runtime attaches the connecting
+//      user's LIVE Cognito token as the gateway's Authorization header on each
+//      connection (rsc-core#199) — the gateway validates it and its interceptor
+//      forwards the sub to the tool. No token is baked into the session config,
+//      so grounding doesn't go stale at ~1h.
 //   3. Emit the event; return the sessionId.
 //
 // The browser calls the Core API's /agent/connect directly to presign the wss://
@@ -45,7 +46,7 @@ export function registerAgentRoutes(app) {
       userId: sub,
       systemPrompt: BLOG_ASSISTANT_PROMPT,
       title: "Ask your blog",
-      mcpServers: buildBlogMcpServers(getAuthorization(event)),
+      mcpServers: buildBlogMcpServers(),
     });
 
     return jsonResponse(201, { sessionId });
@@ -55,31 +56,23 @@ export function registerAgentRoutes(app) {
 // Points the session at the blog-search AgentCore Gateway. The gateway URL is
 // wired from the in-stack resource (always set), so every session is grounded.
 //
-// Auth: we forward the caller's Cognito id token as the gateway's Authorization
-// header (the runtime folds `authHeader` into the outbound headers, rsc-core
-// #197; the gateway's CUSTOM_JWT authorizer validates it and its interceptor
-// reads the sub). NOTE: this token is stored in the session config and lives
-// only ~1h, so a session grounds for about an hour after creation — acceptable
-// for now; the durable fix is per-connection token vending in the runtime
-// (readysetcloud/rsc-core#199). Returns undefined only if the URL/token are
-// somehow absent, degrading to an ungrounded session rather than erroring.
-function buildBlogMcpServers(authorization) {
+// Auth: `forwardConnectionToken` tells the rsc-core runtime to attach the
+// CONNECTING USER's live Cognito token as the gateway's Authorization header on
+// each connection (rsc-core#199) — the gateway's CUSTOM_JWT authorizer validates
+// it and its interceptor reads the sub. We no longer bake a token into the
+// session config (which expired at ~1h); the runtime supplies a fresh one per
+// connection, so grounding re-establishes automatically on reconnect. The
+// runtime forwards it only to hosts on its MCP allowlist, so BLOG_GATEWAY_URL's
+// host must be in rsc-core's MCP_ALLOWED_HOSTS (#196). Returns undefined only if
+// the URL is absent, degrading to an ungrounded session rather than erroring.
+function buildBlogMcpServers() {
   const url = process.env.BLOG_GATEWAY_URL;
-  if (!url || !authorization) return undefined;
+  if (!url) return undefined;
   return {
     blog: {
       transport: "streamable-http",
       url,
-      authHeader: { name: "Authorization", value: authorization },
+      forwardConnectionToken: true,
     },
   };
-}
-
-// The caller's Authorization header, forwarded verbatim to the Core API (whose
-// JWT authorizer re-verifies it). REST proxy header casing varies, so match
-// case-insensitively.
-function getAuthorization(event) {
-  const headers = event?.headers ?? {};
-  const key = Object.keys(headers).find((h) => h.toLowerCase() === "authorization");
-  return key ? headers[key] : undefined;
 }
