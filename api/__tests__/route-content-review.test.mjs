@@ -3,6 +3,7 @@ import { jest } from "@jest/globals";
 process.env.TABLE_NAME = "test-booked";
 
 jest.unstable_mockModule("../domain/content.mjs", () => ({ getContent: jest.fn() }));
+jest.unstable_mockModule("../services/review-events.mjs", () => ({ emitStartReview: jest.fn() }));
 jest.unstable_mockModule("../domain/content-review.mjs", () => ({
   createReview: jest.fn(),
   getReview: jest.fn(),
@@ -12,6 +13,7 @@ jest.unstable_mockModule("../domain/content-review.mjs", () => ({
 }));
 
 const { getContent } = await import("../domain/content.mjs");
+const { emitStartReview } = await import("../services/review-events.mjs");
 const {
   createReview,
   getReview,
@@ -50,14 +52,22 @@ function ctx({ body, params, authSource = "cognito" } = {}) {
 beforeEach(() => jest.clearAllMocks());
 
 describe("POST /content/:contentId/reviews", () => {
-  test("opens a pending review stamped with the content version", async () => {
+  test("opens a pending review stamped with the content version and dispatches the engine", async () => {
     getContent.mockResolvedValue({ contentMarkdown: "Hello world.", updatedAt: "2026-07-18T00:00:00Z" });
     createReview.mockResolvedValue({ reviewId: "rev-1", status: "pending", createdAt: "t", updatedAt: "t" });
+    emitStartReview.mockResolvedValue();
 
-    const res = await routes["POST /content/:contentId/reviews"](ctx({}));
+    const res = await routes["POST /content/:contentId/reviews"](ctx({ body: { platform: "blog" } }));
 
     expect(res.statusCode).toBe(202);
     expect(createReview).toHaveBeenCalledWith(SUB, CONTENT_ID, { contentVersion: "2026-07-18T00:00:00Z" });
+    expect(emitStartReview).toHaveBeenCalledWith({
+      tenantId: SUB,
+      contentId: CONTENT_ID,
+      reviewId: "rev-1",
+      contentVersion: "2026-07-18T00:00:00Z",
+      platform: "blog",
+    });
     expect(JSON.parse(res.body).id).toBe("rev-1");
   });
 
