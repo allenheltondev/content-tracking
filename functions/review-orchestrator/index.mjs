@@ -1,6 +1,6 @@
 import { logger } from "../../api/services/logger.mjs";
 import { getContent } from "../../api/domain/content.mjs";
-import { recordSuggestions, completeReview } from "../../api/domain/content-review.mjs";
+import { claimReview, recordSuggestions, completeReview } from "../../api/domain/content-review.mjs";
 import { getVoiceProfile } from "../../api/domain/voice.mjs";
 import { embedText } from "../../api/services/embeddings.mjs";
 import { queryVoiceSamples } from "../../api/services/voice-vectors.mjs";
@@ -35,6 +35,16 @@ export const handler = async (event) => {
   logger.appendKeys({ tenantId, contentId, reviewId });
 
   try {
+    // Idempotency gate: the kickoff event is delivered at-least-once, so claim
+    // the review (pending -> running) before doing any work. A duplicate /
+    // replayed delivery loses the claim and no-ops, so suggestions are recorded
+    // exactly once per review.
+    const claimed = await claimReview(tenantId, contentId, reviewId);
+    if (!claimed) {
+      logger.info("Review already claimed or completed; skipping duplicate delivery");
+      return;
+    }
+
     const content = await getContent(tenantId, contentId);
     const body = content.contentMarkdown ?? "";
 

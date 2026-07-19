@@ -5,6 +5,7 @@ import { getContent } from "../domain/content.mjs";
 import { emitStartReview } from "../services/review-events.mjs";
 import {
   createReview,
+  completeReview,
   getReview,
   getLatestReview,
   listSuggestions,
@@ -55,13 +56,26 @@ export function registerContentReviewRoutes(app) {
     // rsc-core @readysetcloud/agent runtime, records anchored suggestions, and
     // closes the run with completeReview. The client watches via
     // GET .../reviews/{reviewId} (or the live stream).
-    await emitStartReview({
-      tenantId,
-      contentId: params.contentId,
-      reviewId: review.reviewId,
-      contentVersion: content.updatedAt,
-      platform,
-    });
+    //
+    // If the event can't be published, the just-created review would otherwise
+    // be orphaned as `pending` forever (and surface as the latest review on
+    // GET .../suggestions until TTL). Mark it failed before surfacing the error
+    // so no orphan lingers.
+    try {
+      await emitStartReview({
+        tenantId,
+        contentId: params.contentId,
+        reviewId: review.reviewId,
+        contentVersion: content.updatedAt,
+        platform,
+      });
+    } catch (err) {
+      await completeReview(tenantId, params.contentId, review.reviewId, {
+        status: "failed",
+        summary: "The review could not be started.",
+      }).catch(() => {});
+      throw err;
+    }
 
     return jsonResponse(202, formatReview(review));
   });

@@ -6,6 +6,7 @@ jest.unstable_mockModule("../domain/content.mjs", () => ({ getContent: jest.fn()
 jest.unstable_mockModule("../services/review-events.mjs", () => ({ emitStartReview: jest.fn() }));
 jest.unstable_mockModule("../domain/content-review.mjs", () => ({
   createReview: jest.fn(),
+  completeReview: jest.fn(),
   getReview: jest.fn(),
   getLatestReview: jest.fn(),
   listSuggestions: jest.fn(),
@@ -14,6 +15,7 @@ jest.unstable_mockModule("../domain/content-review.mjs", () => ({
 
 const { getContent } = await import("../domain/content.mjs");
 const { emitStartReview } = await import("../services/review-events.mjs");
+const { completeReview } = await import("../domain/content-review.mjs");
 const {
   createReview,
   getReview,
@@ -69,6 +71,16 @@ describe("POST /content/:contentId/reviews", () => {
       platform: "blog",
     });
     expect(JSON.parse(res.body).id).toBe("rev-1");
+  });
+
+  test("marks the review failed and rethrows if the kickoff event can't be published", async () => {
+    getContent.mockResolvedValue({ contentMarkdown: "Hello world.", updatedAt: "t" });
+    createReview.mockResolvedValue({ reviewId: "rev-1", status: "pending", createdAt: "t", updatedAt: "t" });
+    emitStartReview.mockRejectedValue(new Error("throttled"));
+    completeReview.mockResolvedValue({});
+
+    await expect(routes["POST /content/:contentId/reviews"](ctx({}))).rejects.toThrow("throttled");
+    expect(completeReview).toHaveBeenCalledWith(SUB, CONTENT_ID, "rev-1", expect.objectContaining({ status: "failed" }));
   });
 
   test("rejects an empty-bodied content piece with 400", async () => {

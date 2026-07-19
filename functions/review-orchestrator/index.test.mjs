@@ -5,6 +5,7 @@ import { jest } from "@jest/globals";
 // vectors, or DynamoDB.
 jest.unstable_mockModule("../../api/domain/content.mjs", () => ({ getContent: jest.fn() }));
 jest.unstable_mockModule("../../api/domain/content-review.mjs", () => ({
+  claimReview: jest.fn(),
   recordSuggestions: jest.fn(),
   completeReview: jest.fn(),
 }));
@@ -29,7 +30,7 @@ jest.unstable_mockModule("../../api/services/review-lenses.mjs", () => ({
 }));
 
 const { getContent } = await import("../../api/domain/content.mjs");
-const { recordSuggestions, completeReview } = await import("../../api/domain/content-review.mjs");
+const { claimReview, recordSuggestions, completeReview } = await import("../../api/domain/content-review.mjs");
 const { getVoiceProfile } = await import("../../api/domain/voice.mjs");
 const { embedText } = await import("../../api/services/embeddings.mjs");
 const { queryVoiceSamples } = await import("../../api/services/voice-vectors.mjs");
@@ -41,6 +42,7 @@ const event = (detail = DETAIL) => ({ detail });
 
 beforeEach(() => {
   jest.clearAllMocks();
+  claimReview.mockResolvedValue(true);
   getContent.mockResolvedValue({ contentMarkdown: "the draft body", updatedAt: "v1" });
   embedText.mockResolvedValue([0.1]);
   queryVoiceSamples.mockResolvedValue([{ text: "past post" }]);
@@ -73,6 +75,17 @@ test("runs all lenses, records the combined suggestions, and completes the revie
   expect(complete[3]).toMatchObject({ status: "succeeded", summary: "Good, small fixes." });
   expect(complete[3].lenses.verdict).toBe("minor_revisions");
   expect(complete[3].lenses.recorded).toBe(3);
+});
+
+test("no-ops on a duplicate delivery it can't claim", async () => {
+  claimReview.mockResolvedValue(false);
+
+  await handler(event());
+
+  expect(claimReview).toHaveBeenCalledWith("T1", "C1", "R1");
+  expect(getContent).not.toHaveBeenCalled();
+  expect(recordSuggestions).not.toHaveBeenCalled();
+  expect(completeReview).not.toHaveBeenCalled();
 });
 
 test("skips the brand lens when the tenant has no voice yet", async () => {
