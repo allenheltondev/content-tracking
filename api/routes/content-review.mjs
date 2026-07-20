@@ -2,8 +2,10 @@ import { requireTenantId } from "../services/identity.mjs";
 import { jsonResponse } from "../services/http-handler.mjs";
 import { BadRequestError } from "../services/errors.mjs";
 import { getContent } from "../domain/content.mjs";
+import { emitStartReview } from "../services/review-events.mjs";
 import {
   createReview,
+  completeReview,
   getReview,
   getLatestReview,
   listSuggestions,
@@ -38,7 +40,7 @@ export function registerContentReviewRoutes(app) {
   // of whatever the draft says now.
   app.post("/content/:contentId/reviews", async ({ event, params }) => {
     const tenantId = requireTenantId(event);
-    validateStartReview(parseBody(event, { optional: true }));
+    const { platform } = validateStartReview(parseBody(event, { optional: true }));
 
     const content = await getContent(tenantId, params.contentId);
     if (!content.contentMarkdown || content.contentMarkdown.trim().length === 0) {
@@ -49,11 +51,31 @@ export function registerContentReviewRoutes(app) {
       contentVersion: content.updatedAt,
     });
 
-    // PHASE 3 (rsc-core-native engine) seam: dispatch the multi-lens review
-    // here — one @readysetcloud/agent run per lens over content.contentMarkdown,
-    // recording anchored suggestions via recordSuggestions and closing the run
-    // with completeReview. Until then a review stays `pending` until the engine
-    // is connected. See docs/content-review.md.
+    // Dispatch the multi-lens review asynchronously: the
+    // ReviewOrchestratorFunction consumes this event, runs the lenses on the
+    // rsc-core @readysetcloud/agent runtime, records anchored suggestions, and
+    // closes the run with completeReview. The client watches via
+    // GET .../reviews/{reviewId} (or the live stream).
+    //
+    // If the event can't be published, the just-created review would otherwise
+    // be orphaned as `pending` forever (and surface as the latest review on
+    // GET .../suggestions until TTL). Mark it failed before surfacing the error
+    // so no orphan lingers.
+    try {
+      await emitStartReview({
+        tenantId,
+        contentId: params.contentId,
+        reviewId: review.reviewId,
+        contentVersion: content.updatedAt,
+        platform,
+      });
+    } catch (err) {
+      await completeReview(tenantId, params.contentId, review.reviewId, {
+        status: "failed",
+        summary: "The review could not be started.",
+      }).catch(() => {});
+      throw err;
+    }
 
     return jsonResponse(202, formatReview(review));
   });

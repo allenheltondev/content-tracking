@@ -30,7 +30,7 @@ import { anchorSuggestion, isSuggestionAnchored, reanchorSuggestion } from "../s
 // the cascade delete is the primary cleanup, this is just a backstop.
 const ROW_TTL_DAYS = 30;
 
-export const REVIEW_STATUSES = ["pending", "succeeded", "failed"];
+export const REVIEW_STATUSES = ["pending", "running", "succeeded", "failed"];
 export const SUGGESTION_STATUSES = ["pending", "accepted", "rejected", "dismissed", "skipped"];
 
 function ttlEpoch(days = ROW_TTL_DAYS) {
@@ -84,6 +84,37 @@ export async function getReview(tenantId, contentId, reviewId) {
     throw new NotFoundError("Review", reviewId);
   }
   return result.Item;
+}
+
+// Atomically claims a pending review for processing (pending -> running),
+// returning true on success and false when it was already claimed or is no
+// longer pending. This is the idempotency gate for the orchestrator: the
+// "Start Content Review" event is delivered at-least-once (EventBridge/Lambda
+// can redeliver or replay), and without a claim a duplicate run would record a
+// second set of suggestions (recordSuggestions only dedupes within one batch).
+// The first delivery wins the claim and runs; every later one gets false and
+// no-ops.
+export async function claimReview(tenantId, contentId, reviewId) {
+  try {
+    await ddb.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: reviewKey(tenantId, contentId, reviewId),
+      UpdateExpression: "SET #status = :running, #updatedAt = :now",
+      ExpressionAttributeNames: { "#status": "status", "#updatedAt": "updatedAt" },
+      ExpressionAttributeValues: {
+        ":running": "running",
+        ":now": new Date().toISOString(),
+        ":pending": "pending",
+      },
+      ConditionExpression: "attribute_exists(sk) AND #status = :pending",
+    }));
+    return true;
+  } catch (err) {
+    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
+      return false;
+    }
+    throw err;
+  }
 }
 
 // Marks a review terminal (succeeded/failed) and attaches the summarizer output.

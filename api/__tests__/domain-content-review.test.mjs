@@ -9,6 +9,7 @@ const {
   updateSuggestionStatus,
   revalidateSuggestions,
   createReview,
+  claimReview,
 } = await import("../domain/content-review.mjs");
 
 const TENANT = "user-1";
@@ -35,6 +36,22 @@ describe("domain/content-review", () => {
       expect(review.sk).toBe(`CONTENT#${CONTENT_ID}#REVIEW#${review.reviewId}`);
       const put = mockSend.mock.calls[0][0].input;
       expect(put.ConditionExpression).toBe("attribute_not_exists(sk)");
+    });
+  });
+
+  describe("claimReview", () => {
+    test("claims a pending review (pending -> running) and returns true", async () => {
+      mockSend.mockResolvedValue({});
+      const ok = await claimReview(TENANT, CONTENT_ID, "R1");
+      expect(ok).toBe(true);
+      const input = mockSend.mock.calls[0][0].input;
+      expect(input.ExpressionAttributeValues[":running"]).toBe("running");
+      expect(input.ConditionExpression).toContain("#status = :pending");
+    });
+
+    test("returns false when the review is already claimed/completed", async () => {
+      mockSend.mockRejectedValue(Object.assign(new Error("x"), { name: "ConditionalCheckFailedException" }));
+      expect(await claimReview(TENANT, CONTENT_ID, "R1")).toBe(false);
     });
   });
 

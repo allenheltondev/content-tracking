@@ -144,47 +144,77 @@ storage is camelCase.
 `recordSuggestions` and `completeReview` are the seams the engine (Phase 3)
 calls; they're implemented and tested now, ahead of the engine.
 
-### Phase 2 — Cross-edit revalidation wiring
+### Phase 2 — Cross-edit revalidation wiring ✅ (landed)
 
-`revalidateSuggestions` exists and is tested; wire it to fire when the body
-changes. Preferred: a DynamoDB-stream consumer on `Content` roots (mirroring
-`VoiceMemoryFunction`/`VectorizeContentFunction`), diffing `contentMarkdown` and
-revalidating pending suggestions — keeps the write path fast and matches Booked's
-stream-driven conventions. Alternative: call it inline in the content update
-route. Also: mark suggestions `accepted`-adjacent bookkeeping if we later want
-the server to apply edits (today the client owns edit application + offset
-recalculation).
+`revalidateSuggestions` is now wired to a DynamoDB-stream consumer, mirroring
+`VectorizeContentFunction`/`VoiceMemoryFunction`:
 
-### Phase 3 — The review engine (rsc-core-native)
+- `functions/revalidate-suggestions/index.mjs` — a third event-source mapping on
+  the shared table stream, filtered to Content root **MODIFY** (INSERT can't have
+  suggestions yet; REMOVE is handled by the delete cascade). The handler compares
+  the old vs new `contentMarkdown` and no-ops when the body is unchanged (a
+  title/link/id edit), so only real body edits trigger revalidation. Still-valid
+  suggestions are re-anchored to the new body; ones the edit removed are marked
+  `skipped`. It writes only `ContentSuggestion` rows, which the filter never
+  matches, so it can't re-trigger itself.
+- `template.yaml` — `RevalidateSuggestionsFunction` + `RevalidateSuggestionsDLQ`,
+  scoped to stream read + `Query`/`UpdateItem` on the table + DLQ send.
+- Tests: `functions/revalidate-suggestions/index.test.mjs` (6 tests — body-change
+  triggers, unchanged/​non-MODIFY/​non-Content no-ops, cleared-body, batch).
+
+Edit application itself stays client-side (the editor owns the live text + offset
+recalculation); the server records the decision and keeps the *other* pending
+suggestions correctly anchored.
+
+### Phase 3a — The review engine (rsc-core-native) ✅ (landed)
+
+Unblocked by the merged rsc-core work: `@readysetcloud/agent@0.2.5` ships
+**`runAgent({ input, systemPrompt, modelId?, tools?, outputSchema?, maxIterations?,
+invocationState? })`** — a stateless, server-side one-shot that forces a
+Zod-validated result, bounds tool loops, and threads trusted per-call context.
+That is the lens primitive.
 
 One review = fan-out across lenses over `content.contentMarkdown`, each recording
 anchored suggestions via `recordSuggestions`, then a summarizer closing the run
-via `completeReview`. Lens inventory (ported prompts):
+via `completeReview`:
 
-- **grammar / spelling** — readability metrics + clarity edits.
-- **llm** — AI-tell detector (the red-flag taxonomy).
-- **fact** — claim extraction + web-search verification (needs a real tool
-  loop; natural fit for an `@readysetcloud/agent` session with a web-search MCP
-  gateway, mirroring the existing blog-search gateway).
-- **brand** — **reuse Voice**: grade against the learned Voice profile via the
-  same retrieval as `assessVoiceMatch`, emitting off-voice spans as `brand`
-  suggestions.
-- **summary** — synthesize the lens outputs into the review `summary`.
+- `api/services/review-lenses.mjs` — the lenses, each a ported prompt + a Zod
+  `suggestionsOutput` schema run through `runAgent`, with `invocationState:
+  { tenantId }` and the type stamped in code (never trusted from the model):
+  **readability** (`grammar`), **llm** (AI-tell detector), **brand** (grounded
+  in Booked's Voice — the learned profile + recency-ranked real samples, reused
+  as the single source of truth for "sounds like you"), and **summary** (verdict
+  + editorial summary over the recorded findings).
+- `functions/review-orchestrator/index.mjs` — an EventBridge-triggered worker
+  that loads the draft, gathers the Voice grounding, runs the lenses in parallel
+  with per-lens error isolation (one lens failing degrades rather than sinks the
+  review), records the combined suggestions, and completes the review. Retries
+  are disabled (`EventInvokeConfig MaximumRetryAttempts: 0`) so a failed run
+  can't double-write suggestions; failures land in a DLQ.
+- `api/services/review-events.mjs` + the wired `POST /content/{id}/reviews` —
+  the route now emits a `"Start Content Review"` event (default bus, existing
+  `events:PutEvents`) and returns 202; the worker consumes it. This is the
+  decouple-via-event kickoff, matching Booked's other async work — **not** Step
+  Functions.
+- `template.yaml` — `ReviewOrchestratorFunction` (+ DLQ), rule-triggered, IAM
+  scoped to table read/write + Bedrock + the voice vector index. Model /
+  embedding / vector env is inherited from Globals.
+- Tests: `review-lenses`, `review-events`, `review-orchestrator`, and the
+  updated `route-content-review` (kickoff). Full suite green (1131); the
+  orchestrator bundle (Strands SDK included) esbuild-validates.
 
-Orchestration uses Booked's chosen primitive (Lambda durable execution or a
-`Promise.all` orchestrator), **not** Step Functions. Completion is pushed to the
-UI over a **response-streaming Function URL** (NDJSON per-lens/per-suggestion),
-**not** Momento; `GET .../reviews/{reviewId}` is the reload fallback.
+Client delivery today is polling `GET .../reviews/{reviewId}` +
+`GET .../suggestions` (the 202 + poll loop). Per-lens live streaming is 3b.
 
-> **Open item / blocker for this phase.** The rsc-core-native engine needs the
-> `@readysetcloud/agent` in-package API for *defining* agents/tools/memory. The
-> only surface reconstructable from this repo is `requestSession` (session
-> creation); the agent/tool/model/memory-definition API isn't exercised here, and
-> `readysetcloud/rsc-core` can't be added to a session already scoped to
-> `allenheltondev` repos (cross-owner restriction). **To implement Phase 3, start
-> a session with `readysetcloud/rsc-core` as a source (or provide the
-> `@readysetcloud/agent` API surface).** The Phase 1/2 work is engine-independent
-> and unblocked.
+### Phase 3b — Fact lens + live streaming (follow-up)
+
+- **Fact lens** — claim extraction + web-search verification. It needs a real
+  tool loop (`runAgent` with `tools` + `maxIterations`) over a **web-search MCP
+  gateway** (mirroring the existing blog-search gateway) — new infra plus a
+  search-provider secret, hence deferred.
+- **Live streaming** — push per-lens/per-suggestion progress to the editor over
+  a **response-streaming Function URL** (NDJSON), reusing the `stream-generate`
+  pattern, instead of polling. `GET .../reviews/{reviewId}` stays the fallback.
 
 ### Phase 4 — The editor + suggestion UX (frontend)
 

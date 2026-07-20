@@ -875,6 +875,78 @@ Resources:
               Resource:
                 - !GetAtt VectorizeContentDLQ.Arn
 
+  # Poison-record sink for the suggestion-revalidation stream consumer.
+  RevalidateSuggestionsDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "content-tracking-revalidate-suggestions-dlq-${Environment}"
+      MessageRetentionPeriod: 1209600 # 14 days
+
+  # Consumes the DynamoDB stream (filtered to Content root edits) and keeps a
+  # draft's open review suggestions in sync with the text: still-valid ones are
+  # re-anchored to the new body, ones the edit removed are marked `skipped`. The
+  # handler compares the old and new body first, so a MODIFY that didn't change
+  # the text (publish link mirroring, a title edit) is a no-op.
+  RevalidateSuggestionsFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - index.mjs
+    Properties:
+      CodeUri: functions/revalidate-suggestions
+      Handler: index.handler
+      MemorySize: 256
+      Timeout: 60
+      # TABLE_NAME is inherited from Globals (shared with the API Lambda).
+      Events:
+        ContentEditStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt ContentTrackingTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 5
+            MaximumRetryAttempts: 3
+            BisectBatchOnFunctionError: true
+            # Only content ROOT edits reach the function. INSERT can't have
+            # suggestions yet and REMOVE is handled by deleteContent's cascade,
+            # so we filter to MODIFY on the Content entity.
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"eventName":["MODIFY"],"dynamodb":{"NewImage":{"entity":{"S":["Content"]}}}}'
+            DestinationConfig:
+              OnFailure:
+                Destination: !GetAtt RevalidateSuggestionsDLQ.Arn
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            # Read the stream.
+            - Effect: Allow
+              Action:
+                - dynamodb:DescribeStream
+                - dynamodb:GetRecords
+                - dynamodb:GetShardIterator
+                - dynamodb:ListStreams
+              Resource:
+                - !GetAtt ContentTrackingTable.StreamArn
+                - !Sub "${ContentTrackingTable.StreamArn}/*"
+            # Query pending suggestions and re-stamp / skip them.
+            - Effect: Allow
+              Action:
+                - dynamodb:Query
+                - dynamodb:UpdateItem
+              Resource:
+                - !GetAtt ContentTrackingTable.Arn
+            # Deliver poison records to the DLQ.
+            - Effect: Allow
+              Action:
+                - sqs:SendMessage
+              Resource:
+                - !GetAtt RevalidateSuggestionsDLQ.Arn
+
   # Poison-record sink for the voice-memory stream consumer.
   VoiceMemoryDLQ:
     Type: AWS::SQS::Queue
@@ -1020,6 +1092,91 @@ Resources:
                 - sqs:SendMessage
               Resource:
                 - !GetAtt VoiceMemoryDLQ.Arn
+
+  # Poison-record sink for the content review orchestrator.
+  ReviewOrchestratorDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "content-tracking-review-orchestrator-dlq-${Environment}"
+      MessageRetentionPeriod: 1209600 # 14 days
+
+  # The content review engine. Triggered by the "Start Content Review" event
+  # from POST /content/{id}/reviews, it fans out the review lenses over the
+  # draft on the rsc-core @readysetcloud/agent runtime (runAgent — stateless
+  # server-side runs with schema-forced structured output), records the anchored
+  # suggestions, and closes the review with a summary. Retries are disabled so a
+  # failed run can't double-write suggestions; failures land in the DLQ. Model /
+  # embedding / vector env is inherited from Globals.
+  ReviewOrchestratorFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - index.mjs
+    Properties:
+      CodeUri: functions/review-orchestrator
+      Handler: index.handler
+      MemorySize: 1024
+      Timeout: 300
+      Events:
+        StartReview:
+          Type: EventBridgeRule
+          Properties:
+            Pattern:
+              source:
+                - booked
+              detail-type:
+                - Start Content Review
+      EventInvokeConfig:
+        # No automatic retries: a re-run would re-record the suggestion set. A
+        # failed review is marked failed and DLQ'd; the user re-triggers.
+        MaximumRetryAttempts: 0
+        DestinationConfig:
+          OnFailure:
+            Type: SQS
+            Destination: !GetAtt ReviewOrchestratorDLQ.Arn
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            # Read the content + voice profile, write reviews + suggestions.
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:BatchWriteItem
+                - dynamodb:Query
+              Resource:
+                - !GetAtt ContentTrackingTable.Arn
+            # Run the lenses (Converse/InvokeModel via the agent runtime) and
+            # embed the draft for voice retrieval (Titan). Wildcard region/model
+            # mirrors the other AI functions.
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+                - bedrock:Converse
+                - bedrock:ConverseStream
+              Resource:
+                - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
+                - !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/*"
+            # Query the voice index for the brand lens's grounding examples.
+            - Effect: Allow
+              Action:
+                - s3vectors:GetVectors
+                - s3vectors:QueryVectors
+              Resource:
+                - !GetAtt BlogVectorBucket.VectorBucketArn
+                - !GetAtt BlogVoiceIndex.IndexArn
+            # Deliver failed runs to the DLQ.
+            - Effect: Allow
+              Action:
+                - sqs:SendMessage
+              Resource:
+                - !GetAtt ReviewOrchestratorDLQ.Arn
 
   # Response-streaming endpoint for live "typing" of composed posts and blog
   # answers. API Gateway (REST) can't stream, so this is a Lambda Function URL
