@@ -24,7 +24,8 @@ directory (drafts skipped):
 
 ## Usage
 
-Add a workflow to your Hugo repo:
+A ready-to-copy workflow is in [`examples/hugo-content-review.yml`](examples/hugo-content-review.yml).
+Add it to your Hugo repo at `.github/workflows/content-review.yml`:
 
 ```yaml
 # .github/workflows/content-review.yml
@@ -51,22 +52,16 @@ jobs:
 
 ### Referencing the action
 
-`content-tracking` is private, so to `uses:` it from another repo you must share
-it: in `content-tracking` → **Settings → Actions → General → Access** → allow
-access from repositories owned by the same user/org. That only works when the
-Hugo repo has the same owner.
+`allenheltondev/content-tracking` is public, so `uses: allenheltondev/content-tracking/action@<ref>`
+works from any repo (any owner) — no vendoring or sharing needed. Pin a tag/SHA
+in production rather than `@main`. The consuming workflow needs no
+`actions/checkout`: the action reads the changed post's content from the PR via
+the API, not the checked-out tree.
 
-Otherwise, **vendor it**: copy this `action/` folder into your Hugo repo (e.g.
-`.github/actions/content-review/`) and reference it locally — no sharing setting,
-and you pin the exact version you copied:
-
-```yaml
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/content-review
-        with:
-          api-url: ${{ vars.BOOKED_API_URL }}
-          api-key: ${{ secrets.BOOKED_API_KEY }}
-```
+If you'd rather pin an exact copy you control, you can still **vendor** it — copy
+this `action/` folder into your repo (e.g. `.github/actions/content-review/`) and
+`uses: ./.github/actions/content-review` — but with a public source that's
+optional.
 
 ### Inputs
 

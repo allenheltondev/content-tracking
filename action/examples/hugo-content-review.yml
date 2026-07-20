@@ -1,0 +1,39 @@
+# Drop this into a Hugo blog repo at .github/workflows/content-review.yml.
+#
+# On a PR that adds or edits a blog post, it registers the post in Booked, runs
+# the multi-lens review, and posts the suggestions back on the PR (one-click
+# suggested changes on changed lines + a summary comment for the rest).
+#
+# Prerequisites in the blog repo:
+#   - Variable  BOOKED_API_URL  = base URL of the deployed Booked API (with Phase A).
+#   - Secret    BOOKED_API_KEY  = an API key minted from Booked's /api-keys.
+# Adjust `paths:` and `posts-dir` to where this site keeps its posts.
+name: Content review
+
+on:
+  pull_request:
+    paths:
+      - 'content/**/*.md'
+      - 'content/**/*.markdown'
+
+permissions:
+  contents: read
+  pull-requests: write   # post the review + summary comment
+
+# One review run per PR at a time; a new push cancels the in-flight one.
+concurrency:
+  group: content-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      # Public action — referenced directly, no checkout needed. Pin a tag/SHA
+      # instead of @main once you're happy with it.
+      - uses: allenheltondev/content-tracking/action@main
+        with:
+          api-url: ${{ vars.BOOKED_API_URL }}
+          api-key: ${{ secrets.BOOKED_API_KEY }}
+          posts-dir: content/
+          platform: blog
