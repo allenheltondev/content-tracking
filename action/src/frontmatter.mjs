@@ -47,11 +47,27 @@ function parseTomlScalars(inner) {
 
 // Derives the fields Booked needs from a post's front matter + path. Hugo's
 // slug defaults to the filename (without extension) when not set explicitly.
+// Booked stores slugs as flat kebab-case (`^[a-z0-9]+(?:-[a-z0-9]+)*$`), but a
+// Hugo `slug` is frequently a path — `/section/my-post`, or a site's own scheme
+// like `/author.name/my-post-abc123`. Sending that raw makes `POST /content`
+// 400 on slug validation. Take the last path segment and kebab-normalize it so
+// the value we register (and later look up) is one Booked accepts.
+export function toBookedSlug(raw) {
+  const segment = String(raw ?? '').split('/').filter(Boolean).pop() ?? '';
+  return segment
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 export function postFields(fileText, filePath) {
   const { data, bodyOffset, body } = splitFrontMatter(fileText);
   const fileSlug = filePath.split('/').pop().replace(/\.m(d|arkdown)$/i, '');
+  const rawSlug = typeof data.slug === 'string' && data.slug ? data.slug : fileSlug;
   return {
-    slug: typeof data.slug === 'string' && data.slug ? data.slug : fileSlug,
+    // Fall back to the (normalized) filename if the front-matter slug reduces to
+    // nothing — e.g. `slug: /`.
+    slug: toBookedSlug(rawSlug) || toBookedSlug(fileSlug),
     title: typeof data.title === 'string' ? data.title : fileSlug,
     draft: data.draft === true,
     date: typeof data.date === 'string' ? data.date : undefined,
