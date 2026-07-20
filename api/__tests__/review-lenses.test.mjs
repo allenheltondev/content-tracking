@@ -2,13 +2,15 @@ import { jest } from "@jest/globals";
 
 // Mock the rsc-core agent runtime so the suite verifies how each lens invokes
 // runAgent (prompt, schema, trusted context) without loading Strands/Bedrock.
-jest.unstable_mockModule("@readysetcloud/agent", () => ({ runAgent: jest.fn() }));
+jest.unstable_mockModule("@readysetcloud/agent", () => ({ runAgent: jest.fn(), httpRequest: { name: "http_request" } }));
 
 const { runAgent } = await import("@readysetcloud/agent");
+const { httpRequest } = await import("@readysetcloud/agent");
 const {
   runReadabilityLens,
   runLlmLens,
   runBrandLens,
+  runFactLens,
   runSummaryLens,
   runLensSafely,
 } = await import("../services/review-lenses.mjs");
@@ -64,6 +66,25 @@ describe("brand lens", () => {
     expect(prompt).toContain("You write plainly and skip buzzwords.");
     expect(prompt).toContain("A real past post.");
     expect(prompt).toContain("blog");
+  });
+});
+
+describe("fact lens", () => {
+  test("attaches the http_request tool, bounds the loop, and grounds the prompt in the search endpoint", async () => {
+    runAgent.mockResolvedValue(okRun([{ textToReplace: '30%', replaceWith: '18%', reason: 'stat is wrong', priority: 'high' }]));
+
+    const out = await runFactLens({
+      body: BODY,
+      tenantId: TENANT,
+      search: { url: 'https://search.example/api', authHeader: { name: 'Authorization', value: 'Bearer k' } },
+    });
+
+    expect(out[0].type).toBe('fact');
+    const call = runAgent.mock.calls[0][0];
+    expect(call.tools).toEqual([httpRequest]);
+    expect(call.maxIterations).toBeGreaterThan(0);
+    expect(call.systemPrompt).toContain('https://search.example/api');
+    expect(call.systemPrompt).toContain('Authorization: Bearer k');
   });
 });
 

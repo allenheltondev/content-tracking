@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { runAgent } from "@readysetcloud/agent";
+import { runAgent, httpRequest } from "@readysetcloud/agent";
 import { logger } from "./logger.mjs";
 
 // The review "lenses": each is a specialized editorial pass over a piece of
@@ -55,6 +55,8 @@ const LLM_PROMPT = `You detect and remove "AI tells" — the telltale signs of g
 
 const BRAND_PROMPT = `You are the author's on-voice editor. Using their learned writing voice (profile and real past posts, provided below) as the ground truth for how they sound, flag places in this draft that drift OFF their voice and suggest surgical edits to bring them back on-voice. Judge tone, rhythm, vocabulary, signature phrasing, and formatting habits — NOT the topic or facts (an unusual topic can still be perfectly on-voice). Their voice is defined by how they write NOW, so weight the more recently published examples most heavily. Each suggestion must target an exact span and explain, in one sentence, how the edit sounds more like them. If the draft already sounds like them, return few or no suggestions. Return your edits as the structured result.`;
 
+const FACT_PROMPT = `You are a fact-checker for a content creator. Identify the specific, verifiable claims in the draft — statistics, dates, named events, quantities, attributions — and check them. Use the http_request tool to search the web for authoritative sources, then judge each claim. For each claim that is INCORRECT or that you could not verify, emit a suggestion that replaces the claim's exact text with a corrected or appropriately hedged version, and say what you found (and ideally the source) in the reason. Do NOT flag opinions, predictions, or matters of style — only checkable facts. If a claim checks out, leave it alone. Be economical: a few targeted searches, not an exhaustive audit. Return the structured result.`;
+
 const SUMMARY_PROMPT = `You are the editor-in-chief summarizing a multi-lens review of a draft for its author. You are given the draft and the concrete suggestions the review lenses produced. Write a short, honest editorial summary (2-3 sentences): what the draft does well, what most needs attention, and what to prioritize — then choose a verdict. Be specific and encouraging without inflating: 'ready' only if you'd publish as-is, 'minor_revisions' for small polish, 'major_revisions' when it needs real work. Return the structured result.`;
 
 // Stamps the lens's suggestion type onto each item (the model never classifies
@@ -103,6 +105,37 @@ export async function runBrandLens({ body, tenantId, platform, profile, samples,
     invocationState: { tenantId },
   });
   return withType(output.suggestions, "brand");
+}
+
+// The fact-checker lens. Unlike the other lenses this one has a tool loop: it
+// drives the vended `http_request` tool (from @readysetcloud/agent) to search
+// the web and verify claims, bounded by maxIterations so a runaway search can't
+// hang the review. `search` describes the endpoint + auth the prompt tells the
+// model to call; the caller only runs this lens when a search provider is
+// configured. The search key rides in the prompt-supplied header per the
+// package's documented http_request usage.
+export async function runFactLens({ body, tenantId, search, modelId }) {
+  const authLine = search?.authHeader
+    ? ` Include the request header "${search.authHeader.name}: ${search.authHeader.value}".`
+    : '';
+  const systemPrompt = `${FACT_PROMPT}
+
+To verify a claim, call the http_request tool with a GET request to this search endpoint, putting your query in the request:
+  ${search.url}
+${authLine} Read the JSON results and judge the claim against what authoritative sources say.`;
+
+  const { output } = await runAgent({
+    input: body,
+    systemPrompt,
+    outputSchema: suggestionsOutput,
+    tools: [httpRequest],
+    maxIterations: 8,
+    temperature: 0.2,
+    maxTokens: 2048,
+    modelId,
+    invocationState: { tenantId },
+  });
+  return withType(output.suggestions, 'fact');
 }
 
 // Synthesizes the lens findings into an editorial summary + verdict. `findings`

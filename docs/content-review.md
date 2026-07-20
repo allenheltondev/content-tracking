@@ -206,15 +206,33 @@ via `completeReview`:
 Client delivery today is polling `GET .../reviews/{reviewId}` +
 `GET .../suggestions` (the 202 + poll loop). Per-lens live streaming is 3b.
 
-### Phase 3b — Fact lens + live streaming (follow-up)
+### Phase 3b — Fact lens + live streaming ✅ (landed)
 
-- **Fact lens** — claim extraction + web-search verification. It needs a real
-  tool loop (`runAgent` with `tools` + `maxIterations`) over a **web-search MCP
-  gateway** (mirroring the existing blog-search gateway) — new infra plus a
-  search-provider secret, hence deferred.
-- **Live streaming** — push per-lens/per-suggestion progress to the editor over
-  a **response-streaming Function URL** (NDJSON), reusing the `stream-generate`
-  pattern, instead of polling. `GET .../reviews/{reviewId}` stays the fallback.
+- **Shared runner** — the engine logic moved from the orchestrator into
+  `api/services/review-runner.mjs` (`runReview`), so both entry points reuse it.
+  It claims the review (idempotency), runs the lenses, records, completes, and
+  calls an optional `emit(event)` for progress. The async orchestrator passes no
+  `emit`; the stream endpoint forwards it to the client.
+- **Fact lens** — `runFactLens` (in `review-lenses.mjs`) drives the vended
+  `http_request` tool from `@readysetcloud/agent` (`tools: [httpRequest]`,
+  `maxIterations: 8`) against a configured search endpoint to verify claims and
+  emit `fact` suggestions. It's opt-in: the runner runs it only when
+  `FACT_SEARCH_URL` is set (template params `FactSearchUrl` / `FactSearchApiKey`
+  / `FactSearchAuthHeader`), so no bespoke secret is required to review.
+- **Live streaming (no Momento)** — `functions/stream-review/` is a
+  response-streaming **Function URL** (`RESPONSE_STREAM`, verifies the id token
+  in-process like `stream-generate`). It creates the review, runs the shared
+  runner, and streams NDJSON events — `review` → `status`/`lens` per lens →
+  `suggestions` (the recorded, anchored set) → `summary` → `done`/`error`. The UI
+  (`streamReview` in `ui/src/api/review.ts`) uses it when
+  `VITE_REVIEW_STREAM_BASE_URL` is set, showing per-lens progress; otherwise it
+  falls back to the buffered `POST /reviews` + poll path. The idempotency claim
+  means whichever of the two paths runs first wins; the other no-ops.
+
+> **SSRF note.** `http_request` lets the model choose the URL. The fact lens
+> prompt points it at the single configured search endpoint; a stricter outbound
+> allowlist (or a scoped web-search MCP gateway) is a reasonable hardening
+> follow-up before enabling `FACT_SEARCH_URL` in production.
 
 ### Phase 4a — The editor + suggestion UX ✅ (landed)
 

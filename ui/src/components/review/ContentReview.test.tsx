@@ -11,16 +11,19 @@ vi.mock('../../auth/useApiFetch', () => {
   const apiFetch = async () => undefined;
   return { useApiFetch: () => apiFetch };
 });
+vi.mock('../../auth/useAuth', () => ({ useAuth: () => ({ getAccessToken: async () => 'tok' }) }));
 vi.mock('../../api/content', () => ({ updateContent: vi.fn() }));
 vi.mock('../../api/review', () => ({
   getSuggestions: vi.fn(),
   getReview: vi.fn(),
   startReview: vi.fn(),
+  streamReview: vi.fn(),
+  reviewStreamingEnabled: vi.fn(() => false),
   updateSuggestionStatus: vi.fn(),
 }));
 
 const { updateContent } = await import('../../api/content');
-const { getSuggestions, updateSuggestionStatus } = await import('../../api/review');
+const { getSuggestions, updateSuggestionStatus, streamReview, reviewStreamingEnabled } = await import('../../api/review');
 const ContentReview = (await import('./ContentReview')).default;
 
 const BODY = 'The quick brown fox.';
@@ -87,6 +90,27 @@ describe('ContentReview', () => {
     // Body synced + suggestion dropped despite the failed status call.
     expect(onBodyChange).toHaveBeenCalledWith('The swift brown fox.');
     await waitFor(() => expect(screen.queryByText('Prefer a stronger word.')).not.toBeInTheDocument());
+  });
+
+  it('uses the live stream when enabled, rendering streamed suggestions and summary', async () => {
+    (getSuggestions as ReturnType<typeof vi.fn>).mockResolvedValue({ suggestions: [], review: null });
+    (reviewStreamingEnabled as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (streamReview as ReturnType<typeof vi.fn>).mockImplementation(async (_t, _c, _p, onEvent) => {
+      onEvent({ type: 'review', review: { id: 'r9', status: 'pending', summary: null, lenses: null, createdAt: '', updatedAt: '' } });
+      onEvent({ type: 'lens', name: 'readability', count: 1 });
+      onEvent({ type: 'suggestions', suggestions: [SUGGESTION] });
+      onEvent({ type: 'summary', summary: 'Streamed summary.', verdict: 'minor_revisions' });
+      onEvent({ type: 'done', status: 'succeeded' });
+    });
+
+    render(<ContentReview contentId="C1" body={BODY} />);
+    // No pending suggestions initially; the review is streamed on Start.
+    await waitFor(() => expect(screen.getByRole('button', { name: /start review/i })).toBeEnabled());
+    await userEvent.click(screen.getByRole('button', { name: /start review/i }));
+
+    expect(await screen.findByText('Prefer a stronger word.')).toBeInTheDocument();
+    expect(screen.getByText(/Streamed summary\./)).toBeInTheDocument();
+    expect(streamReview).toHaveBeenCalledWith('tok', 'C1', undefined, expect.any(Function));
   });
 
   it('rejecting records the decision without touching the body', async () => {

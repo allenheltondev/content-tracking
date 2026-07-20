@@ -1,11 +1,14 @@
 import type { ReactElement } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApiFetch } from '../../auth/useApiFetch';
+import { useAuth } from '../../auth/useAuth';
 import { updateContent } from '../../api/content';
 import {
   getReview,
   getSuggestions,
+  reviewStreamingEnabled,
   startReview,
+  streamReview,
   updateSuggestionStatus,
   type Review,
   type Suggestion,
@@ -33,6 +36,7 @@ const POLL_MS = 3000;
 // saves; the server re-anchors its own copy off the content stream.
 export default function ContentReview({ contentId, body, platform, onBodyChange }: Props): ReactElement {
   const apiFetch = useApiFetch();
+  const { getAccessToken } = useAuth();
 
   const [workingBody, setWorkingBody] = useState(body);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -40,6 +44,8 @@ export default function ContentReview({ contentId, body, platform, onBodyChange 
   const [review, setReview] = useState<Review | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Keep the working copy in step with the parent's body when it changes for a
@@ -67,7 +73,8 @@ export default function ContentReview({ contentId, body, platform, onBodyChange 
   const inFlight = review?.status === 'pending' || review?.status === 'running';
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
-    if (!inFlight || !reviewId) return;
+    // The stream drives its own updates; only poll for the buffered path.
+    if (!inFlight || !reviewId || streaming) return;
     let active = true;
     pollRef.current = setInterval(async () => {
       try {
@@ -98,21 +105,64 @@ export default function ContentReview({ contentId, body, platform, onBodyChange 
       active = false;
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [inFlight, reviewId, apiFetch, contentId, loadSuggestions]);
+  }, [inFlight, reviewId, streaming, apiFetch, contentId, loadSuggestions]);
+
+  // Live path: the Function URL creates + runs the review and streams progress
+  // and the recorded suggestions. Falls back to the buffered start + poll path
+  // when streaming isn't configured.
+  const startStreaming = useCallback(async () => {
+    setStreaming(true);
+    setProgress(null);
+    const done: string[] = [];
+    try {
+      const token = await getAccessToken();
+      await streamReview(token, contentId, platform, (ev) => {
+        switch (ev.type) {
+          case 'review':
+            setReview(ev.review);
+            break;
+          case 'lens':
+            done.push(ev.name);
+            setProgress(`Reviewed ${done.join(', ')}…`);
+            break;
+          case 'suggestions':
+            setSuggestions(ev.suggestions);
+            setActiveIndex(0);
+            break;
+          case 'summary':
+            setReview((r) => (r ? { ...r, summary: ev.summary, lenses: { ...(r.lenses ?? {}), verdict: ev.verdict } } : r));
+            break;
+          case 'done':
+            setReview((r) => (r ? { ...r, status: ev.status } : r));
+            break;
+          case 'error':
+            setError(ev.message);
+            break;
+        }
+      });
+    } finally {
+      setStreaming(false);
+      setProgress(null);
+    }
+  }, [getAccessToken, contentId, platform]);
 
   const onStart = useCallback(async () => {
     setError(null);
     setBusy(true);
+    setSuggestions([]);
     try {
-      const r = await startReview(apiFetch, contentId, platform);
-      setReview(r);
-      setSuggestions([]);
+      if (reviewStreamingEnabled()) {
+        await startStreaming();
+      } else {
+        const r = await startReview(apiFetch, contentId, platform);
+        setReview(r);
+      }
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setBusy(false);
     }
-  }, [apiFetch, contentId, platform]);
+  }, [apiFetch, contentId, platform, startStreaming]);
 
   const clampActive = useCallback((len: number, idx: number) => Math.max(0, Math.min(idx, len - 1)), []);
 
@@ -183,7 +233,7 @@ export default function ContentReview({ contentId, body, platform, onBodyChange 
 
       {inFlight && (
         <p className="text-sm text-muted-foreground">
-          Your copyedit team is reviewing the draft — suggestions will appear here shortly.
+          {progress ?? 'Your copyedit team is reviewing the draft — suggestions will appear here shortly.'}
         </p>
       )}
 

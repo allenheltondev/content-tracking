@@ -1,4 +1,5 @@
 import type { ApiFetch } from '../auth/useApiFetch';
+import { env } from '../auth/config';
 
 // Client for the content review feature: start a review, poll its status, and
 // walk the offset-anchored suggestions it produces (accept / reject / dismiss).
@@ -119,6 +120,72 @@ export async function getSuggestions(
     `/content/${contentId}/suggestions`,
   );
   return { suggestions: (res.suggestions ?? []).map(toSuggestion), review: toReview(res.review) };
+}
+
+// --- Live streaming (Function URL) -------------------------------------------
+
+// Progress events streamed by the review Function URL (see review-runner.mjs).
+export type ReviewStreamEvent =
+  | { type: 'review'; review: Review }
+  | { type: 'status'; lens: string; state: 'running' }
+  | { type: 'lens'; name: string; count: number; ok?: boolean }
+  | { type: 'suggestions'; suggestions: Suggestion[] }
+  | { type: 'summary'; summary: string | null; verdict: string | null }
+  | { type: 'done'; status: ReviewStatus }
+  | { type: 'error'; message: string };
+
+export function reviewStreamingEnabled(): boolean {
+  return typeof env.reviewStreamBaseUrl === 'string' && env.reviewStreamBaseUrl.length > 0;
+}
+
+// Opens the live review stream: the server creates the review, runs the lenses,
+// and streams progress + the recorded suggestions as NDJSON. Each event is
+// handed to `onEvent`. Throws on transport failure or a terminal `error` event
+// so the caller can fall back to the buffered start-review + poll path.
+export async function streamReview(
+  token: string,
+  contentId: string,
+  platform: string | undefined,
+  onEvent: (event: ReviewStreamEvent) => void,
+): Promise<void> {
+  if (!env.reviewStreamBaseUrl) throw new Error('Review streaming is not configured');
+
+  const res = await fetch(env.reviewStreamBaseUrl, {
+    method: 'POST',
+    headers: { authorization: token, 'content-type': 'application/json' },
+    body: JSON.stringify({ contentId, ...(platform ? { platform } : {}) }),
+  });
+  if (!res.ok || !res.body) throw new Error(`Review stream failed (${res.status})`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let newline = buffer.indexOf('\n');
+    while (newline >= 0) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      newline = buffer.indexOf('\n');
+      if (!line) continue;
+
+      const raw = JSON.parse(line);
+      if (raw.type === 'suggestions') {
+        onEvent({ type: 'suggestions', suggestions: (raw.suggestions ?? []).map(toSuggestion) });
+      } else if (raw.type === 'review') {
+        onEvent({ type: 'review', review: toReview(raw.review)! });
+      } else if (raw.type === 'error') {
+        onEvent(raw as ReviewStreamEvent);
+        throw new Error(raw.message ?? 'Review failed');
+      } else {
+        onEvent(raw as ReviewStreamEvent);
+      }
+    }
+  }
 }
 
 // Record a decision on a suggestion (accepted / rejected / dismissed).
