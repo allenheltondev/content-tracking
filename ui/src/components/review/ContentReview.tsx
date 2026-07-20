@@ -73,11 +73,23 @@ export default function ContentReview({ contentId, body, platform, onBodyChange 
       try {
         const r = await getReview(apiFetch, contentId, reviewId);
         if (!active) return;
-        setReview(r);
-        if (r.status === 'succeeded' || r.status === 'failed') {
+        if (r.status === 'failed') {
+          setReview(r);
           if (pollRef.current) clearInterval(pollRef.current);
-          if (r.status === 'succeeded') await loadSuggestions();
+          return;
         }
+        if (r.status === 'succeeded') {
+          // Load the suggestions BEFORE stopping the poller. loadSuggestions
+          // flips inFlight false (it sets the succeeded review) only once it
+          // succeeds, so a transient failure here just retries on the next tick
+          // instead of stranding the UI on "No suggestions" for a review that
+          // actually produced some.
+          await loadSuggestions();
+          if (!active) return;
+          if (pollRef.current) clearInterval(pollRef.current);
+          return;
+        }
+        setReview(r); // pending / running — keep polling
       } catch {
         // transient; the next tick retries
       }
@@ -112,14 +124,18 @@ export default function ContentReview({ contentId, body, platform, onBodyChange 
     try {
       const others = suggestions.filter((s) => s.id !== active.id);
       const { newContent, updatedSuggestions } = applySuggestion(workingBody, active, others);
-      // Persist the rewritten body first so it's durable before we drop the
-      // suggestion; then record the decision.
+      // Persist the rewritten body first so it's durable.
       await updateContent(apiFetch, contentId, { content_markdown: newContent });
-      await updateSuggestionStatus(apiFetch, contentId, active.id, 'accepted');
+      // Sync local + parent state immediately on a successful save, BEFORE
+      // recording the decision — so if the status call then fails, the editor
+      // still reflects the applied edit (and the now-anchorless suggestion is
+      // gone), matching what a reload would show. The server marks the dropped
+      // suggestion skipped via the content-stream revalidation regardless.
       setWorkingBody(newContent);
       onBodyChange?.(newContent);
       setSuggestions(updatedSuggestions);
       setActiveIndex((i) => clampActive(updatedSuggestions.length, i));
+      await updateSuggestionStatus(apiFetch, contentId, active.id, 'accepted');
     } catch (err) {
       setError((err as Error).message);
     } finally {

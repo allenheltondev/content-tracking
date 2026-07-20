@@ -73,6 +73,22 @@ describe('ContentReview', () => {
     await waitFor(() => expect(screen.queryByText('Prefer a stronger word.')).not.toBeInTheDocument());
   });
 
+  it('keeps the applied edit in sync even when recording the decision fails', async () => {
+    (updateSuggestionStatus as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('500'));
+    const onBodyChange = vi.fn();
+    render(<ContentReview contentId="C1" body={BODY} onBodyChange={onBodyChange} />);
+
+    await screen.findByText('Prefer a stronger word.');
+    await userEvent.click(screen.getByRole('button', { name: /^accept$/i }));
+
+    await waitFor(() => {
+      expect(updateContent).toHaveBeenCalledWith(expect.anything(), 'C1', { content_markdown: 'The swift brown fox.' });
+    });
+    // Body synced + suggestion dropped despite the failed status call.
+    expect(onBodyChange).toHaveBeenCalledWith('The swift brown fox.');
+    await waitFor(() => expect(screen.queryByText('Prefer a stronger word.')).not.toBeInTheDocument());
+  });
+
   it('rejecting records the decision without touching the body', async () => {
     render(<ContentReview contentId="C1" body={BODY} />);
     await screen.findByText('Prefer a stronger word.');
