@@ -1,0 +1,39 @@
+name: 'Booked content review'
+description: 'Register a changed Hugo blog post in Booked, run the multi-lens review, and post suggestions back on the PR.'
+author: 'readysetcloud'
+
+inputs:
+  api-url:
+    description: 'Base URL of the Booked API (e.g. https://api.example.com/v1).'
+    required: true
+  api-key:
+    description: 'Booked API key (mint via /api-keys; store as a secret). Sent as the Authorization header.'
+    required: true
+  posts-dir:
+    description: 'Path prefix under which blog posts live (only changed .md/.markdown files here are reviewed).'
+    required: false
+    default: 'content/'
+  platform:
+    description: 'Optional platform for the on-voice (brand) lens grounding (e.g. blog).'
+    required: false
+    default: ''
+  github-token:
+    description: 'Token used to post PR comments. Defaults to the workflow GITHUB_TOKEN.'
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install action dependencies
+      shell: bash
+      run: npm ci --omit=dev --prefix "$GITHUB_ACTION_PATH"
+    - name: Run content review
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/src/index.mjs"
+      env:
+        INPUT_API-URL: ${{ inputs.api-url }}
+        INPUT_API-KEY: ${{ inputs.api-key }}
+        INPUT_POSTS-DIR: ${{ inputs.posts-dir }}
+        INPUT_PLATFORM: ${{ inputs.platform }}
+        INPUT_GITHUB-TOKEN: ${{ inputs.github-token }}

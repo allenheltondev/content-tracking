@@ -3,6 +3,7 @@ import {
   createContent,
   deleteContent,
   detachCampaign,
+  findContentBySlug,
   getContent,
   listContentByTenant,
   listContentStats,
@@ -108,11 +109,25 @@ export function registerContentRoutes(app) {
       type: qs.type,
       source: qs.source,
       status: qs.status,
+      slug: qs.slug,
     });
     return jsonResponse(200, {
       content: items.map(formatContentSummary),
       nextStartKey: encodeCursor(lastEvaluatedKey),
     });
+  });
+
+  // GET /content/by-slug/{slug} — resolve a slug to its content record (or 404).
+  // Publisher-scoped (dashboard OR API key) so a CI hook can look up whether a
+  // Hugo post already exists to decide create-vs-update. Registered before
+  // /content/:contentId; the extra path segment means the two never collide.
+  app.get("/content/by-slug/:slug", async ({ event, params }) => {
+    const tenantId = requirePublisherTenantId(event);
+    const item = await findContentBySlug(tenantId, params.slug);
+    if (!item) {
+      throw new NotFoundError("Content", `slug ${params.slug}`);
+    }
+    return jsonResponse(200, formatContent(item));
   });
 
   app.get("/content/:contentId", async ({ event, params }) => {
@@ -122,7 +137,9 @@ export function registerContentRoutes(app) {
   });
 
   app.patch("/content/:contentId", async ({ event, params }) => {
-    const tenantId = requireTenantId(event);
+    // Publisher-scoped (dashboard OR API key) so a CI hook can update a post's
+    // body/metadata on push, the same auth surface that creates content.
+    const tenantId = requirePublisherTenantId(event);
     const { contentId } = params;
     const fields = validateContentUpdate(parseBody(event));
     if (Object.keys(fields).length === 0) {

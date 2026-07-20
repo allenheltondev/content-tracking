@@ -8,6 +8,7 @@ const {
   createContent,
   getContent,
   findContent,
+  findContentBySlug,
   listContentByTenant,
   updateContent,
   deleteContent,
@@ -240,6 +241,32 @@ describe("domain/content", () => {
       expect(i.ExpressionAttributeValues[":type"]).toBe("blog");
       expect(i.ExpressionAttributeValues[":source"]).toBe("owned");
       expect(i.ExpressionAttributeValues[":status"]).toBe("published");
+    });
+
+    test("filters by slug", async () => {
+      mockSend.mockResolvedValue({ Items: [] });
+      await listContentByTenant(TENANT, { slug: "my-post" });
+      const i = input(mockSend);
+      expect(i.FilterExpression).toBe("#slug = :slug");
+      expect(i.ExpressionAttributeValues[":slug"]).toBe("my-post");
+    });
+  });
+
+  describe("findContentBySlug", () => {
+    test("returns the first content matching the slug", async () => {
+      mockSend.mockResolvedValue({ Items: [{ contentId: "C1", slug: "my-post" }] });
+      const item = await findContentBySlug(TENANT, "my-post");
+      expect(item).toEqual({ contentId: "C1", slug: "my-post" });
+      expect(input(mockSend).ExpressionAttributeValues[":slug"]).toBe("my-post");
+    });
+
+    test("returns null and walks all pages when nothing matches", async () => {
+      mockSend
+        .mockResolvedValueOnce({ Items: [], LastEvaluatedKey: { pk: "p" } })
+        .mockResolvedValueOnce({ Items: [] });
+      const item = await findContentBySlug(TENANT, "missing");
+      expect(item).toBeNull();
+      expect(mockSend).toHaveBeenCalledTimes(2);
     });
   });
 
