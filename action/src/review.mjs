@@ -7,7 +7,7 @@ const defaultSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // attempts-bounded (and `sleep` is injectable) so a stuck review can't hang the
 // job and tests run instantly.
 export async function reviewPost(client, post, opts = {}) {
-  const { attempts = 60, pollMs = 3000, sleep = defaultSleep } = opts;
+  const { attempts = 60, pollMs = 3000, sleep = defaultSleep, platform } = opts;
 
   const existing = await client.findBySlug(post.slug);
   const content = existing
@@ -22,7 +22,7 @@ export async function reviewPost(client, post, opts = {}) {
       });
 
   const contentId = content.content_id;
-  const started = await client.startReview(contentId);
+  const started = await client.startReview(contentId, platform);
 
   let review = started;
   for (let i = 0; i < attempts && (review.status === 'pending' || review.status === 'running'); i++) {
@@ -30,8 +30,13 @@ export async function reviewPost(client, post, opts = {}) {
     review = await client.getReview(contentId, started.id);
   }
 
+  // The suggestions endpoint returns ALL of the content's pending suggestions,
+  // so filter to just this run's (by review_id) — otherwise a rerun, or a post
+  // that already had unresolved suggestions, would repost stale/duplicate
+  // comments alongside the new review's output.
   const result = await client.getSuggestions(contentId);
-  return { contentId, review: result?.review ?? review, suggestions: result?.suggestions ?? [] };
+  const suggestions = (result?.suggestions ?? []).filter((s) => s.review_id === started.id);
+  return { contentId, review: result?.review ?? review, suggestions };
 }
 
 // Turns the review's suggestions into GitHub review comments. Each becomes a
@@ -41,6 +46,10 @@ export async function reviewPost(client, post, opts = {}) {
 export function buildComments({ fileText, bodyOffset, suggestions, commentable, path }) {
   const inline = [];
   const summary = [];
+  // Summary-form of the suggestions that went inline — a fallback the caller
+  // folds into the summary comment if posting the inline review fails, so those
+  // suggestions are never silently dropped.
+  const inlineSummary = [];
 
   for (const s of suggestions) {
     const { startLine, endLine, replacement } = buildSuggestion({
@@ -50,6 +59,7 @@ export function buildComments({ fileText, bodyOffset, suggestions, commentable, 
       endOffset: s.end_offset,
       replaceWith: s.replace_with,
     });
+    const summaryItem = { ...s, startLine, endLine };
 
     if (isInlineable(startLine, endLine, commentable)) {
       inline.push({
@@ -60,12 +70,13 @@ export function buildComments({ fileText, bodyOffset, suggestions, commentable, 
         side: 'RIGHT',
         body: suggestionCommentBody(replacement, s.reason, s.type),
       });
+      inlineSummary.push(summaryItem);
     } else {
-      summary.push({ ...s, startLine, endLine });
+      summary.push(summaryItem);
     }
   }
 
-  return { inline, summary };
+  return { inline, summary, inlineSummary };
 }
 
 // Hidden marker so re-runs find and update the prior summary comment instead of

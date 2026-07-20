@@ -55,12 +55,12 @@ async function run() {
       const { review, suggestions } = await reviewPost(client, post, { platform });
 
       const commentable = commentableLines(file.patch);
-      const { inline, summary } = buildComments({
+      const { inline, summary, inlineSummary } = buildComments({
         fileText, bodyOffset: post.bodyOffset, suggestions, commentable, path: file.filename,
       });
 
       inlineComments.push(...inline);
-      perFile.push({ path: file.filename, review, summary });
+      perFile.push({ path: file.filename, review, summary, inlineSummary });
       core.info(`  ${suggestions.length} suggestion(s): ${inline.length} inline, ${summary.length} in summary`);
     } catch (err) {
       core.warning(`Failed to review ${file.filename}: ${err.message}`);
@@ -70,19 +70,30 @@ async function run() {
   if (perFile.length === 0) return;
 
   // One review carrying every inline suggested change. GitHub rejects a review
-  // whose comments fall outside the diff; we only add inlineable ones, but if a
-  // whole review is rejected, fall back to the summary comment alone.
+  // whose comments fall outside the diff; we only add inlineable ones, but if
+  // the whole review is rejected, fold those suggestions into the summary
+  // comment so none are dropped.
+  let inlinePosted = false;
   if (inlineComments.length > 0) {
     try {
       await octokit.rest.pulls.createReview({
         owner, repo, pull_number: pr.number, event: 'COMMENT', comments: inlineComments,
       });
+      inlinePosted = true;
     } catch (err) {
-      core.warning(`Could not post inline suggestions (${err.message}); they'll appear in the summary link instead.`);
+      core.warning(`Could not post inline suggestions (${err.message}); folding them into the summary comment.`);
     }
   }
 
-  await upsertSummary(octokit, owner, repo, pr.number, renderSummary(perFile));
+  // On success the summary lists only the off-diff suggestions (the inline ones
+  // are already on the PR); on failure it also carries the ones that would have
+  // been inline.
+  const summaryPerFile = perFile.map((f) => ({
+    path: f.path,
+    review: f.review,
+    summary: inlinePosted ? f.summary : [...f.summary, ...f.inlineSummary],
+  }));
+  await upsertSummary(octokit, owner, repo, pr.number, renderSummary(summaryPerFile));
 }
 
 // Creates the summary comment, or updates the prior one (found by its marker) so
