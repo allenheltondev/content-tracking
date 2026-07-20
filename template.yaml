@@ -112,6 +112,24 @@ Parameters:
       change the model or its dimension, the ContentVectorIndex Dimension below
       must match and existing vectors must be re-embedded (run
       scripts/backfill-content-vectors.mjs).
+  FactSearchUrl:
+    Type: String
+    Default: ""
+    Description: |
+      Optional web-search API endpoint the fact-checker review lens calls via
+      the agent's http_request tool (e.g. a Tavily/Brave/Exa search URL). When
+      empty, the fact lens is skipped and reviews run the other lenses only.
+  FactSearchApiKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: |
+      Optional API key for FactSearchUrl. Sent as a bearer token in the
+      FactSearchAuthHeader header. Leave empty if the endpoint needs no auth.
+  FactSearchAuthHeader:
+    Type: String
+    Default: Authorization
+    Description: Header name the fact lens sends FactSearchApiKey in (as "Bearer <key>").
   ReflectionThreshold:
     Type: Number
     Default: 5
@@ -1120,6 +1138,12 @@ Resources:
       Handler: index.handler
       MemorySize: 1024
       Timeout: 300
+      Environment:
+        Variables:
+          # Fact-checker lens search provider (optional; lens skipped when unset).
+          FACT_SEARCH_URL: !Ref FactSearchUrl
+          FACT_SEARCH_API_KEY: !Ref FactSearchApiKey
+          FACT_SEARCH_AUTH_HEADER: !Ref FactSearchAuthHeader
       Events:
         StartReview:
           Type: EventBridgeRule
@@ -1246,6 +1270,83 @@ Resources:
                 - dynamodb:Query
               Resource:
                 - !GetAtt ContentTrackingTable.Arn
+
+  # Response-streaming endpoint for the LIVE content review (the streaming twin
+  # of POST /content/{id}/reviews). Creates the review, runs the shared review
+  # engine, and streams each lens's progress + the recorded suggestions to the
+  # client as NDJSON — no Momento. Function URL with InvokeMode RESPONSE_STREAM;
+  # AuthType NONE, so it verifies the id token in-process like StreamGenerate.
+  # Bundles the agent runtime, so it's sized like the orchestrator.
+  StreamReviewFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - index.mjs
+    Properties:
+      CodeUri: functions/stream-review
+      Handler: index.handler
+      MemorySize: 1024
+      Timeout: 300
+      Environment:
+        Variables:
+          USER_POOL_ID: !Ref UserPoolId
+          USER_POOL_CLIENT_ID: !Ref UserPoolClient
+          # Fact-checker lens search provider (optional; lens skipped when unset).
+          FACT_SEARCH_URL: !Ref FactSearchUrl
+          FACT_SEARCH_API_KEY: !Ref FactSearchApiKey
+          FACT_SEARCH_AUTH_HEADER: !Ref FactSearchAuthHeader
+      FunctionUrlConfig:
+        AuthType: NONE
+        InvokeMode: RESPONSE_STREAM
+        Cors:
+          AllowOrigins:
+            - !If
+              - DeployCustomDomain
+              - !Sub "https://booked.${BaseCustomDomain}"
+              - !Sub "https://${DashboardDistribution.DomainName}"
+          AllowMethods:
+            - POST
+          AllowHeaders:
+            - authorization
+            - content-type
+          MaxAge: 300
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            # Read the content + voice profile, create the review, write
+            # reviews + suggestions.
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:BatchWriteItem
+                - dynamodb:Query
+              Resource:
+                - !GetAtt ContentTrackingTable.Arn
+            # Run the lenses (Converse/InvokeModel via the agent runtime) and
+            # embed the draft for voice retrieval.
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+                - bedrock:Converse
+                - bedrock:ConverseStream
+              Resource:
+                - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
+                - !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/*"
+            # Query the voice index for the brand lens's grounding examples.
+            - Effect: Allow
+              Action:
+                - s3vectors:GetVectors
+                - s3vectors:QueryVectors
+              Resource:
+                - !GetAtt BlogVectorBucket.VectorBucketArn
+                - !GetAtt BlogVoiceIndex.IndexArn
 
   # === "Ask your blog" grounding via Amazon Bedrock AgentCore Gateway ===
   #
@@ -1907,6 +2008,13 @@ Outputs:
       dashboard build so it can render generations live; if unset the UI falls
       back to the buffered REST endpoints.
     Value: !GetAtt StreamGenerateFunctionUrl.FunctionUrl
+
+  StreamReviewUrl:
+    Description: |
+      Function URL for the live content review stream. Set as
+      VITE_REVIEW_STREAM_BASE_URL in the dashboard build so reviews stream live;
+      if unset the UI falls back to POST /content/{id}/reviews + polling.
+    Value: !GetAtt StreamReviewFunctionUrl.FunctionUrl
 
   BlogGatewayUrl:
     Description: |
