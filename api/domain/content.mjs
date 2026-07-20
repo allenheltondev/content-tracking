@@ -241,7 +241,7 @@ export async function putContentVectorState(tenantId, contentId, { contentHash, 
   }));
 }
 
-export async function listContentByTenant(tenantId, { limit, exclusiveStartKey, type, source, status } = {}) {
+export async function listContentByTenant(tenantId, { limit, exclusiveStartKey, type, source, status, slug } = {}) {
   // Optional server-side filters on the root attributes. Filters apply after
   // the GSI1 partition query, so paging still walks the newest-first index.
   const names = {};
@@ -262,6 +262,11 @@ export async function listContentByTenant(tenantId, { limit, exclusiveStartKey, 
     values[":status"] = status;
     filters.push("#status = :status");
   }
+  if (slug !== undefined) {
+    names["#slug"] = "slug";
+    values[":slug"] = slug;
+    filters.push("#slug = :slug");
+  }
 
   const result = await ddb.send(new QueryCommand({
     TableName: TABLE_NAME,
@@ -278,6 +283,21 @@ export async function listContentByTenant(tenantId, { limit, exclusiveStartKey, 
     items: result.Items ?? [],
     lastEvaluatedKey: result.LastEvaluatedKey,
   };
+}
+
+// Finds a content root by its slug (unique per tenant in practice), or null.
+// Walks the tenant's content index with a slug filter, page by page, until a
+// match is found — personal-scale, so the whole catalog is small. Powers the
+// automation upsert (GET /content/by-slug/{slug}): a CI hook resolves a Hugo
+// post's slug to its contentId to decide create-vs-update.
+export async function findContentBySlug(tenantId, slug) {
+  let exclusiveStartKey;
+  do {
+    const { items, lastEvaluatedKey } = await listContentByTenant(tenantId, { slug, exclusiveStartKey });
+    if (items.length > 0) return items[0];
+    exclusiveStartKey = lastEvaluatedKey;
+  } while (exclusiveStartKey);
+  return null;
 }
 
 // Builds the SET/REMOVE expression for a partial content update.

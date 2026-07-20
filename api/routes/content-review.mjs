@@ -1,4 +1,4 @@
-import { requireTenantId } from "../services/identity.mjs";
+import { requirePublisherTenantId, requireTenantId } from "../services/identity.mjs";
 import { jsonResponse } from "../services/http-handler.mjs";
 import { BadRequestError } from "../services/errors.mjs";
 import { getContent } from "../domain/content.mjs";
@@ -39,7 +39,8 @@ export function registerContentReviewRoutes(app) {
   // the live stream). Idempotency isn't applied — each press is a fresh review
   // of whatever the draft says now.
   app.post("/content/:contentId/reviews", async ({ event, params }) => {
-    const tenantId = requireTenantId(event);
+    // Publisher-scoped (dashboard OR API key) so a CI hook can kick off a review.
+    const tenantId = requirePublisherTenantId(event);
     const { platform } = validateStartReview(parseBody(event, { optional: true }));
 
     const content = await getContent(tenantId, params.contentId);
@@ -84,7 +85,8 @@ export function registerContentReviewRoutes(app) {
   // completion, its editorial summary. The primary "review finished" signal is
   // the live stream; this is the reload/fallback read.
   app.get("/content/:contentId/reviews/:reviewId", async ({ event, params }) => {
-    const tenantId = requireTenantId(event);
+    // Publisher-scoped so a CI hook can poll the review to completion.
+    const tenantId = requirePublisherTenantId(event);
     await getContent(tenantId, params.contentId);
     const review = await getReview(tenantId, params.contentId, params.reviewId);
     return jsonResponse(200, formatReview(review));
@@ -94,7 +96,8 @@ export function registerContentReviewRoutes(app) {
   // of content plus the latest review's summary, everything the editor needs to
   // render highlights and the summary panel in one call.
   app.get("/content/:contentId/suggestions", async ({ event, params }) => {
-    const tenantId = requireTenantId(event);
+    // Publisher-scoped so a CI hook can read the suggestions to post on a PR.
+    const tenantId = requirePublisherTenantId(event);
     await getContent(tenantId, params.contentId);
 
     const [suggestions, latestReview] = await Promise.all([

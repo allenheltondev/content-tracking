@@ -8,6 +8,7 @@ jest.unstable_mockModule("../domain/content.mjs", () => ({
   createContent: jest.fn(),
   deleteContent: jest.fn(),
   detachCampaign: jest.fn(),
+  findContentBySlug: jest.fn(),
   getContent: jest.fn(),
   listContentByTenant: jest.fn(),
   listContentStats: jest.fn(),
@@ -38,7 +39,7 @@ jest.unstable_mockModule("../services/parse-blog.mjs", () => ({ transformBlogFor
 jest.unstable_mockModule("../services/blog-platforms/index.mjs", () => ({ getAdapter: jest.fn() }));
 
 const {
-  attachCampaign, createContent, deleteContent, detachCampaign, getContent,
+  attachCampaign, createContent, deleteContent, detachCampaign, findContentBySlug, getContent,
   listContentByTenant, listContentStats, listPublishVariants, putPublishVariant,
   putStatsSnapshot, updateContent,
 } = await import("../domain/content.mjs");
@@ -67,12 +68,12 @@ function buildRouteTable() {
 const routes = buildRouteTable();
 const SUB = "user-1";
 
-function ctx({ body, params, query } = {}) {
+function ctx({ body, params, query, authSource = "cognito" } = {}) {
   return {
     event: {
       body: body === undefined ? undefined : JSON.stringify(body),
       queryStringParameters: query,
-      requestContext: { authorizer: { authSource: "cognito", sub: SUB } },
+      requestContext: { authorizer: { authSource, sub: SUB } },
     },
     params,
   };
@@ -405,5 +406,47 @@ describe("POST /content/ask", () => {
   test("rejects an empty question before embedding", async () => {
     await expect(ask()(ctx({ body: { question: "   " } }))).rejects.toThrow(/question must be a non-empty string/);
     expect(embedText).not.toHaveBeenCalled();
+  });
+});
+
+describe("automation surface (API key)", () => {
+  test("GET /content/by-slug/:slug resolves a slug to its content", async () => {
+    findContentBySlug.mockResolvedValue({ contentId: "C1", slug: "my-post", title: "My Post", tags: [] });
+    const res = await routes["GET /content/by-slug/:slug"](ctx({ params: { slug: "my-post" } }));
+    expect(res.statusCode).toBe(200);
+    expect(findContentBySlug).toHaveBeenCalledWith(SUB, "my-post");
+    expect(JSON.parse(res.body).content_id).toBe("C1");
+  });
+
+  test("GET /content/by-slug/:slug 404s when no post has that slug", async () => {
+    findContentBySlug.mockResolvedValue(null);
+    await expect(routes["GET /content/by-slug/:slug"](ctx({ params: { slug: "missing" } }))).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  test("by-slug lookup works with an API key (publisher-scoped)", async () => {
+    findContentBySlug.mockResolvedValue({ contentId: "C1", slug: "my-post", title: "My Post", tags: [] });
+    const res = await routes["GET /content/by-slug/:slug"](ctx({ params: { slug: "my-post" }, authSource: "apikey" }));
+    expect(res.statusCode).toBe(200);
+  });
+
+  test("PATCH /content/:contentId accepts an API key", async () => {
+    updateContent.mockResolvedValue({ contentId: "C1", title: "Edited", tags: [] });
+    const res = await routes["PATCH /content/:contentId"](
+      ctx({ params: { contentId: "C1" }, body: { title: "Edited" }, authSource: "apikey" }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(updateContent).toHaveBeenCalledWith(SUB, "C1", expect.objectContaining({ title: "Edited" }));
+  });
+
+  test("PATCH still rejects the Chrome extension (not a publisher)", async () => {
+    await expect(
+      routes["PATCH /content/:contentId"](ctx({ params: { contentId: "C1" }, body: { title: "x" }, authSource: "extension" })),
+    ).rejects.toMatchObject({ statusCode: 401 });
+  });
+
+  test("GET /content forwards the slug filter", async () => {
+    listContentByTenant.mockResolvedValue({ items: [], lastEvaluatedKey: undefined });
+    await routes["GET /content"](ctx({ query: { slug: "my-post" } }));
+    expect(listContentByTenant).toHaveBeenCalledWith(SUB, expect.objectContaining({ slug: "my-post" }));
   });
 });
