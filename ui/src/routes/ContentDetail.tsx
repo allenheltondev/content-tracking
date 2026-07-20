@@ -30,6 +30,7 @@ import type {
   UpdateContentParams,
 } from '../api/types';
 import Markdown from '../components/MarkdownLazy';
+import ContentReview from '../components/review/ContentReview';
 import { parseList } from '../lib/text';
 import CampaignDetail from './CampaignDetail';
 
@@ -133,6 +134,14 @@ export default function ContentDetail(): ReactElement {
               </article>
             ) : (
               <p className="text-sm text-muted-foreground">This piece has no stored body.</p>
+            )}
+
+            {content.content_markdown && (
+              <ContentReview
+                contentId={content.content_id}
+                body={content.content_markdown}
+                onBodyChange={(b) => setContent((c) => (c ? { ...c, content_markdown: b } : c))}
+              />
             )}
 
             {content.type === 'blog' && (

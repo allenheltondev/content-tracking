@@ -216,21 +216,38 @@ Client delivery today is polling `GET .../reviews/{reviewId}` +
   a **response-streaming Function URL** (NDJSON), reusing the `stream-generate`
   pattern, instead of polling. `GET .../reviews/{reviewId}` stays the fallback.
 
-### Phase 4 — The editor + suggestion UX (frontend)
+### Phase 4a — The editor + suggestion UX ✅ (landed)
 
-On the existing `ContentDetail` route (`ui/src/routes/ContentDetail.tsx`), using
-`@readysetcloud/ui` chrome and Booked's React Query + `useApiFetch` patterns:
+On the existing `ContentDetail` route, using the app's `useApiFetch` +
+design-system classes:
 
-- Port `utils/suggestionOffsetCalculation.ts` (offset recalculation + self-healing
-  re-anchoring) near-verbatim.
-- Port the plain-textarea + highlight-span renderer (`SimpleSuggestionHighlights`)
-  and the accept/reject/inline-edit/undo card (`SuggestionActionButtons` +
-  `DraggableActiveSuggestionArea`), dropping the orphaned manager/context layer.
-- "Start Review" → `POST /content/{id}/reviews`; subscribe to the review stream
-  for live suggestions; fall back to `GET .../suggestions`.
-- Accept applies the edit locally, recalculates downstream offsets, then
-  `POST .../suggestions/{id}/status`. Save persists via the existing
-  `PATCH /content/{id}` (`content_markdown`), which triggers Phase 2 revalidation.
+- `ui/src/api/review.ts` — the review client (start / poll / list suggestions /
+  set status), mapping the snake_case API to camelCase at the boundary.
+- `ui/src/lib/suggestionOffsets.ts` — the ported offset engine: recalculation on
+  accept + self-healing re-anchoring (expanded / case-insensitive / whitespace /
+  keyword / global strategies). De-noised, adapted to the app's `Suggestion`
+  shape. Unit-tested (9 cases).
+- `ui/src/components/review/` — `SuggestionHighlights` (renders the draft source
+  with clickable, per-type highlighted spans + active-suggestion auto-scroll),
+  `SuggestionCard` (the before → after + accept/reject/dismiss + navigation), and
+  `ContentReview` (the orchestrator: load existing suggestions, "Start review",
+  poll the review to completion, and drive accept/reject/dismiss). Component-
+  tested (accept applies the edit + persists + records; reject records only).
+- Integrated into `ContentDetail`: the review section renders under the body.
+  **Accept** applies the edit to the body, recomputes the remaining suggestions'
+  offsets locally, persists via the existing `PATCH /content/{id}`
+  (`content_markdown`) — which triggers Phase 2 server-side revalidation — records
+  `accepted`, and syncs the detail view. **Reject/Dismiss** record the decision.
+
+Delivery is the 202 + poll loop (`GET .../reviews/{reviewId}` then
+`GET .../suggestions`). Per-lens live streaming is Phase 3b.
+
+### Phase 4b — polish (follow-up)
+
+Inline-edit-before-accept (tweak `replaceWith` in place) and an undo stack for
+accepted edits — both present in content-agent's `SuggestionActionButtons` and
+worth porting once the core loop is in use. Rendering highlights over *rendered*
+markdown (rather than the source) is a larger follow-up.
 
 ## How this satisfies the rsc-core requirement
 
