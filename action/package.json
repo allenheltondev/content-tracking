@@ -1,0 +1,15 @@
+{
+  "name": "booked-content-review-action",
+  "version": "0.1.0",
+  "description": "GitHub Action: register a changed Hugo post in Booked, run the review, and post suggestions back on the PR.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/github": "^6.0.0",
+    "gray-matter": "^4.0.3"
+  }
+}

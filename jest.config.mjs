@@ -13,7 +13,10 @@ export default {
   ],
   testPathIgnorePatterns: [
     '/node_modules/',
-    '/.aws-sam/'
+    '/.aws-sam/',
+    // The GitHub Action is a self-contained npm project with its own deps and
+    // uses node:test (run via `npm test` inside action/), not this jest config.
+    '/action/'
   ],
   testEnvironment: 'node'
 };
