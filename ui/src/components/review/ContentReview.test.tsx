@@ -113,6 +113,40 @@ describe('ContentReview', () => {
     expect(streamReview).toHaveBeenCalledWith('tok', 'C1', undefined, expect.any(Function));
   });
 
+  it('inline edit applies the edited replacement instead of the suggested text', async () => {
+    const onBodyChange = vi.fn();
+    render(<ContentReview contentId="C1" body={BODY} onBodyChange={onBodyChange} />);
+
+    await screen.findByText('Prefer a stronger word.');
+    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
+
+    const textarea = screen.getByRole('textbox', { name: /edit replacement text/i });
+    await userEvent.clear(textarea);
+    await userEvent.type(textarea, 'nimble');
+    await userEvent.click(screen.getByRole('button', { name: /accept edit/i }));
+
+    await waitFor(() => {
+      expect(updateContent).toHaveBeenCalledWith(expect.anything(), 'C1', { content_markdown: 'The nimble brown fox.' });
+    });
+    expect(onBodyChange).toHaveBeenCalledWith('The nimble brown fox.');
+  });
+
+  it('undo restores the pre-accept body and re-inserts the suggestion', async () => {
+    render(<ContentReview contentId="C1" body={BODY} />);
+
+    await screen.findByText('Prefer a stronger word.');
+    await userEvent.click(screen.getByRole('button', { name: /^accept$/i }));
+    await waitFor(() => expect(screen.queryByText('Prefer a stronger word.')).not.toBeInTheDocument());
+
+    // Undo appears after an accept; clicking it reverts.
+    await userEvent.click(screen.getByRole('button', { name: /^undo$/i }));
+
+    await waitFor(() => {
+      expect(updateContent).toHaveBeenLastCalledWith(expect.anything(), 'C1', { content_markdown: BODY });
+    });
+    expect(await screen.findByText('Prefer a stronger word.')).toBeInTheDocument();
+  });
+
   it('rejecting records the decision without touching the body', async () => {
     render(<ContentReview contentId="C1" body={BODY} />);
     await screen.findByText('Prefer a stronger word.');

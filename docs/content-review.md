@@ -260,12 +260,21 @@ design-system classes:
 Delivery is the 202 + poll loop (`GET .../reviews/{reviewId}` then
 `GET .../suggestions`). Per-lens live streaming is Phase 3b.
 
-### Phase 4b — polish (follow-up)
+### Phase 4b — inline edit + undo ✅ (landed)
 
-Inline-edit-before-accept (tweak `replaceWith` in place) and an undo stack for
-accepted edits — both present in content-agent's `SuggestionActionButtons` and
-worth porting once the core loop is in use. Rendering highlights over *rendered*
-markdown (rather than the source) is a larger follow-up.
+- **Inline edit-before-accept** — `SuggestionCard` has an Edit mode: a textarea
+  pre-filled with the suggested `replaceWith` that the author can tweak, then
+  "Accept edit" applies the edited text instead. `ContentReview.onAccept(edited?)`
+  applies the edited replacement when present, otherwise the suggested text.
+- **Undo** — accepting pushes the pre-accept state (body + suggestion list +
+  index) onto a bounded (10-deep) local undo stack; an Undo button restores it
+  and persists the reverted body via `PATCH /content/{id}`. Caveat: the undone
+  suggestion was already recorded `accepted` server-side (there's no un-resolve),
+  so it's re-inserted locally for immediate re-decision but won't reappear as
+  pending on a fresh reload — re-accepting or rejecting it re-syncs the status.
+
+Still open: rendering highlights over *rendered* markdown rather than the source
+is a larger follow-up (offsets index into the source), left for later.
 
 ## How this satisfies the rsc-core requirement
 

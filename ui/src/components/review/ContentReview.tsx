@@ -47,6 +47,8 @@ export default function ContentReview({ contentId, body, platform, onBodyChange 
   const [streaming, setStreaming] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Local undo history for accepted edits: each entry is the pre-accept state.
+  const [undoStack, setUndoStack] = useState<{ body: string; suggestions: Suggestion[]; activeIndex: number }[]>([]);
 
   // Keep the working copy in step with the parent's body when it changes for a
   // reason other than an accept here (e.g. the author edited it directly).
@@ -166,21 +168,26 @@ export default function ContentReview({ contentId, body, platform, onBodyChange 
 
   const clampActive = useCallback((len: number, idx: number) => Math.max(0, Math.min(idx, len - 1)), []);
 
-  const onAccept = useCallback(async () => {
+  const onAccept = useCallback(async (edited?: string) => {
     const active = suggestions[activeIndex];
     if (!active) return;
     setBusy(true);
     setError(null);
     try {
+      // Apply the edited replacement when the author tweaked it inline,
+      // otherwise the suggested text.
+      const toApply = typeof edited === 'string' ? { ...active, replaceWith: edited } : active;
       const others = suggestions.filter((s) => s.id !== active.id);
-      const { newContent, updatedSuggestions } = applySuggestion(workingBody, active, others);
+      const { newContent, updatedSuggestions } = applySuggestion(workingBody, toApply, others);
       // Persist the rewritten body first so it's durable.
       await updateContent(apiFetch, contentId, { content_markdown: newContent });
-      // Sync local + parent state immediately on a successful save, BEFORE
-      // recording the decision — so if the status call then fails, the editor
-      // still reflects the applied edit (and the now-anchorless suggestion is
-      // gone), matching what a reload would show. The server marks the dropped
-      // suggestion skipped via the content-stream revalidation regardless.
+      // Record the pre-accept state for undo, then sync local + parent state
+      // immediately on a successful save, BEFORE recording the decision — so if
+      // the status call then fails, the editor still reflects the applied edit
+      // (and the now-anchorless suggestion is gone), matching what a reload
+      // would show. The server marks the dropped suggestion skipped via the
+      // content-stream revalidation regardless.
+      setUndoStack((stack) => [...stack, { body: workingBody, suggestions, activeIndex }].slice(-10));
       setWorkingBody(newContent);
       onBodyChange?.(newContent);
       setSuggestions(updatedSuggestions);
@@ -192,6 +199,30 @@ export default function ContentReview({ contentId, body, platform, onBodyChange 
       setBusy(false);
     }
   }, [suggestions, activeIndex, workingBody, apiFetch, contentId, onBodyChange, clampActive]);
+
+  // Undo the last accepted edit: restore the pre-accept body + suggestion list
+  // and persist the reverted body. NOTE: the undone suggestion was already
+  // recorded 'accepted' server-side (there's no un-resolve), so it's re-inserted
+  // locally for immediate re-decision but won't reappear as pending on a fresh
+  // reload — re-accepting or rejecting it re-syncs the server status.
+  const onUndo = useCallback(async () => {
+    const last = undoStack[undoStack.length - 1];
+    if (!last) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await updateContent(apiFetch, contentId, { content_markdown: last.body });
+      setWorkingBody(last.body);
+      onBodyChange?.(last.body);
+      setSuggestions(last.suggestions);
+      setActiveIndex(last.activeIndex);
+      setUndoStack((stack) => stack.slice(0, -1));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }, [undoStack, apiFetch, contentId, onBodyChange]);
 
   const resolve = useCallback(
     async (decision: 'rejected' | 'dismissed') => {
@@ -224,9 +255,16 @@ export default function ContentReview({ contentId, body, platform, onBodyChange 
     <section className="border border-border rounded-lg px-4 py-3 space-y-3 mt-4">
       <div className="flex items-center justify-between gap-2">
         <h3 className="font-medium">Review</h3>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={onStart} disabled={busy || inFlight}>
-          {inFlight ? 'Reviewing…' : suggestions.length || review ? 'Re-run review' : 'Start review'}
-        </button>
+        <span className="flex gap-2">
+          {undoStack.length > 0 && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={onUndo} disabled={busy}>
+              Undo
+            </button>
+          )}
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onStart} disabled={busy || inFlight}>
+            {inFlight ? 'Reviewing…' : suggestions.length || review ? 'Re-run review' : 'Start review'}
+          </button>
+        </span>
       </div>
 
       {error && <p className="text-sm text-error-600">{error}</p>}
