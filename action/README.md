@@ -41,12 +41,31 @@ jobs:
   review:
     runs-on: ubuntu-latest
     steps:
-      - uses: readysetcloud/content-tracking/action@main   # or a pinned tag
+      - uses: allenheltondev/content-tracking/action@main   # or a pinned tag
         with:
           api-url: ${{ vars.BOOKED_API_URL }}
           api-key: ${{ secrets.BOOKED_API_KEY }}
           posts-dir: content/
           platform: blog
+```
+
+### Referencing the action
+
+`content-tracking` is private, so to `uses:` it from another repo you must share
+it: in `content-tracking` → **Settings → Actions → General → Access** → allow
+access from repositories owned by the same user/org. That only works when the
+Hugo repo has the same owner.
+
+Otherwise, **vendor it**: copy this `action/` folder into your Hugo repo (e.g.
+`.github/actions/content-review/`) and reference it locally — no sharing setting,
+and you pin the exact version you copied:
+
+```yaml
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/content-review
+        with:
+          api-url: ${{ vars.BOOKED_API_URL }}
+          api-key: ${{ secrets.BOOKED_API_KEY }}
 ```
 
 ### Inputs
