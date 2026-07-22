@@ -1,29 +1,22 @@
 import type { ReactElement } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useApiFetch } from '../auth/useApiFetch';
 import { listVendors } from '../api/vendors';
-import type { Vendor } from '../api/types';
 
 export default function Vendors(): ReactElement {
   const apiFetch = useApiFetch();
-  const [vendors, setVendors] = useState<Vendor[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
-  useEffect(() => {
-    let cancelled = false;
-    listVendors(apiFetch, { limit: 200 })
-      .then((res) => {
-        if (!cancelled) setVendors(res.vendors);
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setError(err.message);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [apiFetch]);
+  // Cached under the bare ['vendors'] key and shared with VendorSelect, so
+  // both must request the same page size (500).
+  const { data, error: queryError } = useQuery({
+    queryKey: ['vendors'],
+    queryFn: () => listVendors(apiFetch, { limit: 500 }),
+  });
+  const vendors = data?.vendors ?? null;
+  const error = queryError ? (queryError as Error).message : null;
 
   const filtered = useMemo(() => {
     if (!vendors) return null;

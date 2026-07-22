@@ -1,41 +1,36 @@
 import type { ReactElement } from 'react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApiFetch, ApiError } from '../auth/useApiFetch';
 import { getVendor, updateVendor } from '../api/vendors';
-import type { Vendor, VendorPayload } from '../api/types';
+import type { VendorPayload } from '../api/types';
 import VendorForm from '../components/VendorForm';
 
 export default function VendorEdit(): ReactElement {
   const { vendorId } = useParams<{ vendorId: string }>();
   const apiFetch = useApiFetch();
   const navigate = useNavigate();
-  const [vendor, setVendor] = useState<Vendor | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!vendorId) return;
-    let cancelled = false;
-    getVendor(apiFetch, vendorId)
-      .then((res) => {
-        if (!cancelled) setVendor(res);
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setLoadError(err.message);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [apiFetch, vendorId]);
+  const { data, error: queryError } = useQuery({
+    queryKey: ['vendor', vendorId],
+    queryFn: () => getVendor(apiFetch, vendorId!),
+    enabled: Boolean(vendorId),
+  });
+  const vendor = data ?? null;
+  const loadError = queryError ? (queryError as Error).message : null;
 
   const handleSubmit = async (payload: VendorPayload): Promise<void> => {
     if (!vendorId) return;
     setBusy(true);
     setServerError(null);
     try {
-      await updateVendor(apiFetch, vendorId, payload);
+      const updated = await updateVendor(apiFetch, vendorId, payload);
+      queryClient.setQueryData(['vendor', vendorId], updated);
+      void queryClient.invalidateQueries({ queryKey: ['vendors'] });
       navigate(`/vendors/${vendorId}`);
     } catch (err) {
       setServerError(err instanceof ApiError ? err.message : (err as Error).message);

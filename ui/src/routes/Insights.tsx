@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   CartesianGrid,
   Line,
@@ -10,7 +11,7 @@ import {
   YAxis,
 } from 'recharts';
 import { useApiFetch } from '../auth/useApiFetch';
-import { getInsights } from '../api/insights';
+import { getInsights } from '../api/insights';
 import { fmtInt, fmtPercent } from '../lib/format';
 import type {
   InsightsResponse,
@@ -62,33 +63,21 @@ function toDaily(series: InsightsTimeseriesPoint[], metric: Metric): { date: str
 export default function Insights(): ReactElement {
   const apiFetch = useApiFetch();
 
-  const [data, setData] = useState<InsightsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   const [rangeDays, setRangeDays] = useState(90);
   const [metric, setMetric] = useState<Metric>('engagements');
   const [mode, setMode] = useState<Mode>('cumulative');
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await getInsights(apiFetch, {
+  const query = useQuery({
+    queryKey: ['insights', { days: rangeDays }],
+    queryFn: () =>
+      getInsights(apiFetch, {
         startDate: isoDaysAgo(rangeDays),
         endDate: new Date().toISOString().slice(0, 10),
-      });
-      setData(res);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [apiFetch, rangeDays]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+      }),
+  });
+  const data: InsightsResponse | null = query.data ?? null;
+  const loading = query.isPending;
+  const error = query.error ? (query.error as Error).message : null;
 
   const chartData = useMemo(() => {
     if (!data) return [];

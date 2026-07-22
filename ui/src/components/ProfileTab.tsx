@@ -1,5 +1,6 @@
 import type { ChangeEvent, ReactElement, ReactNode } from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApiFetch, ApiError } from '../auth/useApiFetch';
 import { getProfile, updateProfile, uploadProfileImage } from '../api/profile';
 import TagsInput from './TagsInput';
@@ -112,32 +113,25 @@ function toPayload(s: FormState): ProfileUpdateRequest {
 
 export default function ProfileTab(): ReactElement {
   const apiFetch = useApiFetch();
+  const queryClient = useQueryClient();
 
-  const [profile, setProfile] = useState<ProfileResponse | null>(null);
+  const profileQuery = useQuery({
+    queryKey: ['profile'],
+    queryFn: () => getProfile(apiFetch),
+  });
+  const profile: ProfileResponse | null = profileQuery.data ?? null;
+  const loadError = profileQuery.error ? (profileQuery.error as Error).message : null;
+
   const [form, setForm] = useState<FormState>(EMPTY);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const load = useCallback(() => {
-    let cancelled = false;
-    setLoadError(null);
-    getProfile(apiFetch)
-      .then((res) => {
-        if (cancelled) return;
-        setProfile(res);
-        setForm(fromProfile(res));
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setLoadError(err.message);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [apiFetch]);
-
-  useEffect(() => load(), [load]);
+  // Seed the working copy whenever fresh profile data lands (initial load and
+  // after a save writes the response into the cache).
+  useEffect(() => {
+    if (profileQuery.data) setForm(fromProfile(profileQuery.data));
+  }, [profileQuery.data]);
 
   const patch = (changes: Partial<FormState>): void =>
     setForm((prev) => ({ ...prev, ...changes }));
@@ -148,8 +142,8 @@ export default function ProfileTab(): ReactElement {
     setBusy(true);
     try {
       const res = await updateProfile(apiFetch, { ...toPayload(form), ...extra });
-      setProfile(res);
-      setForm(fromProfile(res));
+      // The seeding effect above re-fills the form from this.
+      queryClient.setQueryData(['profile'], res);
       setSaved(true);
     } catch (err) {
       setSaveError(err instanceof ApiError ? err.message : (err as Error).message);

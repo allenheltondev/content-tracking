@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApiFetch, ApiError } from '../auth/useApiFetch';
 import {
   deleteVendor,
@@ -12,9 +13,6 @@ import { createCampaign } from '../api/campaigns';
 import { getRevenue } from '../api/revenue';
 import type {
   CreateCampaignRequest,
-  RevenueResponse,
-  Vendor,
-  VendorCampaignSummary,
   VendorReportResponse,
 } from '../api/types';
 import DeleteVendorModal from '../components/DeleteVendorModal';
@@ -30,13 +28,30 @@ export default function VendorDetail(): ReactElement {
   const { vendorId } = useParams<{ vendorId: string }>();
   const apiFetch = useApiFetch();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
-  const [vendor, setVendor] = useState<Vendor | null>(null);
-  const [campaigns, setCampaigns] = useState<VendorCampaignSummary[] | null>(null);
-  const [revenue, setRevenue] = useState<RevenueResponse | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [campaignsError, setCampaignsError] = useState<string | null>(null);
-  const [revenueError, setRevenueError] = useState<string | null>(null);
+  const vendorQuery = useQuery({
+    queryKey: ['vendor', vendorId],
+    queryFn: () => getVendor(apiFetch, vendorId!),
+    enabled: Boolean(vendorId),
+  });
+  const campaignsQuery = useQuery({
+    queryKey: ['vendor', vendorId, 'campaigns'],
+    queryFn: () => listCampaignsForVendor(apiFetch, vendorId!),
+    enabled: Boolean(vendorId),
+  });
+  const revenueQuery = useQuery({
+    queryKey: ['revenue', { vendorId, startDate: WIDE_START, endDate: WIDE_END }],
+    queryFn: () => getRevenue(apiFetch, { vendorId: vendorId!, startDate: WIDE_START, endDate: WIDE_END }),
+    enabled: Boolean(vendorId),
+  });
+
+  const vendor = vendorQuery.data ?? null;
+  const campaigns = campaignsQuery.data?.campaigns ?? null;
+  const revenue = revenueQuery.data ?? null;
+  const loadError = vendorQuery.error ? (vendorQuery.error as Error).message : null;
+  const campaignsError = campaignsQuery.error ? (campaignsQuery.error as Error).message : null;
+  const revenueError = revenueQuery.error ? (revenueQuery.error as Error).message : null;
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -51,47 +66,12 @@ export default function VendorDetail(): ReactElement {
   const [reportError, setReportError] = useState<string | null>(null);
   const [report, setReport] = useState<VendorReportResponse | null>(null);
 
-  useEffect(() => {
-    if (!vendorId) return;
-    let cancelled = false;
-    setLoadError(null);
-    setCampaignsError(null);
-    setRevenueError(null);
-
-    getVendor(apiFetch, vendorId)
-      .then((res) => {
-        if (!cancelled) setVendor(res);
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setLoadError(err.message);
-      });
-
-    listCampaignsForVendor(apiFetch, vendorId)
-      .then((res) => {
-        if (!cancelled) setCampaigns(res.campaigns);
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setCampaignsError(err.message);
-      });
-
-    getRevenue(apiFetch, { vendorId, startDate: WIDE_START, endDate: WIDE_END })
-      .then((res) => {
-        if (!cancelled) setRevenue(res);
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setRevenueError(err.message);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [apiFetch, vendorId]);
-
   const handleCreateCampaign = async (payload: CreateCampaignRequest): Promise<void> => {
     setCreateCampaignBusy(true);
     setCreateCampaignError(null);
     try {
       const created = await createCampaign(apiFetch, payload);
+      void queryClient.invalidateQueries({ queryKey: ['vendor', vendorId, 'campaigns'] });
       navigate(`/campaigns/${created.campaign_id}?tab=brief`);
     } catch (err) {
       setCreateCampaignError(err instanceof ApiError ? err.message : (err as Error).message);
@@ -121,6 +101,8 @@ export default function VendorDetail(): ReactElement {
     setBlockingCount(null);
     try {
       await deleteVendor(apiFetch, vendorId);
+      void queryClient.invalidateQueries({ queryKey: ['vendors'] });
+      queryClient.removeQueries({ queryKey: ['vendor', vendorId] });
       navigate('/vendors');
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {

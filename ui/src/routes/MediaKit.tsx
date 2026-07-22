@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApiFetch, ApiError } from '../auth/useApiFetch';
 import {
   generateMediaKit,
@@ -9,40 +10,32 @@ import {
   publishMediaKit,
   unpublishMediaKit,
 } from '../api/mediaKit';
-import type { MediaKitListItem, MediaKitPublishState, MediaKitStats } from '../api/types';
+import type { MediaKitListItem, MediaKitPublishState, MediaKitStats } from '../api/types';
 import { fmtCompact, fmtPercent, intFmt } from '../lib/format';
 
 export default function MediaKit(): ReactElement {
   const apiFetch = useApiFetch();
-
-  const [kits, setKits] = useState<MediaKitListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
   const [latest, setLatest] = useState<{ url: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const [publishState, setPublishState] = useState<MediaKitPublishState | null>(null);
+  const kitsQuery = useQuery({
+    queryKey: ['media-kit', 'list'],
+    queryFn: () => listMediaKits(apiFetch),
+  });
+  const publishQuery = useQuery({
+    queryKey: ['media-kit', 'publish-state'],
+    queryFn: () => getPublishState(apiFetch),
+  });
 
-  const load = useCallback(async () => {
-    setLoadError(null);
-    setLoading(true);
-    try {
-      const [list, pub] = await Promise.all([listMediaKits(apiFetch), getPublishState(apiFetch)]);
-      setKits(list.media_kits);
-      setPublishState(pub);
-    } catch (err) {
-      setLoadError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [apiFetch]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const kits: MediaKitListItem[] = kitsQuery.data?.media_kits ?? [];
+  const loading = kitsQuery.isPending || publishQuery.isPending;
+  const loadErrorObj = kitsQuery.error ?? publishQuery.error;
+  const loadError = loadErrorObj ? (loadErrorObj as Error).message : null;
+  const publishState: MediaKitPublishState | null = publishQuery.data ?? null;
 
   const generate = async (): Promise<void> => {
     setGenError(null);
@@ -51,7 +44,7 @@ export default function MediaKit(): ReactElement {
     try {
       const res = await generateMediaKit(apiFetch);
       setLatest({ url: res.url });
-      await load();
+      await queryClient.invalidateQueries({ queryKey: ['media-kit'] });
     } catch (err) {
       setGenError(err instanceof ApiError ? err.message : (err as Error).message);
     } finally {
@@ -117,7 +110,10 @@ export default function MediaKit(): ReactElement {
         </div>
       )}
 
-      <PublicKitPanel state={publishState} onChange={setPublishState} />
+      <PublicKitPanel
+        state={publishState}
+        onChange={(s) => queryClient.setQueryData(['media-kit', 'publish-state'], s)}
+      />
 
       {stats && <StatsOverview stats={stats} />}
 

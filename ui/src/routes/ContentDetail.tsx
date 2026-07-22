@@ -1,6 +1,7 @@
 import type { FormEvent, ReactElement } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApiFetch } from '../auth/useApiFetch';
 import {
   addPublishVariant,
@@ -32,7 +33,7 @@ import type {
 import Markdown from '../components/MarkdownLazy';
 import ContentReview from '../components/review/ContentReview';
 import { parseList } from '../lib/text';
-import CampaignDetail from './CampaignDetail';
+import CampaignDetail from './CampaignDetail';
 import { formatTimestamp } from '../lib/format';
 
 const CONTENT_STATUSES: ContentStatus[] = ['draft', 'scheduled', 'published', 'archived'];
@@ -47,21 +48,28 @@ export default function ContentDetail(): ReactElement {
   const { contentId = '' } = useParams();
   const apiFetch = useApiFetch();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
-  const [content, setContent] = useState<Content | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    getContent(apiFetch, contentId)
-      .then((c) => { if (active) setContent(c); })
-      .catch((err) => { if (active) setError((err as Error).message); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [apiFetch, contentId]);
+  const query = useQuery({
+    queryKey: ['content', contentId],
+    queryFn: () => getContent(apiFetch, contentId),
+  });
+  const content = query.data ?? null;
+  const loading = query.isPending;
+  const error = query.error ? (query.error as Error).message : null;
+
+  // Replaces the old setContent: writes the updated piece into the detail
+  // cache synchronously (header/body update immediately) and marks any other
+  // content queries — the catalog lists — stale so they refresh.
+  const applyContent = (c: Content): void => {
+    queryClient.setQueryData(['content', contentId], c);
+    void queryClient.invalidateQueries({
+      queryKey: ['content'],
+      predicate: (q) => q.queryKey[1] !== contentId,
+    });
+  };
 
   if (loading) return <p className="text-muted-foreground">Loading…</p>;
   if (error) return <p className="form-error">Could not load content: {error}</p>;
@@ -80,7 +88,7 @@ export default function ContentDetail(): ReactElement {
           <EditContentForm
             content={content}
             apiFetch={apiFetch}
-            onSaved={(c) => { setContent(c); setEditing(false); }}
+            onSaved={(c) => { applyContent(c); setEditing(false); }}
             onCancel={() => setEditing(false)}
           />
         ) : (
@@ -119,8 +127,12 @@ export default function ContentDetail(): ReactElement {
               content={content}
               apiFetch={apiFetch}
               onEdit={() => setEditing(true)}
-              onChanged={setContent}
-              onDeleted={() => navigate('/content')}
+              onChanged={applyContent}
+              onDeleted={() => {
+                queryClient.removeQueries({ queryKey: ['content', contentId] });
+                void queryClient.invalidateQueries({ queryKey: ['content'] });
+                navigate('/content');
+              }}
             />
 
             {content.content_markdown ? (
@@ -135,7 +147,11 @@ export default function ContentDetail(): ReactElement {
               <ContentReview
                 contentId={content.content_id}
                 body={content.content_markdown}
-                onBodyChange={(b) => setContent((c) => (c ? { ...c, content_markdown: b } : c))}
+                onBodyChange={(b) => {
+                  queryClient.setQueryData<Content>(['content', contentId], (c) =>
+                    c ? { ...c, content_markdown: b } : c,
+                  );
+                }}
               />
             )}
 
@@ -152,7 +168,7 @@ export default function ContentDetail(): ReactElement {
 
       {/* Sponsorship: attach/create/detach, and — when attached — the full
           campaign workspace hangs off the content piece right here. */}
-      <SponsorshipRow content={content} apiFetch={apiFetch} onChanged={setContent} />
+      <SponsorshipRow content={content} apiFetch={apiFetch} onChanged={applyContent} />
 
       {content.campaign_id && (
         <div className="border-t border-border pt-6">
@@ -489,6 +505,7 @@ function ActionsRow({
 // each success is recorded as a publish variant and shows up in Analytics).
 // Works for content-native pieces that have no Blog row.
 function ContentCrosspostPanel({ contentId, apiFetch }: { contentId: string; apiFetch: ReturnType<typeof useApiFetch> }): ReactElement {
+  const queryClient = useQueryClient();
   const [selected, setSelected] = useState<Set<CrosspostPlatform>>(new Set());
   const [results, setResults] = useState<CrosspostContentResult[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -511,6 +528,9 @@ function ContentCrosspostPanel({ contentId, apiFetch }: { contentId: string; api
     try {
       const res = await crosspostContent(apiFetch, contentId, [...selected]);
       setResults(res.results);
+      // Successful cross-posts are recorded as publish variants — refresh the
+      // Analytics section so they show up without a page reload.
+      void queryClient.invalidateQueries({ queryKey: ['content', contentId, 'analytics'] });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -567,20 +587,20 @@ function ContentCrosspostPanel({ contentId, apiFetch }: { contentId: string; api
 // variant) and log per-platform metric snapshots — content-level analytics
 // independent of any campaign.
 function ContentAnalyticsSection({ contentId, apiFetch }: { contentId: string; apiFetch: ReturnType<typeof useApiFetch> }): ReactElement {
-  const [data, setData] = useState<ContentAnalyticsResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [adding, setAdding] = useState(false);
   const [recording, setRecording] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      setData(await getContentAnalytics(apiFetch, contentId));
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }, [apiFetch, contentId]);
+  const query = useQuery({
+    queryKey: ['content', contentId, 'analytics'],
+    queryFn: () => getContentAnalytics(apiFetch, contentId),
+  });
+  const data: ContentAnalyticsResponse | null = query.data ?? null;
+  const error = query.error ? (query.error as Error).message : null;
 
-  useEffect(() => { void load(); }, [load]);
+  const refresh = (): void => {
+    void queryClient.invalidateQueries({ queryKey: ['content', contentId, 'analytics'] });
+  };
 
   const latest = (platform: string): Record<string, number> | null => {
     const series = data?.stats.find((s) => s.platform === platform)?.snapshots ?? [];
@@ -604,7 +624,7 @@ function ContentAnalyticsSection({ contentId, apiFetch }: { contentId: string; a
         <AddPublishForm
           apiFetch={apiFetch}
           contentId={contentId}
-          onAdded={() => { setAdding(false); void load(); }}
+          onAdded={() => { setAdding(false); refresh(); }}
         />
       )}
 
@@ -648,7 +668,7 @@ function ContentAnalyticsSection({ contentId, apiFetch }: { contentId: string; a
                 apiFetch={apiFetch}
                 contentId={contentId}
                 platform={platform}
-                onRecorded={() => { setRecording(null); void load(); }}
+                onRecorded={() => { setRecording(null); refresh(); }}
               />
             )}
           </div>
