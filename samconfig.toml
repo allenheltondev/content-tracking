@@ -32,8 +32,6 @@ region = "us-east-1"
 capabilities = "CAPABILITY_IAM"
 parameter_overrides = [
   "Environment=staging",
-  "NewsletterApiBaseUrl=/newsletter-service/staging/newsletter-api-base-url",
-  "CampaignShortLinkBase=/newsletter-service/staging/campaign-short-link-base",
 ]
 
 [ci.deploy.parameters]
@@ -44,8 +42,6 @@ region = "us-east-1"
 capabilities = "CAPABILITY_IAM"
 parameter_overrides = [
   "Environment=staging",
-  "NewsletterApiBaseUrl=/newsletter-service/staging/newsletter-api-base-url",
-  "CampaignShortLinkBase=/newsletter-service/staging/campaign-short-link-base",
 ]
 
 [prod.deploy.parameters]
@@ -56,6 +52,4 @@ region = "us-east-1"
 capabilities = "CAPABILITY_IAM"
 parameter_overrides = [
   "Environment=production",
-  "NewsletterApiBaseUrl=/newsletter-service/production/newsletter-api-base-url",
-  "CampaignShortLinkBase=/newsletter-service/production/campaign-short-link-base",
 ]

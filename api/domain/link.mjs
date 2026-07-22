@@ -113,17 +113,6 @@ export async function listCampaignLinks(campaignId) {
   return result.Items ?? [];
 }
 
-export async function getLink(campaignId, linkId) {
-  const result = await ddb.send(new GetCommand({
-    TableName: TABLE_NAME,
-    Key: linkKey(campaignId, linkId),
-  }));
-  if (!result.Item) {
-    throw new NotFoundError("Link", linkId);
-  }
-  return result.Item;
-}
-
 // Returns the link without throwing. Used by routes that need to read
 // before they decide what to do (e.g. delete needs `code` to unmint).
 export async function findLink(campaignId, linkId) {

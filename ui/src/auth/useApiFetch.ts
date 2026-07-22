@@ -24,8 +24,9 @@ export type ApiFetch = <T = unknown>(path: string, options?: RequestOptions) => 
 
 // Hook returning an authenticated fetch wrapper. Pulls a fresh id token
 // from the shared auth core on every call so token refreshes happen
-// transparently. The token is sent as the raw `Authorization` header
-// (not `Bearer X`) per the API's Cognito authorizer config.
+// transparently. The token is sent as `Authorization: Bearer <token>` —
+// the standard scheme every Booked entry point (API Gateway authorizer,
+// streaming Function URLs, gateway interceptor) and the Core API accept.
 export function useApiFetch(): ApiFetch {
   const { getAccessToken } = useAuth();
 
@@ -49,7 +50,7 @@ export function useApiFetch(): ApiFetch {
 
       const method = options.method ?? 'GET';
       const headers: Record<string, string> = {
-        Authorization: token,
+        Authorization: `Bearer ${token}`,
         ...(options.body !== undefined ? { 'content-type': 'application/json' } : {}),
         // POST is the only non-idempotent method exposed by the API.
         // Attach a per-call key so safe client-side retries dedupe

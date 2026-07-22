@@ -1,5 +1,5 @@
 import { BadRequestError, NotFoundError } from "../services/errors.mjs";
-import { jsonResponse } from "../services/http-handler.mjs";
+import { jsonResponse, parseBody } from "../services/http-handler.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import { logger } from "../services/logger.mjs";
 import { decodeCursor, encodeCursor, parseLimit } from "../services/pagination.mjs";
@@ -340,17 +340,5 @@ export function registerCampaignRoutes(app) {
 function requireUlid(value, field) {
   if (!value || !ULID_RE.test(value)) {
     throw new BadRequestError(`${field} must be a ULID`);
-  }
-}
-
-function parseBody(event, { optional = false } = {}) {
-  if (!event.body) {
-    if (optional) return {};
-    throw new BadRequestError("Missing request body");
-  }
-  try {
-    return JSON.parse(event.body);
-  } catch {
-    throw new BadRequestError("Invalid JSON body");
   }
 }

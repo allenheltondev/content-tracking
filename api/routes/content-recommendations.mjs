@@ -1,5 +1,5 @@
-import { BadRequestError, NotFoundError } from "../services/errors.mjs";
-import { jsonResponse } from "../services/http-handler.mjs";
+import { NotFoundError } from "../services/errors.mjs";
+import { jsonResponse, parseBody } from "../services/http-handler.mjs";
 import { recommendEngagement } from "../services/bedrock.mjs";
 import { fetchContentText } from "../services/content-fetch.mjs";
 import { assertCampaignOwned, getCampaignWithLinks } from "../domain/campaign.mjs";
@@ -91,17 +91,5 @@ function personalSiteHosts(personalSiteUrl) {
     return [new URL(personalSiteUrl).hostname];
   } catch {
     return [];
-  }
-}
-
-function parseBody(event, { optional = false } = {}) {
-  if (!event.body) {
-    if (optional) return {};
-    throw new BadRequestError("Missing request body");
-  }
-  try {
-    return JSON.parse(event.body);
-  } catch {
-    throw new BadRequestError("Invalid JSON body");
   }
 }

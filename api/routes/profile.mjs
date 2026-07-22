@@ -1,5 +1,4 @@
-import { BadRequestError } from "../services/errors.mjs";
-import { jsonResponse } from "../services/http-handler.mjs";
+import { jsonResponse, parseBody } from "../services/http-handler.mjs";
 import { logger } from "../services/logger.mjs";
 import { validateProfileUpdate } from "../validation/profile.mjs";
 import {
@@ -214,16 +213,5 @@ async function previewAssetUrl(key) {
   } catch (err) {
     logger.warn("Failed to sign profile asset url", { key, error: err?.message });
     return null;
-  }
-}
-
-function parseBody(event) {
-  if (!event.body) {
-    throw new BadRequestError("Missing request body");
-  }
-  try {
-    return JSON.parse(event.body);
-  } catch {
-    throw new BadRequestError("Invalid JSON body");
   }
 }

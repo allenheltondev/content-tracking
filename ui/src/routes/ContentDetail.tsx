@@ -7,6 +7,7 @@ import {
   askContent,
   attachContentCampaign,
   createContentSponsorship,
+  CROSSPOST_PLATFORMS,
   crosspostContent,
   deleteContent,
   detachContentCampaign,
@@ -17,7 +18,6 @@ import {
 } from '../api/content';
 import type { CrosspostContentResult } from '../api/content';
 import { createVoiceSample } from '../api/voice';
-import { CROSSPOST_PLATFORMS } from '../api/blogs';
 import KeyValueEditor, { type Pair } from '../components/KeyValueEditor';
 import type {
   Content,

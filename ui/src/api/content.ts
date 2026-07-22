@@ -10,12 +10,15 @@ import type {
   ContentStatsSnapshot,
   ContentType,
   CreateContentParams,
+  CrosspostPlatform,
   UpdateContentParams,
 } from './types';
 
 // Unified Content catalog: management (CRUD) plus RAG Q&A (askContent). All
 // scoped server-side to the signed-in creator's partition. This is the
-// management successor to the Blog catalog client (api/blogs.ts).
+// management successor to the retired Blog catalog client.
+
+export const CROSSPOST_PLATFORMS: CrosspostPlatform[] = ['dev', 'medium', 'hashnode'];
 
 // Optional server-side filters for GET /content. Omitted/empty values are
 // dropped by apiFetch's query serializer so they don't constrain the list.

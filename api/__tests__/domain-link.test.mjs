@@ -17,7 +17,6 @@ jest.unstable_mockModule("../services/newsletter-service.mjs", () => ({
 const newsletterService = await import("../services/newsletter-service.mjs");
 const {
   createLink,
-  getLink,
   updateLink,
   deleteLink,
 } = await import("../domain/link.mjs");
@@ -91,19 +90,6 @@ describe("domain/link", () => {
       expect(newsletterService.mintShortLink).toHaveBeenCalledWith(
         expect.objectContaining({ campaignId: "acme-q2" }),
       );
-    });
-  });
-
-  describe("getLink", () => {
-    test("returns item when present", async () => {
-      mockSend.mockResolvedValueOnce({ Item: { linkId: "L1", code: "abc" } });
-      const item = await getLink("C1", "L1");
-      expect(item.code).toBe("abc");
-    });
-
-    test("404 when missing", async () => {
-      mockSend.mockResolvedValueOnce({});
-      await expect(getLink("C1", "L1")).rejects.toThrow(/Link L1 not found/);
     });
   });
 

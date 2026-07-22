@@ -152,7 +152,7 @@ export async function streamReview(
 
   const res = await fetch(env.reviewStreamBaseUrl, {
     method: 'POST',
-    headers: { authorization: token, 'content-type': 'application/json' },
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
     body: JSON.stringify({ contentId, ...(platform ? { platform } : {}) }),
   });
   if (!res.ok || !res.body) throw new Error(`Review stream failed (${res.status})`);
