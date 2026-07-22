@@ -1,4 +1,5 @@
-import { BadRequestError } from "../services/errors.mjs";
+import { BadRequestError } from "../services/errors.mjs";
+import { CAMPAIGN_ID_RE, ISO_DATE_RE } from "./common.mjs";
 
 // Validation + formatting for the Content entity. Request/response bodies are
 // snake_case; internal storage is camelCase (matching validation/blog.mjs).
@@ -21,8 +22,6 @@ export const CONTENT_SOURCES = ["owned", "sponsored"];
 export const CONTENT_STATUSES = ["draft", "scheduled", "published", "archived"];
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const CAMPAIGN_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function requireObject(body) {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {

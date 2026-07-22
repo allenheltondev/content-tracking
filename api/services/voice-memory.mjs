@@ -15,6 +15,7 @@ import {
   getVoiceSample,
   listRecentSamples,
   putVoiceProfile,
+  setVoiceSampleMuted,
 } from "../domain/voice.mjs";
 
 // The shared "voice memory" core: turning a saved sample into episodic +
@@ -305,4 +306,49 @@ export async function removeContentVoiceSample(content) {
   }
   logger.info("Removed content voice sample", { contentId, sampleId });
   return { sampleId };
+}
+
+// --- curation (mute / unmute / delete from the dashboard) -------------------
+// Moved out of routes/voice.mjs: each action keeps the row store, the vector
+// store, and the learned profile in sync, so the route stays HTTP glue.
+
+// After a curation action (mute, unmute, delete, steer) re-derives the profile
+// so the change is reflected in the learned voice right away. Best-effort: a
+// reflection failure must not fail the user's action — the manual "Refresh now"
+// path and the next automatic reflection both recover. Returns the updated
+// profile row, or null when nothing could be reflected.
+export async function reflectAfterCuration(tenantId, platform) {
+  try {
+    return await runReflection(tenantId, platform);
+  } catch (err) {
+    logger.warn("Post-curation reflection failed (non-fatal)", { platform, error: err?.message });
+    return null;
+  }
+}
+
+// Mutes or unmutes a sample and syncs the vector store: muting drops the
+// vector (the row stays, visible and reversible); unmuting re-embeds from the
+// stored text so the sample rejoins compose retrieval. Re-derives the profile
+// either way. Returns the updated sample row.
+export async function setSampleMutedAndSync(tenantId, platform, sampleId, muted) {
+  const updated = await setVoiceSampleMuted(tenantId, platform, sampleId, muted);
+  if (muted) {
+    await deleteVoiceSample({ tenantId, platform, sampleId });
+  } else {
+    const embedding = await embedText(updated.text);
+    await putVoiceSample({
+      tenantId, platform, format: updated.format, sampleId,
+      text: updated.text, embedding, publishedAt: updated.publishedAt ?? updated.createdAt,
+    });
+  }
+  await reflectAfterCuration(tenantId, platform);
+  return updated;
+}
+
+// Removes a sample row and its vector, then re-derives the profile so the
+// removal takes effect immediately.
+export async function removeSampleAndSync(tenantId, platform, sampleId) {
+  await deleteVoiceSampleRow(tenantId, platform, sampleId);
+  await deleteVoiceSample({ tenantId, platform, sampleId });
+  await reflectAfterCuration(tenantId, platform);
 }

@@ -3,9 +3,9 @@ import { jsonResponse } from "../services/http-handler.mjs";
 import { queryCampaignsByDateRange } from "../domain/campaign.mjs";
 import { requireTenantId } from "../services/identity.mjs";
 import { AGGREGATION_CURRENCY } from "../validation/payout.mjs";
-import { VENDOR_ID_RE } from "../validation/vendor.mjs";
+import { VENDOR_ID_RE } from "../validation/vendor.mjs";
+import { ISO_DATE_RE } from "../validation/common.mjs";
 
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const VALID_GROUPINGS = new Set(["year", "month", "vendor"]);
 
 export function registerRevenueRoutes(app) {

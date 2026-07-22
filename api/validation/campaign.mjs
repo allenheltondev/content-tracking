@@ -1,7 +1,8 @@
 import { BadRequestError } from "../services/errors.mjs";
 import { extractYoutubeVideoId } from "../services/youtube.mjs";
 import { formatPayout, validatePayoutPayload } from "./payout.mjs";
-import { VENDOR_ID_RE } from "./vendor.mjs";
+import { VENDOR_ID_RE } from "./vendor.mjs";
+import { ISO_DATE_RE } from "./common.mjs";
 
 // Shapes a stored campaign row into the snake_case API response. Lives here
 // (rather than the route module) so both the campaign routes and the content
@@ -28,7 +29,6 @@ export function formatCampaign(row) {
   };
 }
 
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const VALID_STATUSES = new Set(["draft", "active", "monitoring", "completed"]);
 // A campaign's main deliverable is either a published blog post (tracked via
 // GA4 + Core Web Vitals off blog_url) or a YouTube video (tracked via the

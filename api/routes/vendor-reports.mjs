@@ -11,9 +11,9 @@ import {
   reportObjectExpiresAtMs,
   saveReportRecord,
 } from "../domain/vendor-report-record.mjs";
-import { VENDOR_ID_RE } from "../validation/vendor.mjs";
+import { VENDOR_ID_RE } from "../validation/vendor.mjs";
+import { ISO_DATE_RE } from "../validation/common.mjs";
 
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function registerVendorReportRoutes(app) {
   // POST /vendors/:vendorId/report
