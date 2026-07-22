@@ -9,6 +9,7 @@ const {
   assertCampaignOwned,
   createCampaign,
   getCampaignWithLinks,
+  listAllCampaigns,
   listCampaigns,
   queryCampaignsByDateRange,
   updateCampaignFields,
@@ -341,6 +342,24 @@ describe("domain/campaign", () => {
       err.name = "ConditionalCheckFailedException";
       mockSend.mockRejectedValue(err);
       await expect(updateCampaignPayout("C1", { amount: 5000 })).rejects.toThrow(/Campaign C1 not found/);
+    });
+  });
+
+  describe("listAllCampaigns", () => {
+    test("drains every page into one flat array", async () => {
+      mockSend
+        .mockResolvedValueOnce({
+          Items: [{ campaignId: "C1", pk: "CAMPAIGN#C1", sk: "METADATA", gsi1pk: "CAMPAIGNS", gsi1sk: "a" }],
+          LastEvaluatedKey: { pk: "CAMPAIGN#C1", sk: "METADATA", gsi1pk: "CAMPAIGNS", gsi1sk: "a" },
+        })
+        .mockResolvedValueOnce({
+          Items: [{ campaignId: "C2", pk: "CAMPAIGN#C2", sk: "METADATA", gsi1pk: "CAMPAIGNS", gsi1sk: "b" }],
+        });
+
+      const all = await listAllCampaigns();
+
+      expect(mockSend).toHaveBeenCalledTimes(2);
+      expect(all.map((c) => c.campaignId)).toEqual(["C1", "C2"]);
     });
   });
 });

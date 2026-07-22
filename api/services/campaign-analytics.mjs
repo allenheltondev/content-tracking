@@ -1,14 +1,11 @@
 import { logger } from "./logger.mjs";
 import { UpstreamError } from "./errors.mjs";
+import { FANOUT_CONCURRENCY, runInBatches } from "./concurrency.mjs";
 import { getCampaignWithLinks } from "../domain/campaign.mjs";
 import {
   fetchCampaignLinksAnalytics,
   fetchLinkAnalytics,
 } from "./newsletter-service.mjs";
-
-const FANOUT_CONCURRENCY = parseInt(
-  process.env.ANALYTICS_FANOUT_CONCURRENCY || "10", 10,
-);
 
 // Campaign-level analytics aggregation. Two paths:
 //   - If the campaign has a link_tracking_id, ask newsletter-service for
@@ -207,12 +204,3 @@ function aggregate(perLink) {
   };
 }
 
-async function runInBatches(ops, batchSize) {
-  const results = [];
-  for (let i = 0; i < ops.length; i += batchSize) {
-    const batch = ops.slice(i, i + batchSize);
-    const settled = await Promise.all(batch.map((fn) => fn()));
-    results.push(...settled);
-  }
-  return results;
-}

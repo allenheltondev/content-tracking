@@ -3,7 +3,7 @@ import { jest } from "@jest/globals";
 process.env.TABLE_NAME = "test-booked";
 
 jest.unstable_mockModule("../domain/campaign.mjs", () => ({
-  listCampaigns: jest.fn(),
+  listAllCampaigns: jest.fn(),
 }));
 jest.unstable_mockModule("../domain/social-post.mjs", () => ({
   listSocialPosts: jest.fn(),
@@ -14,7 +14,7 @@ jest.unstable_mockModule("../domain/content-post.mjs", () => ({
   listContentPostSnapshots: jest.fn(),
 }));
 
-const { listCampaigns } = await import("../domain/campaign.mjs");
+const { listAllCampaigns } = await import("../domain/campaign.mjs");
 const { listSocialPosts, listSocialPostSnapshots } = await import("../domain/social-post.mjs");
 const { listContentPosts, listContentPostSnapshots } = await import("../domain/content-post.mjs");
 const { buildInsightsSummary } = await import("../domain/insights.mjs");
@@ -31,10 +31,7 @@ describe("buildInsightsSummary", () => {
   });
 
   test("carries cumulative levels forward across gaps in the window", async () => {
-    listCampaigns.mockResolvedValue({
-      items: [{ campaignId: "C1", name: "Launch", status: "active" }],
-      lastEvaluatedKey: undefined,
-    });
+    listAllCampaigns.mockResolvedValue([{ campaignId: "C1", name: "Launch", status: "active" }]);
     listSocialPosts.mockResolvedValue([{ campaignId: "C1", postId: "P1", platform: "x", url: "u" }]);
     // Captured on the 1st and the 3rd; the 2nd has no snapshot.
     listSocialPostSnapshots.mockResolvedValue([
@@ -54,10 +51,7 @@ describe("buildInsightsSummary", () => {
   });
 
   test("seeds carry-in from a snapshot before the window start", async () => {
-    listCampaigns.mockResolvedValue({
-      items: [{ campaignId: "C1", name: "Launch", status: "active" }],
-      lastEvaluatedKey: undefined,
-    });
+    listAllCampaigns.mockResolvedValue([{ campaignId: "C1", name: "Launch", status: "active" }]);
     listSocialPosts.mockResolvedValue([{ campaignId: "C1", postId: "P1", platform: "x", url: "u" }]);
     listSocialPostSnapshots.mockResolvedValue([
       snap("2025-12-20", { likes: 5, impressions: 50 }),
@@ -73,10 +67,7 @@ describe("buildInsightsSummary", () => {
   });
 
   test("sums across posts and content, ranks top performers, splits by platform", async () => {
-    listCampaigns.mockResolvedValue({
-      items: [{ campaignId: "C1", name: "Launch", status: "completed" }],
-      lastEvaluatedKey: undefined,
-    });
+    listAllCampaigns.mockResolvedValue([{ campaignId: "C1", name: "Launch", status: "completed" }]);
     listSocialPosts.mockResolvedValue([
       { campaignId: "C1", postId: "P1", platform: "x", url: "x-url" },
       { campaignId: "C1", postId: "P2", platform: "linkedin", url: "li-url" },
@@ -106,10 +97,7 @@ describe("buildInsightsSummary", () => {
   });
 
   test("computes period-over-period gain and percent change", async () => {
-    listCampaigns.mockResolvedValue({
-      items: [{ campaignId: "C1", name: "Launch", status: "active" }],
-      lastEvaluatedKey: undefined,
-    });
+    listAllCampaigns.mockResolvedValue([{ campaignId: "C1", name: "Launch", status: "active" }]);
     listSocialPosts.mockResolvedValue([{ campaignId: "C1", postId: "P1", platform: "x", url: "u" }]);
     // 2-day window 01-03..01-04. Prior period is 01-01..01-02.
     // Level before prior (12-31): none -> 0. Before window (01-02): 10.
@@ -127,7 +115,7 @@ describe("buildInsightsSummary", () => {
   });
 
   test("empty account yields zeroed totals and a full zero series", async () => {
-    listCampaigns.mockResolvedValue({ items: [], lastEvaluatedKey: undefined });
+    listAllCampaigns.mockResolvedValue([]);
 
     const out = await buildInsightsSummary({ startDate: "2026-01-01", endDate: "2026-01-02" });
 
@@ -147,14 +135,18 @@ describe("buildInsightsSummary", () => {
     expect(out.deltas.changePct.engagements).toBeNull();
   });
 
-  test("paginates through every campaign page", async () => {
-    listCampaigns
-      .mockResolvedValueOnce({ items: [{ campaignId: "C1", name: "A", status: "active" }], lastEvaluatedKey: { k: 1 } })
-      .mockResolvedValueOnce({ items: [{ campaignId: "C2", name: "B", status: "active" }], lastEvaluatedKey: undefined });
+  test("fans out to every campaign in the list", async () => {
+    listAllCampaigns.mockResolvedValue([
+      { campaignId: "C1", name: "A", status: "active" },
+      { campaignId: "C2", name: "B", status: "active" },
+    ]);
     listSocialPosts.mockResolvedValue([]);
 
     await buildInsightsSummary({ startDate: "2026-01-01", endDate: "2026-01-02" });
 
-    expect(listCampaigns).toHaveBeenCalledTimes(2);
+    expect(listSocialPosts).toHaveBeenCalledWith("C1");
+    expect(listSocialPosts).toHaveBeenCalledWith("C2");
+    expect(listContentPosts).toHaveBeenCalledWith("C1");
+    expect(listContentPosts).toHaveBeenCalledWith("C2");
   });
 });

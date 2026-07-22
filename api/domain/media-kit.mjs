@@ -1,4 +1,5 @@
-import { listCampaigns } from "./campaign.mjs";
+import { runInBatches } from "../services/concurrency.mjs";
+import { listAllCampaigns } from "./campaign.mjs";
 import { listSocialPosts } from "./social-post.mjs";
 import { listContentPosts } from "./content-post.mjs";
 import { getProfileSettings } from "./profile.mjs";
@@ -23,11 +24,10 @@ export async function buildMediaKitSnapshot({ assetUrlTtlSeconds = ASSET_TTL_DEF
   const p = profile ?? {};
 
   // Fan out to each campaign's partition for its tracked posts, then fold
-  // the open-ended metric maps into reach/engagement totals. Personal-scale
-  // data set, so the per-campaign fan-out mirrors the existing analytics and
-  // monitoring-working-set patterns.
-  const postBatches = await Promise.all(
-    campaigns.map(async (c) => {
+  // the open-ended metric maps into reach/engagement totals. Batched so a
+  // large account fires a bounded number of concurrent queries.
+  const postBatches = await runInBatches(
+    campaigns.map((c) => async () => {
       const [social, content] = await Promise.all([
         listSocialPosts(c.campaignId),
         listContentPosts(c.campaignId),
@@ -146,22 +146,4 @@ function signAsset(key, ttlSeconds) {
     logger.warn("Failed to sign media-kit asset url", { key, error: err?.message });
     return null;
   }
-}
-
-// Drains the paginated campaign list into a flat array. The media kit needs
-// every campaign regardless of status, so it can't use the status-scoped
-// helpers. Personal-scale data set, so fully consuming the pages is fine.
-async function listAllCampaigns(tenantId) {
-  const all = [];
-  let exclusiveStartKey;
-  do {
-    const { items, lastEvaluatedKey } = await listCampaigns({
-      limit: 500,
-      exclusiveStartKey,
-      tenantId,
-    });
-    for (const item of items) all.push(item);
-    exclusiveStartKey = lastEvaluatedKey;
-  } while (exclusiveStartKey);
-  return all;
 }
