@@ -199,7 +199,27 @@ Metadata:
       - index.mjs
     Banner:
       - js=import { createRequire } from 'module'; const require = createRequire(import.meta.url);
-    External: []
+    # The nodejs24.x runtime ships AWS SDK v3, so the stable service
+    # clients resolve from the runtime instead of being bundled into
+    # every artifact — smaller bundles, faster cold starts. Trade-off:
+    # those clients track the runtime's SDK minor version instead of
+    # package-lock. Deliberately still bundled:
+    #   - @aws-sdk/client-s3vectors (newer service; runtime inclusion
+    #     not guaranteed)
+    #   - @aws-sdk/cloudfront-signer + s3-request-presigner (small, and
+    #     signing behavior should pin to our tested version)
+    #   - @aws-lambda-powertools/* and @aws/durable-execution-sdk-js
+    #     (not part of the runtime SDK)
+    External:
+      - "@aws-sdk/client-bedrock-runtime"
+      - "@aws-sdk/client-dynamodb"
+      - "@aws-sdk/client-eventbridge"
+      - "@aws-sdk/client-lambda"
+      - "@aws-sdk/client-s3"
+      - "@aws-sdk/client-sqs"
+      - "@aws-sdk/client-ssm"
+      - "@aws-sdk/lib-dynamodb"
+      - "@aws-sdk/util-dynamodb"
     # Inline HTML templates as strings so `import x from "./foo.html"` works
     # in the bundled Lambda — no separate asset files to ship or path-resolve
     # at runtime. The vendor-report renderer relies on this.
