@@ -199,7 +199,27 @@ Metadata:
       - index.mjs
     Banner:
       - js=import { createRequire } from 'module'; const require = createRequire(import.meta.url);
-    External: []
+    # The nodejs24.x runtime ships AWS SDK v3, so the stable service
+    # clients resolve from the runtime instead of being bundled into
+    # every artifact — smaller bundles, faster cold starts. Trade-off:
+    # those clients track the runtime's SDK minor version instead of
+    # package-lock. Deliberately still bundled:
+    #   - @aws-sdk/client-s3vectors (newer service; runtime inclusion
+    #     not guaranteed)
+    #   - @aws-sdk/cloudfront-signer + s3-request-presigner (small, and
+    #     signing behavior should pin to our tested version)
+    #   - @aws-lambda-powertools/* and @aws/durable-execution-sdk-js
+    #     (not part of the runtime SDK)
+    External:
+      - "@aws-sdk/client-bedrock-runtime"
+      - "@aws-sdk/client-dynamodb"
+      - "@aws-sdk/client-eventbridge"
+      - "@aws-sdk/client-lambda"
+      - "@aws-sdk/client-s3"
+      - "@aws-sdk/client-sqs"
+      - "@aws-sdk/client-ssm"
+      - "@aws-sdk/lib-dynamodb"
+      - "@aws-sdk/util-dynamodb"
     # Inline HTML templates as strings so `import x from "./foo.html"` works
     # in the bundled Lambda — no separate asset files to ship or path-resolve
     # at runtime. The vendor-report renderer relies on this.
@@ -928,8 +948,12 @@ Resources:
         - AWSLambdaBasicExecutionRole
         - Version: 2012-10-17
           Statement:
-            # Read the stream.
-            - Effect: Allow
+            # Read the stream. Anchored: the other stream consumers alias
+            # this exact statement so a fix here propagates to all of them.
+            # (The bedrock/s3vectors statements are NOT anchored on purpose —
+            # they differ per function as least-privilege variations.)
+            - &ddb-stream-read-statement
+              Effect: Allow
               Action:
                 - dynamodb:DescribeStream
                 - dynamodb:GetRecords
@@ -1022,16 +1046,8 @@ Resources:
         - AWSLambdaBasicExecutionRole
         - Version: 2012-10-17
           Statement:
-            # Read the stream.
-            - Effect: Allow
-              Action:
-                - dynamodb:DescribeStream
-                - dynamodb:GetRecords
-                - dynamodb:GetShardIterator
-                - dynamodb:ListStreams
-              Resource:
-                - !GetAtt ContentTrackingTable.StreamArn
-                - !Sub "${ContentTrackingTable.StreamArn}/*"
+            # Read the stream (aliased from VectorizeContent's statement).
+            - *ddb-stream-read-statement
             # Query pending suggestions and re-stamp / skip them.
             - Effect: Allow
               Action:
@@ -1140,16 +1156,8 @@ Resources:
         - AWSLambdaBasicExecutionRole
         - Version: 2012-10-17
           Statement:
-            # Read the stream.
-            - Effect: Allow
-              Action:
-                - dynamodb:DescribeStream
-                - dynamodb:GetRecords
-                - dynamodb:GetShardIterator
-                - dynamodb:ListStreams
-              Resource:
-                - !GetAtt ContentTrackingTable.StreamArn
-                - !Sub "${ContentTrackingTable.StreamArn}/*"
+            # Read the stream (aliased from VectorizeContent's statement).
+            - *ddb-stream-read-statement
             # Enqueue trailing-reflection catch-ups onto the delay queue.
             - Effect: Allow
               Action:

@@ -16,8 +16,11 @@ consumes for campaign-level rollups.
   (`/readysetcloud/auth/user-pool-arn`).
 - DynamoDB single-table store (`pk` + `sk`) holds Campaigns, Links,
   Social posts, Vendors, and the campaign-by-vendor index.
-- API Gateway REST API defined by `publicapi.yaml`. Lambda integrations
-  use the `aws_proxy` type and run Node.js 24 on arm64.
+- API Gateway REST API proxying every path to the monolith Lambda. The
+  route registrations in `api/routes/*.mjs` (wired up in `api/app.mjs`)
+  are the authoritative API surface; [docs/api-reference.md](docs/api-reference.md)
+  is the human-readable reference. Lambda integrations use the
+  `aws_proxy` type and run Node.js 24 on arm64.
 - Newsletter-service integration is pull-only: this stack reads
   newsletter-service's published SSM parameters to discover its API base
   URL and the short-link host, and calls newsletter-service's mint and

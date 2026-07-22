@@ -21,6 +21,16 @@ export default [
     },
   },
   {
-    ignores: ['.aws-sam/**', 'coverage/**', 'node_modules/**', 'ui/**', 'action/**'],
+    // action/ uses node:test rather than jest; its files get node
+    // globals only so jest globals don't mask real undefined names.
+    files: ['action/**/*.mjs'],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+  },
+  {
+    // ui/ has its own eslint.config.js (browser + TS). action/node_modules
+    // stays out; action/ source is linted by the root run.
+    ignores: ['.aws-sam/**', 'coverage/**', 'node_modules/**', 'ui/**', 'action/node_modules/**'],
   },
 ];

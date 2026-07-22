@@ -88,9 +88,18 @@ process.env.AWS_REGION = args.region ?? process.env.AWS_REGION ?? "us-east-1";
 
 const { PutCommand } = await import("@aws-sdk/lib-dynamodb");
 const { ddb, TABLE_NAME } = await import("../api/services/ddb.mjs");
-// Import the real key builders so this script can never drift from the storage
-// key shapes the domain (and therefore the running app) uses.
-const { contentKey, publishVariantKey, statsKey } = await import("../api/domain/content.mjs");
+// Import the domain's item builders — the ONE definition of each storage shape
+// (keys, entity, GSI1, seeded links/ids) — so this script can never drift from
+// what the domain (and therefore the running app) writes. The builders take the
+// id and timestamps as inputs, which is exactly what a backfill needs: the
+// domain writers pass fresh ULID/now values; we pass deterministic ids and
+// export-derived instants so re-runs stay byte-for-byte identical.
+// (Aliased: this script exports its own buildContentItem transform.)
+const {
+  buildContentItem: buildContentRootItem,
+  buildPublishVariantItem,
+  buildStatsItem,
+} = await import("../api/domain/content.mjs");
 
 const TENANT_ID = args.tenant;
 const BASE_DIR = args.baseDir ?? dirname(resolve(args.file));
@@ -309,9 +318,11 @@ export function isRealCrosspost(entry, canonicalHost) {
 
 // Builds the Content root item. Runs the export/frontmatter fields through the
 // API's own validateContentCreate so the import is held to the same rules as a
-// POST /content, then assembles the exact storage shape createContent produces
-// (deterministic id, seeded links/ids, GSI1 keys, timestamps derived from the
-// post's publish date so history is preserved and re-runs stay identical).
+// POST /content, then hands the validated fields to the domain's own
+// buildContentItem so the storage shape (keys, GSI1, seeded links/ids) has
+// exactly one definition — only the id (deterministic) and timestamps (derived
+// from the post's publish date so history is preserved and re-runs stay
+// identical) differ from what createContent would mint.
 export function buildContentItem({ blog, frontmatter, body, tenantId }) {
   const contentId = deterministicContentId(tenantId, blog.slug);
   const canonicalHost = canonicalHostOf(blog.canonicalUrl);
@@ -350,19 +361,7 @@ export function buildContentItem({ blog, frontmatter, body, tenantId }) {
     }
   }
 
-  const item = {
-    ...fields,
-    ...contentKey(tenantId, contentId),
-    entity: "Content",
-    tenantId,
-    contentId,
-    links,
-    ids,
-    gsi1pk: `TENANT#${tenantId}#CONTENT`,
-    gsi1sk: `${createdAt}#${contentId}`,
-    createdAt,
-    updatedAt: createdAt,
-  };
+  const item = buildContentRootItem(tenantId, contentId, { ...fields, links, ids }, createdAt);
 
   // image / imageAttribution aren't part of validateContentCreate's schema but
   // are carried on the entity (the Medium cross-post header uses them), so mirror
@@ -374,9 +373,12 @@ export function buildContentItem({ blog, frontmatter, body, tenantId }) {
   return { contentId, item };
 }
 
-// Builds a ContentPublish row per real crosspost. Validates the core fields with
-// the API's validatePublishVariant, then carries the external id + recorded
-// status the same way migrate-blogs-to-content.mjs does.
+// Builds a ContentPublish row per real crosspost. Validates the core fields
+// with the API's validatePublishVariant, then hands them to the domain's
+// buildPublishVariantItem — one definition of the row shape — with the
+// export-derived updatedAt (putPublishVariant would stamp "now", which breaks
+// idempotent re-runs). The external id + recorded status ride along the same
+// way migrate-blogs-to-content.mjs carries them.
 export function buildPublishItems({ blog, tenantId, contentId }) {
   const canonicalHost = canonicalHostOf(blog.canonicalUrl);
   const publishedAt = blog.publishedAt ? toIsoInstant(blog.publishedAt) : null;
@@ -392,21 +394,20 @@ export function buildPublishItems({ blog, tenantId, contentId }) {
       ...(publishedAt ? { published_at: publishedAt } : {}),
     });
 
-    const status = entry.status ?? blog.publish?.[platform]?.status ?? "succeeded";
-    const item = {
-      ...publishVariantKey(tenantId, contentId, platform),
-      entity: "ContentPublish",
+    const fields = {
+      status: entry.status ?? blog.publish?.[platform]?.status ?? "succeeded",
+      url: core.url,
+    };
+    if (entry.id !== null && entry.id !== undefined) fields.id = entry.id;
+    if (core.publishedAt) fields.publishedAt = core.publishedAt;
+
+    items.push(buildPublishVariantItem(
       tenantId,
       contentId,
-      platform: core.platform,
-      status,
-      url: core.url,
-      updatedAt: publishedAt ?? blog.publishedAt ?? null,
-    };
-    if (entry.id !== null && entry.id !== undefined) item.id = entry.id;
-    if (core.publishedAt) item.publishedAt = core.publishedAt;
-
-    items.push(item);
+      core.platform,
+      fields,
+      publishedAt ?? blog.publishedAt ?? null,
+    ));
   }
 
   return items;
@@ -425,19 +426,11 @@ export function buildStatsItems({ blog, tenantId, contentId, exportedAt }) {
     if (platform === "total") continue;
     if (typeof views !== "number" || !Number.isFinite(views) || views < 0) continue;
 
-    // Reuse the API's stats validator for parity, then key + stamp the row the
-    // way putStatsSnapshot does.
+    // Reuse the API's stats validator for parity, then build the row through
+    // the domain's buildStatsItem — one definition of the shape — with the
+    // export instant as capturedAt (putStatsSnapshot would stamp "now").
     validateStatsUpdate({ metrics: { views }, captured_at: capturedAt });
-    items.push({
-      ...statsKey(tenantId, contentId, platform, date),
-      entity: "ContentStats",
-      tenantId,
-      contentId,
-      platform,
-      date,
-      metrics: { views },
-      capturedAt,
-    });
+    items.push(buildStatsItem(tenantId, contentId, platform, date, { metrics: { views } }, capturedAt));
   }
 
   return items;
