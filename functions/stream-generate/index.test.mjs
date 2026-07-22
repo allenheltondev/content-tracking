@@ -30,8 +30,10 @@ jest.unstable_mockModule("../../api/services/voice-recency.mjs", () => ({
 jest.unstable_mockModule("../../api/domain/voice.mjs", () => ({
   getVoiceProfile: jest.fn(),
 }));
-jest.unstable_mockModule("../../api/services/bedrock-stream.mjs", () => ({
+jest.unstable_mockModule("../../api/services/bedrock/voice.mjs", () => ({
   streamVoicePost: jest.fn(),
+}));
+jest.unstable_mockModule("../../api/services/bedrock/qa.mjs", () => ({
   streamBlogAnswer: jest.fn(),
 }));
 
@@ -52,7 +54,8 @@ const { embedText } = await import("../../api/services/embeddings.mjs");
 const { queryVoiceSamples } = await import("../../api/services/voice-vectors.mjs");
 const { queryContentChunks } = await import("../../api/services/content-vectors.mjs");
 const { getVoiceProfile } = await import("../../api/domain/voice.mjs");
-const { streamVoicePost, streamBlogAnswer } = await import("../../api/services/bedrock-stream.mjs");
+const { streamVoicePost } = await import("../../api/services/bedrock/voice.mjs");
+const { streamBlogAnswer } = await import("../../api/services/bedrock/qa.mjs");
 const { handler } = await import("./index.mjs");
 
 function makeStream() {

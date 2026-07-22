@@ -1,6 +1,6 @@
 import { BadRequestError, NotFoundError } from "./errors.mjs";
 import { logger } from "./logger.mjs";
-import { reviewDraft, summarizeBrief } from "./bedrock.mjs";
+import { reviewDraft, summarizeBrief } from "./bedrock/brief.mjs";
 import { fetchGoogleDocText } from "./google-docs.mjs";
 import { getBriefObjectBytes, putBriefTranscript } from "./s3.mjs";
 import { conversationToTranscript } from "../validation/brief.mjs";

@@ -10,7 +10,7 @@ jest.unstable_mockModule("../services/voice-vectors.mjs", () => ({
   putVoiceSample: jest.fn(),
   deleteVoiceSample: jest.fn(),
 }));
-jest.unstable_mockModule("../services/bedrock.mjs", () => ({ reflectVoiceProfile: jest.fn() }));
+jest.unstable_mockModule("../services/bedrock/voice.mjs", () => ({ reflectVoiceProfile: jest.fn() }));
 jest.unstable_mockModule("../services/reflection-queue.mjs", () => ({ enqueueReflectionCatchup: jest.fn() }));
 jest.unstable_mockModule("../domain/voice.mjs", () => ({
   claimReflectionSlot: jest.fn(),
@@ -27,7 +27,7 @@ jest.unstable_mockModule("../domain/voice.mjs", () => ({
 
 const { embedText } = await import("../services/embeddings.mjs");
 const { putVoiceSample, deleteVoiceSample } = await import("../services/voice-vectors.mjs");
-const { reflectVoiceProfile } = await import("../services/bedrock.mjs");
+const { reflectVoiceProfile } = await import("../services/bedrock/voice.mjs");
 const { enqueueReflectionCatchup } = await import("../services/reflection-queue.mjs");
 const { NotFoundError } = await import("../services/errors.mjs");
 const {

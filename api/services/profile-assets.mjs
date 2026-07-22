@@ -1,17 +1,17 @@
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { ulid } from "ulid";
+import { s3 } from "./s3.mjs";
 // Profile images live in the reports bucket (private, fronted by the
 // reports CloudFront distribution) rather than the briefs bucket, so the
 // media kit can embed them via long-lived CloudFront signed URLs that
 // outlast the 7-day cap on presigned S3 GETs.
-export { signReportUrl as signProfileAssetUrl } from "./vendor-report-store.mjs";
+export { signReportUrl as signProfileAssetUrl } from "./report-signing.mjs";
 
 // Profile images share the vendor-reports bucket + CloudFront distribution
 // (the function's IAM policy already grants this bucket, and signReportUrl
 // signs against its domain), so no new infra is needed.
 const REPORTS_BUCKET = process.env.VENDOR_REPORTS_BUCKET;
-const s3 = new S3Client({});
 
 const UPLOAD_EXPIRES_SECONDS = 15 * 60;
 

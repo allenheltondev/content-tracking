@@ -10,7 +10,7 @@ jest.unstable_mockModule("../services/voice-vectors.mjs", () => ({
   deleteVoiceSample: jest.fn(),
   putVoiceSample: jest.fn(),
 }));
-jest.unstable_mockModule("../services/bedrock.mjs", () => ({
+jest.unstable_mockModule("../services/bedrock/voice.mjs", () => ({
   composeVoicePost: jest.fn(),
   assessVoiceMatch: jest.fn(),
 }));
@@ -33,7 +33,7 @@ jest.unstable_mockModule("../domain/voice.mjs", () => ({
 
 const { embedText } = await import("../services/embeddings.mjs");
 const { queryVoiceSamples } = await import("../services/voice-vectors.mjs");
-const { composeVoicePost, assessVoiceMatch } = await import("../services/bedrock.mjs");
+const { composeVoicePost, assessVoiceMatch } = await import("../services/bedrock/voice.mjs");
 const {
   runReflection, reflectAfterCuration, setSampleMutedAndSync, removeSampleAndSync,
 } = await import("../services/voice-memory.mjs");

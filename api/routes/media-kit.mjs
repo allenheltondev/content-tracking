@@ -7,7 +7,7 @@ import { renderMediaKitHtml } from "../services/media-kit-renderer.mjs";
 import { putMediaKitHtml } from "../services/media-kit-store.mjs";
 // Signing is generic (keyed off the object key) so we reuse it straight from
 // the vendor report store for media kits too.
-import { signReportUrl } from "../services/vendor-report-store.mjs";
+import { signReportUrl } from "../services/report-signing.mjs";
 import { mintShortLink } from "../services/newsletter-service.mjs";
 import { saveMediaKitRecord, listMediaKitRecords } from "../domain/media-kit-record.mjs";
 // Retention helpers shared with the reports: REPORT_RETENTION_DAYS is the

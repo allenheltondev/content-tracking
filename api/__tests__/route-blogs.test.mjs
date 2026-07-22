@@ -32,7 +32,7 @@ jest.unstable_mockModule("../services/embeddings.mjs", () => ({
 jest.unstable_mockModule("../services/content-vectors.mjs", () => ({
   queryContentChunks: jest.fn(),
 }));
-jest.unstable_mockModule("../services/bedrock.mjs", () => ({
+jest.unstable_mockModule("../services/bedrock/qa.mjs", () => ({
   answerContentQuestion: jest.fn(),
 }));
 
@@ -40,7 +40,7 @@ const { getBlog, listBlogsByTenant, listBlogsForCampaign, updateBlog, deleteBlog
 const { createContent, updateContent, deleteContent, findContent, listContentByTenant } = await import("../domain/content.mjs");
 const { embedText } = await import("../services/embeddings.mjs");
 const { queryContentChunks } = await import("../services/content-vectors.mjs");
-const { answerContentQuestion } = await import("../services/bedrock.mjs");
+const { answerContentQuestion } = await import("../services/bedrock/qa.mjs");
 const { registerBlogRoutes } = await import("../routes/blogs.mjs");
 
 function buildRouteTable() {

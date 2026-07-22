@@ -9,7 +9,7 @@ import { renderCampaignReportHtml } from "../services/campaign-report-renderer.m
 import { putCampaignReportHtml } from "../services/campaign-report-store.mjs";
 // Signing is generic (keyed off the object key, not the vendor) so we
 // reuse it straight from the vendor report store for campaign reports too.
-import { signReportUrl } from "../services/vendor-report-store.mjs";
+import { signReportUrl } from "../services/report-signing.mjs";
 import { mintShortLink } from "../services/newsletter-service.mjs";
 import {
   saveCampaignReportRecord,

@@ -1,6 +1,6 @@
 import { NotFoundError } from "../services/errors.mjs";
 import { jsonResponse, parseBody } from "../services/http-handler.mjs";
-import { recommendEngagement } from "../services/bedrock.mjs";
+import { recommendEngagement } from "../services/bedrock/engagement.mjs";
 import { fetchContentText } from "../services/content-fetch.mjs";
 import { assertCampaignOwned, getCampaignWithLinks } from "../domain/campaign.mjs";
 import { requireTenantId } from "../services/identity.mjs";

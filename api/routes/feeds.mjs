@@ -3,7 +3,7 @@ import { trackActivity } from "../services/activity.mjs";
 import { emptyResponse, jsonResponse, parseBody } from "../services/http-handler.mjs";
 import { BadRequestError } from "../services/errors.mjs";
 import { aggregateFeeds } from "../services/rss.mjs";
-import { suggestContentAngles } from "../services/bedrock.mjs";
+import { suggestContentAngles } from "../services/bedrock/angles.mjs";
 import { logger } from "../services/logger.mjs";
 import {
   createFeedSource,

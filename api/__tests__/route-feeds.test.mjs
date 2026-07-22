@@ -18,7 +18,7 @@ jest.unstable_mockModule("../domain/feed.mjs", () => ({
 jest.unstable_mockModule("../services/rss.mjs", () => ({
   aggregateFeeds: jest.fn(),
 }));
-jest.unstable_mockModule("../services/bedrock.mjs", () => ({
+jest.unstable_mockModule("../services/bedrock/angles.mjs", () => ({
   suggestContentAngles: jest.fn(),
 }));
 jest.unstable_mockModule("../domain/voice.mjs", () => ({
@@ -33,7 +33,7 @@ const {
   getRadarPrefs, putRadarPrefs,
 } = await import("../domain/feed.mjs");
 const { aggregateFeeds } = await import("../services/rss.mjs");
-const { suggestContentAngles } = await import("../services/bedrock.mjs");
+const { suggestContentAngles } = await import("../services/bedrock/angles.mjs");
 const { listProfiles } = await import("../domain/voice.mjs");
 const { listContentByTenant } = await import("../domain/content.mjs");
 const { registerFeedRoutes } = await import("../routes/feeds.mjs");

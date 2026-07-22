@@ -14,6 +14,8 @@ jest.unstable_mockModule("../services/report-renderer.mjs", () => ({
 }));
 jest.unstable_mockModule("../services/vendor-report-store.mjs", () => ({
   putReportHtml: jest.fn(),
+}));
+jest.unstable_mockModule("../services/report-signing.mjs", () => ({
   signReportUrl: jest.fn(),
   SIGNED_URL_TTL_SECONDS: 7 * 24 * 60 * 60,
 }));
@@ -31,7 +33,8 @@ jest.unstable_mockModule("../services/identity.mjs", () => ({
 
 const { buildVendorReportSnapshot } = await import("../domain/vendor-report.mjs");
 const { renderVendorReportHtml } = await import("../services/report-renderer.mjs");
-const { putReportHtml, signReportUrl } = await import("../services/vendor-report-store.mjs");
+const { putReportHtml } = await import("../services/vendor-report-store.mjs");
+const { signReportUrl } = await import("../services/report-signing.mjs");
 const { saveReportRecord, listReportRecords, reportObjectExpiresAtMs } = await import(
   "../domain/vendor-report-record.mjs"
 );

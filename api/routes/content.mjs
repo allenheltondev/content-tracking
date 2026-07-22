@@ -23,7 +23,7 @@ import { emptyResponse, jsonResponse, parseBody } from "../services/http-handler
 import { BadRequestError, ConflictError, NotFoundError } from "../services/errors.mjs";
 import { embedText } from "../services/embeddings.mjs";
 import { queryContentChunks } from "../services/content-vectors.mjs";
-import { answerContentQuestion } from "../services/bedrock.mjs";
+import { answerContentQuestion } from "../services/bedrock/qa.mjs";
 import { formatCampaign, validateCampaignCreate } from "../validation/campaign.mjs";
 import {
   formatPublishVariant,

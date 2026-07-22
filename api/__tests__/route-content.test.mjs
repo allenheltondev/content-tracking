@@ -29,7 +29,7 @@ jest.unstable_mockModule("../services/embeddings.mjs", () => ({
 jest.unstable_mockModule("../services/content-vectors.mjs", () => ({
   queryContentChunks: jest.fn(),
 }));
-jest.unstable_mockModule("../services/bedrock.mjs", () => ({
+jest.unstable_mockModule("../services/bedrock/qa.mjs", () => ({
   answerContentQuestion: jest.fn(),
 }));
 // Content cross-post collaborators (POST /content/:id/crosspost).
@@ -50,7 +50,7 @@ const { transformBlogForPlatform } = await import("../services/parse-blog.mjs");
 const { getAdapter } = await import("../services/blog-platforms/index.mjs");
 const { embedText } = await import("../services/embeddings.mjs");
 const { queryContentChunks } = await import("../services/content-vectors.mjs");
-const { answerContentQuestion } = await import("../services/bedrock.mjs");
+const { answerContentQuestion } = await import("../services/bedrock/qa.mjs");
 const { registerContentRoutes } = await import("../routes/content.mjs");
 
 function buildRouteTable() {

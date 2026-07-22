@@ -5,10 +5,12 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-// S3 helper for the briefs bucket. Centralizes the client + bucket-name
-// reference so route code doesn't sprinkle process.env access around.
+// The one shared S3 client for the service (module singleton, reused
+// across warm invocations), plus helpers for the briefs bucket. The
+// report/media-kit/profile stores import `s3` from here instead of each
+// constructing their own client.
 
-const s3 = new S3Client({});
+export const s3 = new S3Client({});
 export const BRIEFS_BUCKET = process.env.BRIEFS_BUCKET;
 
 const PRESIGN_EXPIRES_SECONDS = 15 * 60;
