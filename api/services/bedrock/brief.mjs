@@ -249,7 +249,7 @@ const DRAFT_REVIEW_SCHEMA = z.object({
 
 const REVIEW_SYSTEM_PROMPT = `You are an experienced content editor reviewing a blog draft against the campaign brief it was written for. You are given the brief (summary, deliverables, target metrics, and any must-mention requirements) and the full draft text.
 
-Review the draft and return your feedback by calling the record_draft_review tool. Assess:
+Review the draft and return your feedback as a structured result. Assess:
 
 - Brief alignment: does the draft cover every required deliverable, topic, and must-mention feature? Is the tone and length appropriate for the brief? Surface anything the brief asks for that the draft omits in missing_requirements.
 - Quality: structure and flow, clarity, accuracy of claims, and whether the introduction and conclusion are effective.
@@ -263,7 +263,7 @@ Be specific and actionable. Every issue should reference the relevant part of th
 // plain-text draft pulled from Google Docs.
 export async function reviewDraft({ brief, draftText }) {
   const briefBlock = formatBriefForReview(brief);
-  const input = `Review the following blog draft against its campaign brief by calling the record_draft_review tool.\n\n=== CAMPAIGN BRIEF ===\n${briefBlock}\n\n=== DRAFT ===\n${draftText}\n=== END DRAFT ===`;
+  const input = `Review the following blog draft against its campaign brief and return a structured result.\n\n=== CAMPAIGN BRIEF ===\n${briefBlock}\n\n=== DRAFT ===\n${draftText}\n=== END DRAFT ===`;
 
   return invokeStructured({
     system: REVIEW_SYSTEM_PROMPT,

@@ -56,14 +56,14 @@ const ENGAGEMENT_SYSTEM_PROMPT = `You are a content distribution and audience-gr
 
 Ground your recommendations in what the piece is actually about. When the fetched content is present, use it to judge topic, depth, and tone; when it could not be fetched, fall back to the URL, notes, and brief.
 
-Recommend additional places the creator should cross-post or promote this content to boost engagement, by calling the record_engagement_recommendations tool. For each recommendation provide channel, action (cross_post or promote), priority, a rationale, and a ready-to-use suggested_message.
+Recommend additional places the creator should cross-post or promote this content to boost engagement, returned as a structured result. For each recommendation provide channel, action (cross_post or promote), priority, a rationale, and a ready-to-use suggested_message.
 
 Rules:
 - Do NOT recommend a channel the content is already cross-posted to or has already been promoted on. List those under already_covered instead so the user sees they were considered and skipped.
 - Vary the angle across recommendations; every suggested_message must say something fresh and must not restate the existing social copy you were shown.
 - Favor channels that match the content's platform and topic, and where this creator's audience plausibly is. Quality over quantity — 3 to 6 strong recommendations beat a long generic list.
 - cross_post is for channels where republishing the full piece makes sense (and note canonical/duplicate-content concerns in the rationale when relevant); promote is for sharing a link or teaser.
-- Be concrete and practical. Do not write prose outside the tool — only call the record_engagement_recommendations tool.`;
+- Be concrete and practical. Do not write prose outside the structured result.`;
 
 // Recommends where else to cross-post or promote a content piece. `contentPost`
 // is the work item (platform, url, notes). The remaining inputs are the
@@ -94,7 +94,7 @@ export async function recommendEngagement({
     goal,
   });
 
-  const input = `Recommend where else to cross-post or promote this content by calling the record_engagement_recommendations tool.\n\n${contextBlock}`;
+  const input = `Recommend where else to cross-post or promote this content as a structured result.\n\n${contextBlock}`;
 
   return invokeStructured({
     system: ENGAGEMENT_SYSTEM_PROMPT,

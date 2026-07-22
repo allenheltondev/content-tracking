@@ -29,12 +29,12 @@ const BLOG_ANSWER_SCHEMA = z.object({
 
 const BLOG_QA_SYSTEM_PROMPT = `You are a research assistant for a content creator, answering questions about THEIR OWN past blog posts. You are given the question and a set of numbered excerpts retrieved from their catalog by semantic search.
 
-Answer by calling the record_blog_answer tool. Rules:
+Answer with a structured result. Rules:
 - Ground the answer ONLY in the provided excerpts. Do not use outside knowledge or invent details the excerpts don't contain.
 - Cite the excerpts you used by their [n] number in sources_used. Only list sources that genuinely informed the answer.
 - The excerpts are ranked by relevance but some may be off-topic — ignore the ones that don't help.
 - If the excerpts don't actually answer the question, say you couldn't find it in their catalog, set confidence to 'low', and leave sources_used empty.
-- Write the answer in a direct, helpful voice ("You wrote about ...", "Your post on ... covers ..."). Do not write prose outside the tool — only call record_blog_answer.`;
+- Write the answer in a direct, helpful voice ("You wrote about ...", "Your post on ... covers ..."). Do not write prose outside the structured result.`;
 
 // Answers a question grounded in retrieved content chunks. `chunks` is the
 // ordered result of queryContentChunks ([{ contentId, title, text, ... }]); each
@@ -85,12 +85,12 @@ const CONTENT_ANSWER_SCHEMA = z.object({
 
 const CONTENT_QA_SYSTEM_PROMPT = `You are a research assistant for a content creator, answering questions about THEIR OWN past content. You are given the question and a set of numbered excerpts retrieved from their catalog by semantic search.
 
-Answer by calling the record_content_answer tool. Rules:
+Answer with a structured result. Rules:
 - Ground the answer ONLY in the provided excerpts. Do not use outside knowledge or invent details the excerpts don't contain.
 - Cite the excerpts you used by their [n] number in sources_used. Only list sources that genuinely informed the answer.
 - The excerpts are ranked by relevance but some may be off-topic — ignore the ones that don't help.
 - If the excerpts don't actually answer the question, say you couldn't find it in their posts, set confidence to 'low', and leave sources_used empty.
-- Write the answer in a direct, helpful voice ("You wrote about ...", "Your post on ... covers ..."). Do not write prose outside the tool — only call record_content_answer.`;
+- Write the answer in a direct, helpful voice ("You wrote about ...", "Your post on ... covers ..."). Do not write prose outside the structured result.`;
 
 // Answers a question grounded in retrieved content chunks. `chunks` is the
 // ordered result of queryContentChunks ([{ contentId, title, text, ... }]); each

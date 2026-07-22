@@ -79,7 +79,7 @@ const CONTENT_ANGLES_SCHEMA = z.object({
 
 const CONTENT_ANGLES_SYSTEM_PROMPT = `You are a content strategist for a specific solo creator. You are given (1) a snapshot of what the RSS/Atom feeds they follow are publishing right now, as a numbered list of items; (2) their learned writing voice — one or more plain-English voice "portraits" describing how they sound on each platform; and (3) the recent topics they've been building on (titles of their own recent work). Your job is to spot where the current conversation intersects with what this creator does, and propose content angles they could publish that authentically sound like them.
 
-Return your ideas by calling the record_content_angles tool. Do all of the following:
+Return your ideas as a structured result. Do all of the following:
 - Read across the numbered feed items and identify the themes with real momentum right now. Don't just summarize individual items — cluster them.
 - For each angle, give a working title in this creator's style, the specific take (what THEY would say that the feeds aren't already saying), a suggested format/platform they actually use, a rationale for why it's timely, and an on_voice_note on how to keep it sounding like them.
 - Ground every angle in the feeds: cite the [n] item numbers each idea builds on. An angle may connect items no single feed connected — that's the most valuable kind — but it should still trace back to what's being discussed.
@@ -96,7 +96,7 @@ Rules:
 - Propose fresh takes, not reposts. Never suggest simply resharing or summarizing a feed item.
 - Favor quality over quantity — 4 to 8 strong, distinct angles beat a long generic list.
 - If the voice portraits are absent, infer the creator's lane from their stated interests and recent topics and keep angles general. If the feeds are empty, say so in the summary and return no angles.
-- Do not write prose outside the tool — only call record_content_angles.`;
+- Do not write prose outside the structured result.`;
 
 // Proposes content angles from the live feed snapshot, grounded in the
 // creator's voice, topics, and stated preferences. `items` is the aggregated
@@ -109,7 +109,7 @@ Rules:
 // steering. Returns { summary, themes?, angles }.
 export async function suggestContentAngles({ items, voicePortraits, recentTopics, interests, avoid, audience, platform, guidance }) {
   const contextBlock = formatContentAnglesContext({ items, voicePortraits, recentTopics, interests, avoid, audience, platform, guidance });
-  const input = `Propose content angles from the current feed snapshot by calling the record_content_angles tool.\n\n${contextBlock}`;
+  const input = `Propose content angles from the current feed snapshot as a structured result.\n\n${contextBlock}`;
 
   return invokeStructured({
     system: CONTENT_ANGLES_SYSTEM_PROMPT,

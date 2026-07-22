@@ -55,7 +55,7 @@ describe("services/bedrock answerBlogQuestion", () => {
     expect(result.sources_used).toEqual([2]);
 
     const call = runAgent.mock.calls[0][0];
-    expect(call.systemPrompt).toContain("record_blog_answer");
+    expect(call.systemPrompt).toContain("structured result");
     expect(call.temperature).toBe(0.2);
     expect(call.maxTokens).toBe(1024);
     expect(call.maxIterations).toBe(1);
@@ -105,7 +105,7 @@ describe("services/bedrock answerContentQuestion", () => {
     expect(result.sources_used).toEqual([2]);
 
     const call = runAgent.mock.calls[0][0];
-    expect(call.systemPrompt).toContain("record_content_answer");
+    expect(call.systemPrompt).toContain("structured result");
     expect(call.temperature).toBe(0.2);
     expect(call.maxTokens).toBe(1024);
     expect(call.maxIterations).toBe(1);

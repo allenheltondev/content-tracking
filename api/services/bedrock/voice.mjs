@@ -46,7 +46,7 @@ const COMPOSE_SYSTEM_PROMPT = `You are a ghostwriter who writes in one specific 
 
 Write a NEW post on the requested topic for the requested platform that authentically matches their voice — tone, sentence structure, vocabulary, signature phrases, and formatting preferences. Their voice evolves over time: the examples are ordered by a blend of topical relevance and recency, and when examples conflict stylistically, favor the more recently published ones — they are the truest signal of how this person writes NOW. Match the requested format: 'social' = short, punchy, platform-native (no title); 'blog' = long-form structured prose with a title.
 
-Emulate the style, do not copy the example posts' content. If the profile is empty, infer the voice from the examples. Output only by calling the record_voice_post tool.`;
+Emulate the style, do not copy the example posts' content. If the profile is empty, infer the voice from the examples. Output only the structured result.`;
 
 // Renders the per-sample annotation for the compose/reflect prompts: publish
 // date (the recency anchor) and, when present, the normalized weight share the
@@ -85,7 +85,7 @@ export async function composeVoicePost({ topic, platform, format, profile, sampl
     format === "blog" ? "long-form blog post" : "short social post"
   } for ${platform} about:\n${topic}${
     guidance ? `\n\nAdditional guidance: ${guidance}` : ""
-  }\n\nCall record_voice_post with the result.`;
+  }\n\nReturn the structured result.`;
 
   return invokeStructured({
     system: COMPOSE_SYSTEM_PROMPT,
@@ -110,7 +110,7 @@ const REFLECT_SYSTEM_PROMPT = `You maintain a structured profile of how a specif
 
 Update the profile to reflect how they actually write NOW: infer tone, audience, sentence structure, vocabulary, signature phrases, formatting preferences, and concrete dos/donts directly from the samples, letting each sample's influence match its stated weight. When samples disagree — tone shifted, formatting habits changed, vocabulary moved on — the higher-weighted recent posts WIN; keep traits from older or lower-weighted posts only where nothing newer contradicts them. The profile should track the voice's evolution, not average over its whole history. Also write a vivid plain-English 'portrait' (2-4 sentences, second person) summarizing how they write now — this is the human-readable description a person reads to understand their own voice. Emit the FULL updated profile (a replacement, not a diff) plus a short change_summary describing what you changed versus the prior profile and any drift you observed toward the recent posts.
 
-Be specific and grounded in the samples — do not invent traits the samples don't demonstrate. Output only by calling the record_voice_profile tool.`;
+Be specific and grounded in the samples — do not invent traits the samples don't demonstrate. Output only the structured result.`;
 
 // Re-derives the style profile from recent samples. `currentProfile` is the
 // prior VoiceProfile.profile JSON (or null); `samples` are recency-weighted
@@ -126,7 +126,7 @@ export async function reflectVoiceProfile({ platform, currentProfile, samples, s
     currentProfile ? JSON.stringify(currentProfile, null, 2) : "(none yet — build it from scratch)"
   }\n\n=== RECENT POSTS (newest-published first, recency-weighted) ===\n${
     recent.map((s, i) => `[${i + 1}]${voiceSampleLabel(s)} ${s.text}`).join("\n\n")
-  }${steeringBlock}\n\nUpdate the profile by calling record_voice_profile.`;
+  }${steeringBlock}\n\nReturn the updated profile as the structured result.`;
 
   return invokeStructured({
     system: REFLECT_SYSTEM_PROMPT,
@@ -181,7 +181,7 @@ const VOICE_ASSESSMENT_SCHEMA = z.object({
 
 const ASSESS_SYSTEM_PROMPT = `You judge whether a draft sounds like one specific person, using their learned style profile and a few of their real past posts (annotated with publish dates) as the ground truth for their voice. Their voice is defined by how they write NOW — weight the more recently published examples most heavily when deciding what "on-voice" means.
 
-Assess the draft against that voice and return your judgment by calling the record_voice_assessment tool: a 0-100 score, a verdict, a plain-English summary written to the person ("This reads like you, but the second paragraph is more formal than you usually get"), the specific strengths, and the concrete off-voice issues with fixes. Judge VOICE and STYLE — tone, rhythm, vocabulary, signature phrases, formatting habits — not the factual content or the topic. A draft on an unusual topic can still be perfectly on-voice. Be honest and specific; ground every point in the profile or the examples. Do not write prose outside the tool — only call record_voice_assessment.`;
+Assess the draft against that voice and return your judgment as a structured result: a 0-100 score, a verdict, a plain-English summary written to the person ("This reads like you, but the second paragraph is more formal than you usually get"), the specific strengths, and the concrete off-voice issues with fixes. Judge VOICE and STYLE — tone, rhythm, vocabulary, signature phrases, formatting habits — not the factual content or the topic. A draft on an unusual topic can still be perfectly on-voice. Be honest and specific; ground every point in the profile or the examples. Do not write prose outside the structured result.`;
 
 // Assesses how well a draft matches the user's learned voice. `profile` is the
 // stored VoiceProfile.profile JSON (or null); `samples` are recency-ranked
@@ -195,7 +195,7 @@ export async function assessVoiceMatch({ platform, profile, samples, draft }) {
 
   const input = `=== STYLE PROFILE (${platform}) ===\n${
     profile ? JSON.stringify(profile, null, 2) : "(no learned profile yet — judge from the examples below)"
-  }\n\n=== THEIR PAST POSTS (ground truth for their voice; ordered by relevance + recency) ===\n${exampleBlock}\n\n=== DRAFT TO ASSESS ===\n${draft}\n=== END DRAFT ===\n\nAssess how on-voice the draft is by calling record_voice_assessment.`;
+  }\n\n=== THEIR PAST POSTS (ground truth for their voice; ordered by relevance + recency) ===\n${exampleBlock}\n\n=== DRAFT TO ASSESS ===\n${draft}\n=== END DRAFT ===\n\nAssess how on-voice the draft is and return the structured result.`;
 
   return invokeStructured({
     system: ASSESS_SYSTEM_PROMPT,

@@ -183,7 +183,7 @@ describe("services/bedrock reviewDraft", () => {
     expect(review.verdict).toBe("minor_revisions");
 
     const call = runAgent.mock.calls[0][0];
-    expect(call.systemPrompt).toContain("record_draft_review");
+    expect(call.systemPrompt).toContain("structured result");
     expect(call.temperature).toBe(0.3);
     expect(call.maxTokens).toBe(2048);
     expect(call.maxIterations).toBe(1);

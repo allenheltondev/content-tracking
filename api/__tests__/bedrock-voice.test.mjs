@@ -51,7 +51,7 @@ describe("services/bedrock voice", () => {
 
     expect(result.post).toBe("Drafted.");
     const call = runAgent.mock.calls[0][0];
-    expect(call.systemPrompt).toContain("record_voice_post");
+    expect(call.systemPrompt).toContain("structured result");
     expect(call.temperature).toBe(0.6);
     expect(call.maxTokens).toBe(3072);
     expect(call.maxIterations).toBe(1);
@@ -100,7 +100,7 @@ describe("services/bedrock voice", () => {
     expect(result.profile.tone).toBe("earnest");
     expect(result.change_summary).toBe("tightened tone");
     const call = runAgent.mock.calls[0][0];
-    expect(call.systemPrompt).toContain("record_voice_profile");
+    expect(call.systemPrompt).toContain("structured result");
     expect(call.temperature).toBe(0.3);
     expect(call.maxTokens).toBe(2048);
     const userText = call.input;
@@ -173,7 +173,7 @@ describe("services/bedrock voice", () => {
     expect(result.score).toBe(73);
     expect(result.verdict).toBe("close");
     const call = runAgent.mock.calls[0][0];
-    expect(call.systemPrompt).toContain("record_voice_assessment");
+    expect(call.systemPrompt).toContain("structured result");
     expect(call.temperature).toBe(0.2);
     expect(call.maxTokens).toBe(1536);
 

@@ -41,7 +41,7 @@ describe("services/bedrock recommendEngagement", () => {
     expect(result.recommendations[0].channel).toBe("reddit r/webdev");
 
     const call = runAgent.mock.calls[0][0];
-    expect(call.systemPrompt).toContain("record_engagement_recommendations");
+    expect(call.systemPrompt).toContain("structured result");
     expect(call.temperature).toBe(0.5);
     expect(call.maxTokens).toBe(3072);
     expect(call.maxIterations).toBe(1);

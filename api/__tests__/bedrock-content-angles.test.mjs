@@ -40,7 +40,7 @@ describe("services/bedrock suggestContentAngles", () => {
     expect(result.angles[0].title).toBe("Why agents fail");
 
     const call = runAgent.mock.calls[0][0];
-    expect(call.systemPrompt).toContain("record_content_angles");
+    expect(call.systemPrompt).toContain("structured result");
     expect(call.temperature).toBe(0.6);
     expect(call.maxTokens).toBe(3072);
     expect(call.maxIterations).toBe(1);
