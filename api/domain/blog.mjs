@@ -1,4 +1,3 @@
-import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import {
   BatchGetCommand,
   BatchWriteCommand,
@@ -10,7 +9,12 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ulid } from "ulid";
-import { TABLE_NAME, ddb } from "../services/ddb.mjs";
+import {
+  TABLE_NAME,
+  buildUpdateExpression,
+  ddb,
+  mapConditionalFailure,
+} from "../services/ddb.mjs";
 import { NotFoundError } from "../services/errors.mjs";
 import { findCampaign } from "./campaign.mjs";
 
@@ -165,44 +169,18 @@ export async function listBlogsByTenant(tenantId, { limit, exclusiveStartKey } =
 // Builds the SET/REMOVE expression for a partial blog update, shared by the
 // plain update and the campaign-aware transactional update.
 function buildBlogUpdateExpression(fields) {
-  const names = { "#updatedAt": "updatedAt" };
-  const values = { ":updatedAt": new Date().toISOString() };
-  const setClauses = ["#updatedAt = :updatedAt"];
-  const removeClauses = [];
-
-  for (const [key, value] of Object.entries(fields)) {
-    if (PROTECTED_UPDATE_FIELDS.has(key)) continue;
-    const namePlaceholder = `#${key}`;
-    names[namePlaceholder] = key;
-    if (value === null) {
-      removeClauses.push(namePlaceholder);
-    } else {
-      const valuePlaceholder = `:${key}`;
-      values[valuePlaceholder] = value;
-      setClauses.push(`${namePlaceholder} = ${valuePlaceholder}`);
-    }
-  }
+  const opts = { skip: PROTECTED_UPDATE_FIELDS };
 
   // Keep links.url in lockstep with canonicalUrl. Per-platform link keys
   // (links.dev/medium/hashnode) are owned by the cross-post flow and are
   // intentionally left untouched.
   if (typeof fields.canonicalUrl === "string") {
-    names["#links"] = "links";
-    names["#url"] = "url";
-    values[":canonicalUrl"] = fields.canonicalUrl;
-    setClauses.push("#links.#url = :canonicalUrl");
+    opts.extraSet = ["#links.#url = :canonicalUrl"];
+    opts.extraNames = { "#links": "links", "#url": "url" };
+    opts.extraValues = { ":canonicalUrl": fields.canonicalUrl };
   }
 
-  let updateExpression = `SET ${setClauses.join(", ")}`;
-  if (removeClauses.length > 0) {
-    updateExpression += ` REMOVE ${removeClauses.join(", ")}`;
-  }
-
-  return {
-    UpdateExpression: updateExpression,
-    ExpressionAttributeNames: names,
-    ExpressionAttributeValues: values,
-  };
+  return buildUpdateExpression(fields, opts);
 }
 
 export async function updateBlog(tenantId, blogId, fields) {
@@ -213,7 +191,7 @@ export async function updateBlog(tenantId, blogId, fields) {
     return updateBlogWithCampaign(tenantId, blogId, fields);
   }
 
-  try {
+  return mapConditionalFailure("Blog", blogId, async () => {
     const result = await ddb.send(new UpdateCommand({
       TableName: TABLE_NAME,
       Key: blogKey(tenantId, blogId),
@@ -222,12 +200,7 @@ export async function updateBlog(tenantId, blogId, fields) {
       ReturnValues: "ALL_NEW",
     }));
     return result.Attributes;
-  } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
-      throw new NotFoundError("Blog", blogId);
-    }
-    throw err;
-  }
+  });
 }
 
 async function updateBlogWithCampaign(tenantId, blogId, fields) {
@@ -334,16 +307,11 @@ export async function listBlogsForCampaign(tenantId, campaignId) {
 // Single-purpose delete of just the blog root, used where a cascade is not
 // wanted. Most callers want deleteBlog above.
 export async function deleteBlogRoot(tenantId, blogId) {
-  try {
-    await ddb.send(new DeleteCommand({
+  await mapConditionalFailure("Blog", blogId, () =>
+    ddb.send(new DeleteCommand({
       TableName: TABLE_NAME,
       Key: blogKey(tenantId, blogId),
       ConditionExpression: "attribute_exists(sk)",
-    }));
-  } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
-      throw new NotFoundError("Blog", blogId);
-    }
-    throw err;
-  }
+    })),
+  );
 }

@@ -5,9 +5,8 @@ import {
   QueryCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { ulid } from "ulid";
-import { TABLE_NAME, ddb } from "../services/ddb.mjs";
+import { TABLE_NAME, ddb, isConditionalCheckFailed } from "../services/ddb.mjs";
 import { NotFoundError } from "../services/errors.mjs";
 import { tenantPartition } from "./blog.mjs";
 import { anchorSuggestion, isSuggestionAnchored, reanchorSuggestion } from "../services/suggestion-offsets.mjs";
@@ -110,7 +109,7 @@ export async function claimReview(tenantId, contentId, reviewId) {
     }));
     return true;
   } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
+    if (isConditionalCheckFailed(err)) {
       return false;
     }
     throw err;
@@ -250,7 +249,7 @@ export async function updateSuggestionStatus(tenantId, contentId, suggestionId, 
     }));
     return result.Attributes;
   } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
+    if (isConditionalCheckFailed(err)) {
       throw new NotFoundError("Suggestion", suggestionId);
     }
     throw err;
@@ -321,7 +320,7 @@ export async function revalidateSuggestions(tenantId, contentId, newBody, { cont
         skipped += 1;
       }
     } catch (err) {
-      if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
+      if (isConditionalCheckFailed(err)) {
         continue; // already resolved by a concurrent action — leave it be
       }
       throw err;

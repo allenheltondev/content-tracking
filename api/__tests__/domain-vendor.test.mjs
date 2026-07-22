@@ -115,7 +115,7 @@ describe("domain/vendor", () => {
       });
       await updateVendor("V1", { contact_email: null, name: "Acme" });
       const input = mockSend.mock.calls[0][0].input;
-      expect(input.UpdateExpression).toMatch(/SET #name = :name, #updatedAt = :updatedAt REMOVE #contact_email/);
+      expect(input.UpdateExpression).toMatch(/SET #updatedAt = :updatedAt, #name = :name REMOVE #contact_email/);
     });
 
     test("ConditionalCheckFailed becomes NotFoundError", async () => {

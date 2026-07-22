@@ -1,4 +1,3 @@
-import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import {
   DeleteCommand,
   GetCommand,
@@ -8,7 +7,12 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ulid } from "ulid";
-import { TABLE_NAME, ddb } from "../services/ddb.mjs";
+import {
+  TABLE_NAME,
+  buildUpdateExpression,
+  ddb,
+  mapConditionalFailure,
+} from "../services/ddb.mjs";
 import { NotFoundError } from "../services/errors.mjs";
 import { findCampaign } from "./campaign.mjs";
 import {
@@ -124,46 +128,16 @@ export async function findLink(campaignId, linkId) {
 }
 
 export async function updateLink(campaignId, linkId, fields) {
-  const setClauses = [];
-  const removeClauses = [];
-  const names = { "#updatedAt": "updatedAt" };
-  const values = { ":updatedAt": new Date().toISOString() };
-
-  for (const [key, value] of Object.entries(fields)) {
-    const namePlaceholder = `#${key}`;
-    names[namePlaceholder] = key;
-    if (value === null) {
-      removeClauses.push(namePlaceholder);
-    } else {
-      const valuePlaceholder = `:${key}`;
-      values[valuePlaceholder] = value;
-      setClauses.push(`${namePlaceholder} = ${valuePlaceholder}`);
-    }
-  }
-  setClauses.push("#updatedAt = :updatedAt");
-
-  let updateExpression = `SET ${setClauses.join(", ")}`;
-  if (removeClauses.length > 0) {
-    updateExpression += ` REMOVE ${removeClauses.join(", ")}`;
-  }
-
-  try {
+  return mapConditionalFailure("Link", linkId, async () => {
     const result = await ddb.send(new UpdateCommand({
       TableName: TABLE_NAME,
       Key: linkKey(campaignId, linkId),
-      UpdateExpression: updateExpression,
-      ExpressionAttributeNames: names,
-      ExpressionAttributeValues: values,
+      ...buildUpdateExpression(fields),
       ConditionExpression: "attribute_exists(sk)",
       ReturnValues: "ALL_NEW",
     }));
     return result.Attributes;
-  } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
-      throw new NotFoundError("Link", linkId);
-    }
-    throw err;
-  }
+  });
 }
 
 export async function deleteLink(campaignId, linkId) {

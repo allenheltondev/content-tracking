@@ -1,6 +1,5 @@
-import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { GetCommand, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
-import { TABLE_NAME, ddb } from "../services/ddb.mjs";
+import { TABLE_NAME, ddb, isConditionalCheckFailed } from "../services/ddb.mjs";
 import { NotFoundError } from "../services/errors.mjs";
 import { findCampaign } from "./campaign.mjs";
 
@@ -67,7 +66,7 @@ export async function saveDraftReview(campaignId, review) {
     }));
     return result.Attributes;
   } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
+    if (isConditionalCheckFailed(err)) {
       throw new NotFoundError("Draft", campaignId);
     }
     throw err;

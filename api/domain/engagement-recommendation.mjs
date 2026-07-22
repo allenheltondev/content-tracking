@@ -1,6 +1,5 @@
-import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
-import { TABLE_NAME, ddb } from "../services/ddb.mjs";
+import { TABLE_NAME, ddb, isConditionalCheckFailed } from "../services/ddb.mjs";
 import { NotFoundError } from "../services/errors.mjs";
 
 // The latest engagement recommendation for a single content post lives
@@ -45,7 +44,7 @@ export async function saveEngagementRecommendation(campaignId, postId, recommend
       ExpressionAttributeValues: { ":entity": "ContentPostRecommendation" },
     }));
   } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
+    if (isConditionalCheckFailed(err)) {
       // Should be unreachable given the entity guard, but surface clearly
       // rather than masking an unexpected collision.
       throw new NotFoundError("ContentPostRecommendation", postId);

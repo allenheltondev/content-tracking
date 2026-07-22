@@ -1,4 +1,4 @@
-import { ConditionalCheckFailedException, TransactionCanceledException } from "@aws-sdk/client-dynamodb";
+import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import {
   DeleteCommand,
   GetCommand,
@@ -8,7 +8,7 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ulid } from "ulid";
-import { TABLE_NAME, ddb } from "../services/ddb.mjs";
+import { TABLE_NAME, ddb, isConditionalCheckFailed } from "../services/ddb.mjs";
 import { NotFoundError } from "../services/errors.mjs";
 import { tenantPartition } from "./blog.mjs";
 
@@ -129,7 +129,7 @@ export async function deleteVoiceSampleRow(tenantId, platform, sampleId) {
       ConditionExpression: "attribute_exists(sk)",
     }));
   } catch (err) {
-    if (err instanceof ConditionalCheckFailedException) {
+    if (isConditionalCheckFailed(err)) {
       throw new NotFoundError("VoiceSample", sampleId);
     }
     throw err;
@@ -156,7 +156,7 @@ export async function setVoiceSampleMuted(tenantId, platform, sampleId, muted) {
     }));
     return result.Attributes;
   } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
+    if (isConditionalCheckFailed(err)) {
       throw new NotFoundError("VoiceSample", sampleId);
     }
     throw err;
@@ -324,7 +324,7 @@ export async function claimReflectionSlot(tenantId, platform, { now, cooldownMs,
     }));
     return true;
   } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
+    if (isConditionalCheckFailed(err)) {
       return false;
     }
     throw err;

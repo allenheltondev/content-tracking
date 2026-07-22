@@ -1,4 +1,3 @@
-import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import {
   GetCommand,
   QueryCommand,
@@ -6,7 +5,7 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ulid } from "ulid";
-import { TABLE_NAME, ddb } from "../services/ddb.mjs";
+import { TABLE_NAME, ddb, isConditionalCheckFailed } from "../services/ddb.mjs";
 import { NotFoundError } from "../services/errors.mjs";
 import { findVendor } from "./vendor.mjs";
 
@@ -475,7 +474,7 @@ export async function updateCampaignPayout(campaignId, fields) {
     }));
     return result.Attributes;
   } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
+    if (isConditionalCheckFailed(err)) {
       throw new NotFoundError("Campaign", campaignId);
     }
     throw err;

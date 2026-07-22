@@ -1,4 +1,3 @@
-import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import {
   DeleteCommand,
   GetCommand,
@@ -7,7 +6,7 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ulid } from "ulid";
-import { TABLE_NAME, ddb } from "../services/ddb.mjs";
+import { TABLE_NAME, ddb, isConditionalCheckFailed } from "../services/ddb.mjs";
 import { NotFoundError } from "../services/errors.mjs";
 import { findCampaign, listActiveCampaigns, listCampaignsByStatus } from "./campaign.mjs";
 import { listCampaignLinks } from "./link.mjs";
@@ -130,7 +129,7 @@ export async function updateSocialPostAnalytics(campaignId, postId, { metrics, c
       ReturnValues: "ALL_NEW",
     }));
   } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
+    if (isConditionalCheckFailed(err)) {
       throw new NotFoundError("SocialPost", postId);
     }
     throw err;
@@ -186,7 +185,7 @@ export async function deleteSocialPost(campaignId, postId) {
       ConditionExpression: "attribute_exists(sk)",
     }));
   } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
+    if (isConditionalCheckFailed(err)) {
       throw new NotFoundError("SocialPost", postId);
     }
     throw err;

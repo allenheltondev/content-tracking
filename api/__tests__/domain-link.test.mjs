@@ -98,7 +98,7 @@ describe("domain/link", () => {
       mockSend.mockResolvedValueOnce({ Attributes: { linkId: "L1" } });
       await updateLink("C1", "L1", { notes: "new note", src: null });
       const input = mockSend.mock.calls[0][0].input;
-      expect(input.UpdateExpression).toMatch(/SET #notes = :notes/);
+      expect(input.UpdateExpression).toMatch(/#notes = :notes/);
       expect(input.UpdateExpression).toMatch(/REMOVE #src/);
     });
 
