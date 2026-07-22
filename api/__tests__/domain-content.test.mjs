@@ -5,6 +5,9 @@ process.env.ENVIRONMENT = "staging";
 
 const { DynamoDBDocumentClient } = await import("@aws-sdk/lib-dynamodb");
 const {
+  buildContentItem,
+  buildPublishVariantItem,
+  buildStatsItem,
   createContent,
   getContent,
   findContent,
@@ -46,6 +49,69 @@ describe("domain/content", () => {
       expect(publishVariantKey(TENANT, "C1", "x")).toEqual({ pk, sk: "CONTENT#C1#PUBLISH#x" });
       expect(statsKey(TENANT, "C1", "x", "2026-06-22")).toEqual({ pk, sk: "CONTENT#C1#STATS#x#2026-06-22" });
       expect(contentVectorStateKey(TENANT, "C1")).toEqual({ pk, sk: "CONTENT#C1#VECTORINDEX" });
+    });
+  });
+
+  describe("item builders", () => {
+    // The builders are the single definition of each storage shape — the
+    // domain writers and scripts/import-blog-export.mjs both consume them.
+    // These parity checks pin each writer's output to its builder's output
+    // (given the writer's own id/timestamp), so the shapes can never drift.
+    test("buildContentItem produces exactly what createContent writes", async () => {
+      mockSend.mockResolvedValue({});
+      const fields = {
+        title: "Hello",
+        type: "blog",
+        source: "owned",
+        slug: "hello",
+        status: "published",
+        canonicalUrl: "https://readysetcloud.io/blog/hello",
+        contentMarkdown: "# hi",
+        links: { dev: "https://dev.to/p" },
+        ids: { dev: "123" },
+      };
+      const written = await createContent(TENANT, fields);
+      expect(buildContentItem(TENANT, written.contentId, fields, written.createdAt)).toEqual(written);
+      expect(written.links).toEqual({ url: "https://readysetcloud.io/blog/hello", dev: "https://dev.to/p" });
+    });
+
+    test("buildContentItem honors a caller-supplied id and timestamp (importer backfill)", () => {
+      const item = buildContentItem(
+        TENANT,
+        "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        { title: "Hi", type: "blog", canonicalUrl: "https://x/y" },
+        "2022-12-28T00:00:00.000Z",
+      );
+      expect(item).toEqual({
+        pk: `TENANT#${TENANT}`,
+        sk: "CONTENT#01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        entity: "Content",
+        tenantId: TENANT,
+        contentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        title: "Hi",
+        type: "blog",
+        canonicalUrl: "https://x/y",
+        links: { url: "https://x/y" },
+        ids: {},
+        gsi1pk: `TENANT#${TENANT}#CONTENT`,
+        gsi1sk: "2022-12-28T00:00:00.000Z#01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        createdAt: "2022-12-28T00:00:00.000Z",
+        updatedAt: "2022-12-28T00:00:00.000Z",
+      });
+    });
+
+    test("buildPublishVariantItem produces exactly what putPublishVariant writes", async () => {
+      mockSend.mockResolvedValue({});
+      const fields = { url: "https://dev.to/p", status: "succeeded", id: "123" };
+      const written = await putPublishVariant(TENANT, "C1", "dev", fields);
+      expect(buildPublishVariantItem(TENANT, "C1", "dev", fields, written.updatedAt)).toEqual(written);
+    });
+
+    test("buildStatsItem produces exactly what putStatsSnapshot writes", async () => {
+      mockSend.mockResolvedValue({});
+      const fields = { metrics: { views: 5 } };
+      const written = await putStatsSnapshot(TENANT, "C1", "dev", "2026-06-22", fields);
+      expect(buildStatsItem(TENANT, "C1", "dev", "2026-06-22", fields, written.capturedAt)).toEqual(written);
     });
   });
 

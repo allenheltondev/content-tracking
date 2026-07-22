@@ -86,18 +86,27 @@ const PROTECTED_UPDATE_FIELDS = new Set([
   "campaignId",
 ]);
 
-export async function createContent(tenantId, fields) {
+// ---------------------------------------------------------------------
+// Pure item builders — one definition of each storage shape. The domain
+// writers below (createContent, putPublishVariant, putStatsSnapshot) use
+// these internally, and scripts/import-blog-export.mjs shares them, so a
+// backfill can never drift from what the running app writes. The id and
+// timestamps are parameters because the importer supplies deterministic ids
+// and export-derived instants; the writers pass their own generated values.
+// ---------------------------------------------------------------------
+
+// The Content root item. campaignId is excluded — it flows through the
+// attach transaction in createContent, never through the plain shape.
+export function buildContentItem(tenantId, contentId, fields, now) {
   const {
     contentId: _ignoredId,
     links: providedLinks,
     ids: providedIds,
-    campaignId,
+    campaignId: _ignoredCampaignId,
     ...rest
   } = fields;
-  const contentId = ulid();
-  const now = new Date().toISOString();
 
-  const item = {
+  return {
     ...rest,
     ...contentKey(tenantId, contentId),
     entity: "Content",
@@ -113,6 +122,41 @@ export async function createContent(tenantId, fields) {
     createdAt: now,
     updatedAt: now,
   };
+}
+
+// A per-platform ContentPublish variant row.
+export function buildPublishVariantItem(tenantId, contentId, platform, fields, updatedAt) {
+  return {
+    ...fields,
+    ...publishVariantKey(tenantId, contentId, platform),
+    entity: "ContentPublish",
+    tenantId,
+    contentId,
+    platform,
+    updatedAt,
+  };
+}
+
+// A per-platform daily ContentStats snapshot row.
+export function buildStatsItem(tenantId, contentId, platform, date, fields, capturedAt) {
+  return {
+    ...fields,
+    ...statsKey(tenantId, contentId, platform, date),
+    entity: "ContentStats",
+    tenantId,
+    contentId,
+    platform,
+    date,
+    capturedAt,
+  };
+}
+
+export async function createContent(tenantId, fields) {
+  const { campaignId } = fields;
+  const contentId = ulid();
+  const now = new Date().toISOString();
+
+  const item = buildContentItem(tenantId, contentId, fields, now);
 
   // contentId is a fresh ULID so a collision is effectively impossible; the
   // condition is hygiene. pk is shared across the tenant partition, so the
@@ -474,15 +518,7 @@ export async function deleteContent(tenantId, contentId) {
 
 // Upserts a per-platform publish variant row for a piece of content.
 export async function putPublishVariant(tenantId, contentId, platform, fields = {}) {
-  const item = {
-    ...fields,
-    ...publishVariantKey(tenantId, contentId, platform),
-    entity: "ContentPublish",
-    tenantId,
-    contentId,
-    platform,
-    updatedAt: new Date().toISOString(),
-  };
+  const item = buildPublishVariantItem(tenantId, contentId, platform, fields, new Date().toISOString());
   await ddb.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
   return item;
 }
@@ -503,16 +539,7 @@ export async function listPublishVariants(tenantId, contentId) {
 // Writes a daily stats snapshot for one platform of a piece of content. Same-
 // day rewrites overwrite — only the last write of the day is kept.
 export async function putStatsSnapshot(tenantId, contentId, platform, date, fields = {}) {
-  const item = {
-    ...fields,
-    ...statsKey(tenantId, contentId, platform, date),
-    entity: "ContentStats",
-    tenantId,
-    contentId,
-    platform,
-    date,
-    capturedAt: new Date().toISOString(),
-  };
+  const item = buildStatsItem(tenantId, contentId, platform, date, fields, new Date().toISOString());
   await ddb.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
   return item;
 }
