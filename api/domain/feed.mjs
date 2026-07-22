@@ -1,4 +1,3 @@
-import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import {
   DeleteCommand,
   GetCommand,
@@ -7,8 +6,12 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ulid } from "ulid";
-import { TABLE_NAME, ddb } from "../services/ddb.mjs";
-import { NotFoundError } from "../services/errors.mjs";
+import {
+  TABLE_NAME,
+  buildUpdateExpression,
+  ddb,
+  mapConditionalFailure,
+} from "../services/ddb.mjs";
 import { tenantPartition } from "./blog.mjs";
 
 // Content Radar: the set of RSS/Atom feeds a creator subscribes to so the
@@ -96,61 +99,28 @@ export async function getFeedSource(tenantId, feedId) {
 // field. Throws NotFound when the source doesn't exist so PATCH is a clean 404
 // rather than an upsert. Returns the updated row.
 export async function updateFeedSource(tenantId, feedId, fields = {}) {
-  const names = { "#updatedAt": "updatedAt" };
-  const values = { ":updatedAt": new Date().toISOString() };
-  const setClauses = ["#updatedAt = :updatedAt"];
-  const removeClauses = [];
-
-  for (const [key, value] of Object.entries(fields)) {
-    const namePlaceholder = `#${key}`;
-    names[namePlaceholder] = key;
-    if (value === null) {
-      removeClauses.push(namePlaceholder);
-    } else {
-      values[`:${key}`] = value;
-      setClauses.push(`${namePlaceholder} = :${key}`);
-    }
-  }
-
-  let updateExpression = `SET ${setClauses.join(", ")}`;
-  if (removeClauses.length > 0) {
-    updateExpression += ` REMOVE ${removeClauses.join(", ")}`;
-  }
-
-  try {
+  return mapConditionalFailure("FeedSource", feedId, async () => {
     const result = await ddb.send(new UpdateCommand({
       TableName: TABLE_NAME,
       Key: feedSourceKey(tenantId, feedId),
-      UpdateExpression: updateExpression,
+      ...buildUpdateExpression(fields),
       ConditionExpression: "attribute_exists(sk)",
-      ExpressionAttributeNames: names,
-      ExpressionAttributeValues: values,
       ReturnValues: "ALL_NEW",
     }));
     return result.Attributes;
-  } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
-      throw new NotFoundError("FeedSource", feedId);
-    }
-    throw err;
-  }
+  });
 }
 
 // Deletes a feed source. Throws NotFound when it doesn't exist so DELETE is a
 // clean 404 rather than a no-op.
 export async function deleteFeedSource(tenantId, feedId) {
-  try {
-    await ddb.send(new DeleteCommand({
+  await mapConditionalFailure("FeedSource", feedId, () =>
+    ddb.send(new DeleteCommand({
       TableName: TABLE_NAME,
       Key: feedSourceKey(tenantId, feedId),
       ConditionExpression: "attribute_exists(sk)",
-    }));
-  } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
-      throw new NotFoundError("FeedSource", feedId);
-    }
-    throw err;
-  }
+    })),
+  );
 }
 
 // Reads the radar preferences singleton. Returns null when the creator hasn't
@@ -168,34 +138,17 @@ export async function getRadarPrefs(tenantId) {
 // audience); a null value clears that field. Creates the row on first save.
 // Returns the updated row.
 export async function putRadarPrefs(tenantId, fields = {}) {
-  const now = new Date().toISOString();
-  const names = { "#entity": "entity", "#updatedAt": "updatedAt" };
-  const values = { ":entity": "ContentRadarPrefs", ":updatedAt": now };
-  const setClauses = ["#entity = :entity", "#updatedAt = :updatedAt"];
-  const removeClauses = [];
-
-  for (const [key, value] of Object.entries(fields)) {
-    const namePlaceholder = `#${key}`;
-    names[namePlaceholder] = key;
-    if (value === null) {
-      removeClauses.push(namePlaceholder);
-    } else {
-      values[`:${key}`] = value;
-      setClauses.push(`${namePlaceholder} = :${key}`);
-    }
-  }
-
-  let updateExpression = `SET ${setClauses.join(", ")}`;
-  if (removeClauses.length > 0) {
-    updateExpression += ` REMOVE ${removeClauses.join(", ")}`;
-  }
-
   const result = await ddb.send(new UpdateCommand({
     TableName: TABLE_NAME,
     Key: radarPrefsKey(tenantId),
-    UpdateExpression: updateExpression,
-    ExpressionAttributeNames: names,
-    ExpressionAttributeValues: values,
+    // The entity stamp rides along as an extra clause because this is an
+    // upsert: first save creates the row, so the discriminator must be
+    // written here rather than by a separate create path.
+    ...buildUpdateExpression(fields, {
+      extraSet: ["#entity = :entity"],
+      extraNames: { "#entity": "entity" },
+      extraValues: { ":entity": "ContentRadarPrefs" },
+    }),
     ReturnValues: "ALL_NEW",
   }));
   return result.Attributes;

@@ -1,4 +1,4 @@
-import { ConditionalCheckFailedException, TransactionCanceledException } from "@aws-sdk/client-dynamodb";
+import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import {
   BatchWriteCommand,
   GetCommand,
@@ -8,7 +8,13 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ulid } from "ulid";
-import { TABLE_NAME, ddb } from "../services/ddb.mjs";
+import {
+  TABLE_NAME,
+  buildUpdateExpression,
+  ddb,
+  isConditionalCheckFailed,
+  mapConditionalFailure,
+} from "../services/ddb.mjs";
 import { ConflictError, NotFoundError } from "../services/errors.mjs";
 import { tenantPartition } from "./blog.mjs";
 import { campaignKey, findCampaign } from "./campaign.mjs";
@@ -302,47 +308,21 @@ export async function findContentBySlug(tenantId, slug) {
 
 // Builds the SET/REMOVE expression for a partial content update.
 function buildContentUpdateExpression(fields) {
-  const names = { "#updatedAt": "updatedAt" };
-  const values = { ":updatedAt": new Date().toISOString() };
-  const setClauses = ["#updatedAt = :updatedAt"];
-  const removeClauses = [];
-
-  for (const [key, value] of Object.entries(fields)) {
-    if (PROTECTED_UPDATE_FIELDS.has(key)) continue;
-    const namePlaceholder = `#${key}`;
-    names[namePlaceholder] = key;
-    if (value === null) {
-      removeClauses.push(namePlaceholder);
-    } else {
-      const valuePlaceholder = `:${key}`;
-      values[valuePlaceholder] = value;
-      setClauses.push(`${namePlaceholder} = ${valuePlaceholder}`);
-    }
-  }
+  const opts = { skip: PROTECTED_UPDATE_FIELDS };
 
   // Keep links.url in lockstep with canonicalUrl. Per-platform link keys
   // are owned by the publish flow and are intentionally left untouched.
   if (typeof fields.canonicalUrl === "string") {
-    names["#links"] = "links";
-    names["#url"] = "url";
-    values[":canonicalUrl"] = fields.canonicalUrl;
-    setClauses.push("#links.#url = :canonicalUrl");
+    opts.extraSet = ["#links.#url = :canonicalUrl"];
+    opts.extraNames = { "#links": "links", "#url": "url" };
+    opts.extraValues = { ":canonicalUrl": fields.canonicalUrl };
   }
 
-  let updateExpression = `SET ${setClauses.join(", ")}`;
-  if (removeClauses.length > 0) {
-    updateExpression += ` REMOVE ${removeClauses.join(", ")}`;
-  }
-
-  return {
-    UpdateExpression: updateExpression,
-    ExpressionAttributeNames: names,
-    ExpressionAttributeValues: values,
-  };
+  return buildUpdateExpression(fields, opts);
 }
 
 export async function updateContent(tenantId, contentId, fields) {
-  try {
+  return mapConditionalFailure("Content", contentId, async () => {
     const result = await ddb.send(new UpdateCommand({
       TableName: TABLE_NAME,
       Key: contentKey(tenantId, contentId),
@@ -351,12 +331,7 @@ export async function updateContent(tenantId, contentId, fields) {
       ReturnValues: "ALL_NEW",
     }));
     return result.Attributes;
-  } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
-      throw new NotFoundError("Content", contentId);
-    }
-    throw err;
-  }
+  });
 }
 
 // Attaches an existing campaign to a content piece (the sponsorship hangs off
@@ -443,7 +418,7 @@ async function clearCampaignBackPointer(campaignId, contentId) {
       ConditionExpression: "#contentId = :contentId",
     }));
   } catch (err) {
-    if (!(err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException")) {
+    if (!isConditionalCheckFailed(err)) {
       throw err;
     }
   }

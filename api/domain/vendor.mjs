@@ -1,4 +1,3 @@
-import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import {
   DeleteCommand,
   GetCommand,
@@ -7,7 +6,13 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ulid } from "ulid";
-import { TABLE_NAME, ddb } from "../services/ddb.mjs";
+import {
+  TABLE_NAME,
+  buildUpdateExpression,
+  ddb,
+  isConditionalCheckFailed,
+  mapConditionalFailure,
+} from "../services/ddb.mjs";
 import { ConflictError, NotFoundError } from "../services/errors.mjs";
 
 // Vendor records live at:
@@ -50,7 +55,7 @@ export async function createVendor(fields) {
       ConditionExpression: "attribute_not_exists(pk)",
     }));
   } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
+    if (isConditionalCheckFailed(err)) {
       throw new ConflictError(`Vendor ${vendorId} already exists`);
     }
     throw err;
@@ -134,46 +139,16 @@ export async function listVendors({ limit, exclusiveStartKey, tenantId }) {
 }
 
 export async function updateVendor(vendorId, fields) {
-  const setClauses = [];
-  const removeClauses = [];
-  const names = { "#updatedAt": "updatedAt" };
-  const values = { ":updatedAt": new Date().toISOString() };
-
-  for (const [key, value] of Object.entries(fields)) {
-    const namePlaceholder = `#${key}`;
-    names[namePlaceholder] = key;
-    if (value === null) {
-      removeClauses.push(namePlaceholder);
-    } else {
-      const valuePlaceholder = `:${key}`;
-      values[valuePlaceholder] = value;
-      setClauses.push(`${namePlaceholder} = ${valuePlaceholder}`);
-    }
-  }
-  setClauses.push("#updatedAt = :updatedAt");
-
-  let updateExpression = `SET ${setClauses.join(", ")}`;
-  if (removeClauses.length > 0) {
-    updateExpression += ` REMOVE ${removeClauses.join(", ")}`;
-  }
-
-  try {
+  return mapConditionalFailure("Vendor", vendorId, async () => {
     const result = await ddb.send(new UpdateCommand({
       TableName: TABLE_NAME,
       Key: vendorKey(vendorId),
-      UpdateExpression: updateExpression,
-      ExpressionAttributeNames: names,
-      ExpressionAttributeValues: values,
+      ...buildUpdateExpression(fields),
       ConditionExpression: "attribute_exists(pk)",
       ReturnValues: "ALL_NEW",
     }));
     return result.Attributes;
-  } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
-      throw new NotFoundError("Vendor", vendorId);
-    }
-    throw err;
-  }
+  });
 }
 
 export async function deleteVendor(vendorId) {
@@ -192,18 +167,13 @@ export async function deleteVendor(vendorId) {
     );
   }
 
-  try {
-    await ddb.send(new DeleteCommand({
+  await mapConditionalFailure("Vendor", vendorId, () =>
+    ddb.send(new DeleteCommand({
       TableName: TABLE_NAME,
       Key: vendorKey(vendorId),
       ConditionExpression: "attribute_exists(pk)",
-    }));
-  } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
-      throw new NotFoundError("Vendor", vendorId);
-    }
-    throw err;
-  }
+    })),
+  );
 }
 
 export async function listCampaignsForVendor(vendorId, tenantId) {

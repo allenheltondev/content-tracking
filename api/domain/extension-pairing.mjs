@@ -1,11 +1,10 @@
-import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import {
   DeleteCommand,
   PutCommand,
   QueryCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { TABLE_NAME, ddb } from "../services/ddb.mjs";
+import { TABLE_NAME, ddb, isConditionalCheckFailed } from "../services/ddb.mjs";
 import { NotFoundError } from "../services/errors.mjs";
 import { newJti, signToken } from "../services/extension-token.mjs";
 
@@ -97,7 +96,7 @@ export async function revokePairing({ sub, jti }) {
       ConditionExpression: "attribute_exists(pk)",
     }));
   } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
+    if (isConditionalCheckFailed(err)) {
       throw new NotFoundError("ExtensionPairing", jti);
     }
     throw err;
@@ -120,7 +119,7 @@ export async function touchPairing({ sub, jti }) {
     }));
     return result.Attributes ?? null;
   } catch (err) {
-    if (err instanceof ConditionalCheckFailedException || err?.name === "ConditionalCheckFailedException") {
+    if (isConditionalCheckFailed(err)) {
       return null;
     }
     throw err;
