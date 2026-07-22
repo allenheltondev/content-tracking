@@ -23,7 +23,7 @@ export async function streamGenerate(
 
   const res = await fetch(env.streamBaseUrl, {
     method: 'POST',
-    headers: { authorization: token, 'content-type': 'application/json' },
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok || !res.body) {
