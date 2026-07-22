@@ -1,8 +1,11 @@
 # API reference
 
-Complete reference for the Booked REST API. Schemas are
-derived from [`publicapi.yaml`](../publicapi.yaml); that file is the
-source of truth.
+Human-readable reference for the Booked REST API. The API Gateway
+resource is a pure proxy, so the route registrations in
+`api/routes/*.mjs` (wired up in `api/app.mjs`) are the source of
+truth; this document trails them. The old hand-maintained
+`publicapi.yaml` OpenAPI spec was retired — it covered a quarter of
+the live surface and nothing enforced it.
 
 ## Conventions
 
@@ -1751,8 +1754,7 @@ only.
   registered link. Tracked in issue
   [#10](https://github.com/allenheltondev/content-tracking/issues/10).
 
-This document will be updated when those routes are merged into
-`publicapi.yaml`.
+This document will be updated as those routes land.
 
 ---
 
