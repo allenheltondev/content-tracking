@@ -1,9 +1,10 @@
 import type { ReactElement } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, type ApiFetch } from '../auth/useApiFetch';
 import { generateCampaignReport, listCampaignReports } from '../api/campaigns';
 import type { CampaignReportListItem, CampaignReportResponse } from '../api/types';
-import ReportLinkDialog from './ReportLinkDialog';
+import ReportLinkDialog from './ReportLinkDialog';
 import { formatDate } from '../lib/format';
 
 // History of generated reports for a campaign. Each row is a frozen snapshot
@@ -16,26 +17,18 @@ export default function CampaignReportsTab({
   apiFetch: ApiFetch;
   campaignId: string;
 }): ReactElement {
-  const [reports, setReports] = useState<CampaignReportListItem[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [justGenerated, setJustGenerated] = useState<CampaignReportResponse | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const loadReports = useCallback(async (): Promise<void> => {
-    setLoadError(null);
-    try {
-      const res = await listCampaignReports(apiFetch, campaignId);
-      setReports(res.reports);
-    } catch (err) {
-      setLoadError(err instanceof ApiError ? err.message : (err as Error).message);
-    }
-  }, [apiFetch, campaignId]);
-
-  useEffect(() => {
-    void loadReports();
-  }, [loadReports]);
+  const reportsQuery = useQuery({
+    queryKey: ['campaign', campaignId, 'reports'],
+    queryFn: async () => (await listCampaignReports(apiFetch, campaignId)).reports,
+  });
+  const reports = reportsQuery.data ?? null;
+  const loadError = reportsQuery.error ? (reportsQuery.error as Error).message : null;
 
   const handleGenerate = async (): Promise<void> => {
     setGenerating(true);
@@ -44,7 +37,7 @@ export default function CampaignReportsTab({
       const result = await generateCampaignReport(apiFetch, campaignId);
       setJustGenerated(result);
       // Re-fetch so the history shows the authoritative server-stamped row.
-      await loadReports();
+      await queryClient.invalidateQueries({ queryKey: ['campaign', campaignId, 'reports'] });
     } catch (err) {
       setGenerateError(err instanceof ApiError ? err.message : (err as Error).message);
     } finally {

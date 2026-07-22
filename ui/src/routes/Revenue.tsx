@@ -1,10 +1,11 @@
 import type { ReactElement } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useApiFetch } from '../auth/useApiFetch';
 import { getRevenue } from '../api/revenue';
 import { listVendors } from '../api/vendors';
-import type { RevenueResponse, Vendor } from '../api/types';
+import type { Vendor } from '../api/types';
 import RevenueChart from '../components/RevenueChart';
 import { formatMoney } from '../lib/format';
 
@@ -15,87 +16,60 @@ const WIDE_END = '2999-12-31';
 export default function Revenue(): ReactElement {
   const apiFetch = useApiFetch();
 
+  const [year, setYear] = useState<number>(CURRENT_YEAR);
+  const [showSkipped, setShowSkipped] = useState(false);
+
+  // Discover years that have any revenue at all so the year dropdown is
+  // data-driven instead of a hardcoded range. Falls back silently if the
+  // call fails — current year stays in the list.
+  const yearsQuery = useQuery({
+    queryKey: ['revenue', { startDate: WIDE_START, endDate: WIDE_END, grouping: 'year' }],
+    queryFn: () =>
+      getRevenue(apiFetch, { startDate: WIDE_START, endDate: WIDE_END, grouping: 'year' }).catch(
+        () => null,
+      ),
+  });
+
+  // Vendor lookup for the breakdown table. Best effort — table falls back
+  // to showing vendor ids.
+  const vendorsQuery = useQuery({
+    queryKey: ['vendors', { bestEffort: true }],
+    queryFn: () => listVendors(apiFetch, { limit: 500 }).catch(() => ({ vendors: [] as Vendor[] })),
+  });
+
+  // Per-year: two queries (month + vendor groupings).
+  const monthlyQuery = useQuery({
+    queryKey: ['revenue', { year, grouping: 'month' }],
+    queryFn: () => getRevenue(apiFetch, { year, grouping: 'month' }),
+  });
+  const byVendorQuery = useQuery({
+    queryKey: ['revenue', { year, grouping: 'vendor' }],
+    queryFn: () => getRevenue(apiFetch, { year, grouping: 'vendor' }),
+  });
+
   // Drives the dropdown. Falls back to [currentYear] when the all-time
   // query hasn't returned yet, so the page renders something while the
   // year list resolves.
-  const [availableYears, setAvailableYears] = useState<number[]>([CURRENT_YEAR]);
-  const [year, setYear] = useState<number>(CURRENT_YEAR);
+  const availableYears = useMemo(() => {
+    const merged = new Set<number>([CURRENT_YEAR]);
+    if (yearsQuery.data) {
+      for (const g of yearsQuery.data.groups) {
+        const n = Number(g.key);
+        if (Number.isInteger(n) && n > 1900) merged.add(n);
+      }
+    }
+    return [...merged].sort((a, b) => b - a);
+  }, [yearsQuery.data]);
 
-  const [monthly, setMonthly] = useState<RevenueResponse | null>(null);
-  const [byVendor, setByVendor] = useState<RevenueResponse | null>(null);
-  const [vendorMap, setVendorMap] = useState<Map<string, Vendor>>(new Map());
+  const vendorMap = useMemo(
+    () => new Map((vendorsQuery.data?.vendors ?? []).map((v) => [v.vendor_id, v])),
+    [vendorsQuery.data],
+  );
 
-  const [monthlyError, setMonthlyError] = useState<string | null>(null);
-  const [vendorError, setVendorError] = useState<string | null>(null);
-  const [showSkipped, setShowSkipped] = useState(false);
-
-  // One-time: discover years that have any revenue at all so the year
-  // dropdown is data-driven instead of a hardcoded range. Falls back
-  // silently if the call fails — current year stays in the list.
-  useEffect(() => {
-    let cancelled = false;
-    getRevenue(apiFetch, {
-      startDate: WIDE_START,
-      endDate: WIDE_END,
-      grouping: 'year',
-    })
-      .then((res) => {
-        if (cancelled) return;
-        const yearsFromData = res.groups
-          .map((g) => Number(g.key))
-          .filter((n) => Number.isInteger(n) && n > 1900);
-        const merged = new Set<number>(yearsFromData);
-        merged.add(CURRENT_YEAR);
-        const sorted = [...merged].sort((a, b) => b - a);
-        setAvailableYears(sorted);
-      })
-      .catch(() => {
-        // Keep the fallback list; nothing to surface.
-      });
-
-    // Vendor lookup for the breakdown table.
-    listVendors(apiFetch, { limit: 500 })
-      .then((res) => {
-        if (cancelled) return;
-        setVendorMap(new Map(res.vendors.map((v) => [v.vendor_id, v])));
-      })
-      .catch(() => {
-        // Best effort — table falls back to showing vendor ids.
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [apiFetch]);
-
-  // Per-year: two calls (month + vendor groupings).
-  useEffect(() => {
-    let cancelled = false;
-    setMonthlyError(null);
-    setVendorError(null);
-    setMonthly(null);
-    setByVendor(null);
-
-    getRevenue(apiFetch, { year, grouping: 'month' })
-      .then((res) => {
-        if (!cancelled) setMonthly(res);
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setMonthlyError(err.message);
-      });
-
-    getRevenue(apiFetch, { year, grouping: 'vendor' })
-      .then((res) => {
-        if (!cancelled) setByVendor(res);
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setVendorError(err.message);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [apiFetch, year]);
+  const monthly = monthlyQuery.data ?? null;
+  const byVendor = byVendorQuery.data ?? null;
+  const monthlyError = monthlyQuery.error ? (monthlyQuery.error as Error).message : null;
+  const vendorError = byVendorQuery.error ? (byVendorQuery.error as Error).message : null;
 
   const vendorRows = useMemo(() => {
     if (!byVendor) return null;

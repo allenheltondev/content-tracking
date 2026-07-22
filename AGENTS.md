@@ -107,6 +107,16 @@ has a colocated `*.test.mjs`. Async event sources get a DLQ in the template.
   `Authorization: Bearer <token>` everywhere. Streaming/NDJSON and presigned
   S3 uploads are the only sanctioned raw `fetch` uses; throw the shared
   `ApiError` from them, not bare `Error`.
+- Server state is loaded with TanStack React Query (`useQuery` /
+  `useInfiniteQuery` for cursor pagination), never a hand-rolled
+  `useState` + `useEffect` loader. Query keys are resource-based:
+  `['campaigns', filters]`, `['campaign', id]`, `['campaign', id,
+  'analytics']`, `['content', id]`, `['vendors']`, `['profile']`, and so
+  on — params live in the key. Mutations stay plain async handlers that
+  call `queryClient.invalidateQueries` with the affected key on success
+  (`setQueryData` only when the UI must reflect the response
+  synchronously). Form fields, modals, and tab selection stay `useState`.
+  Streaming/imperative flows (chat, live review, NDJSON) are not queries.
 - Styling is Tailwind on the `@readysetcloud/ui` design system only — no CSS
   modules, styled-components, or inline style objects.
 - Prefer extracting shared components/helpers over copy-pasting between

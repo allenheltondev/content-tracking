@@ -1,8 +1,9 @@
 import type { ReactElement } from 'react';
 import { useCallback, useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApiFetch } from '../auth/useApiFetch';
 import { VOICE_PLATFORMS, platformLabel } from '../api/voice';
-import TagsInput from '../components/TagsInput';
+import TagsInput from '../components/TagsInput';
 import { formatDate } from '../lib/format';
 import {
   addFeedSource,
@@ -38,11 +39,22 @@ function safeHref(url: string | null): string | null {
 // them. The feed itself is read live server-side; nothing here is stored.
 export default function ContentRadar(): ReactElement {
   const apiFetch = useApiFetch();
-  const [feeds, setFeeds] = useState<FeedSource[]>([]);
-  const [feedsLoading, setFeedsLoading] = useState(true);
-  const [feedsError, setFeedsError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const [prefs, setPrefs] = useState<ContentRadarPreferences | null>(null);
+  const feedsQuery = useQuery({
+    queryKey: ['radar', 'feeds'],
+    queryFn: () => listFeedSources(apiFetch),
+  });
+  const feeds = feedsQuery.data ?? [];
+  const feedsLoading = feedsQuery.isPending;
+  const feedsError = feedsQuery.error ? (feedsQuery.error as Error).message : null;
+
+  // Prefs are optional — a load failure is silently ignored, as before.
+  const prefsQuery = useQuery({
+    queryKey: ['radar', 'preferences'],
+    queryFn: () => getRadarPreferences(apiFetch),
+  });
+  const prefs = prefsQuery.data ?? null;
 
   const [platform, setPlatform] = useState<string>('');
   const [guidance, setGuidance] = useState('');
@@ -50,30 +62,16 @@ export default function ContentRadar(): ReactElement {
   const [ideasError, setIdeasError] = useState<string | null>(null);
   const [ideas, setIdeas] = useState<ContentIdeas | null>(null);
 
-  const loadFeeds = useCallback(async () => {
-    setFeedsLoading(true);
-    setFeedsError(null);
-    try {
-      setFeeds(await listFeedSources(apiFetch));
-    } catch (err) {
-      setFeedsError((err as Error).message);
-    } finally {
-      setFeedsLoading(false);
-    }
-  }, [apiFetch]);
-
-  // Load saved preferences and seed the run controls from the defaults, so
-  // "Inspire me" uses them out of the box (still overridable per run).
+  // Seed the run controls from the saved defaults, so "Inspire me" uses them
+  // out of the box (still overridable per run). Re-seeds when prefs are saved.
   const applyPrefs = useCallback((p: ContentRadarPreferences) => {
-    setPrefs(p);
     setPlatform(p.default_platform ?? '');
     setGuidance(p.default_guidance ?? '');
   }, []);
 
   useEffect(() => {
-    void loadFeeds();
-    void getRadarPreferences(apiFetch).then(applyPrefs).catch(() => { /* prefs are optional */ });
-  }, [apiFetch, loadFeeds, applyPrefs]);
+    if (prefsQuery.data) applyPrefs(prefsQuery.data);
+  }, [prefsQuery.data, applyPrefs]);
 
   const activeCount = feeds.filter((f) => !f.muted).length;
 
@@ -88,7 +86,7 @@ export default function ContentRadar(): ReactElement {
       setIdeas(res);
       // Health is stamped server-side during generation — refresh so any newly
       // broken feed surfaces in the manager below.
-      void loadFeeds();
+      void queryClient.invalidateQueries({ queryKey: ['radar', 'feeds'] });
     } catch (err) {
       setIdeasError((err as Error).message);
     } finally {
@@ -164,13 +162,16 @@ export default function ContentRadar(): ReactElement {
 
       {ideas && <IdeasView ideas={ideas} />}
 
-      <PreferencesEditor prefs={prefs} onSaved={applyPrefs} />
+      <PreferencesEditor
+        prefs={prefs}
+        onSaved={(p) => queryClient.setQueryData(['radar', 'preferences'], p)}
+      />
 
       <FeedManager
         feeds={feeds}
         loading={feedsLoading}
         error={feedsError}
-        onChanged={loadFeeds}
+        onChanged={() => queryClient.invalidateQueries({ queryKey: ['radar', 'feeds'] })}
       />
     </section>
   );

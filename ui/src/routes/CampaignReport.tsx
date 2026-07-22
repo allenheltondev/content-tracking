@@ -1,14 +1,10 @@
 import type { ReactElement } from 'react';
-import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useApiFetch } from '../auth/useApiFetch';
 import { getCampaign, getCampaignAnalytics } from '../api/campaigns';
-import type {
-  CampaignAnalyticsResponse,
-  CampaignDetailResponse,
-  CampaignLink,
-} from '../api/types';
-import ClicksChart from '../components/ClicksChart';
+import type { CampaignAnalyticsResponse, CampaignLink } from '../api/types';
+import ClicksChart from '../components/ClicksChart';
 import BaseTile from '../components/Tile';
 import { formatDateRange, truncate } from '../lib/format';
 
@@ -21,37 +17,21 @@ export default function CampaignReport(): ReactElement {
   const { campaignId } = useParams<{ campaignId: string }>();
   const apiFetch = useApiFetch();
 
-  const [bundle, setBundle] = useState<CampaignDetailResponse | null>(null);
-  const [analytics, setAnalytics] = useState<CampaignAnalyticsResponse | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const bundleQuery = useQuery({
+    queryKey: ['campaign', campaignId],
+    queryFn: () => getCampaign(apiFetch, campaignId as string),
+    enabled: Boolean(campaignId),
+  });
+  const analyticsQuery = useQuery({
+    queryKey: ['campaign', campaignId, 'analytics'],
+    queryFn: () => getCampaignAnalytics(apiFetch, campaignId as string),
+    enabled: Boolean(campaignId),
+  });
 
-  useEffect(() => {
-    if (!campaignId) return;
-    let cancelled = false;
-    setLoadError(null);
-    setAnalyticsError(null);
-
-    getCampaign(apiFetch, campaignId)
-      .then((res) => {
-        if (!cancelled) setBundle(res);
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setLoadError(err.message);
-      });
-
-    getCampaignAnalytics(apiFetch, campaignId)
-      .then((res) => {
-        if (!cancelled) setAnalytics(res);
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setAnalyticsError(err.message);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [apiFetch, campaignId]);
+  const bundle = bundleQuery.data ?? null;
+  const analytics: CampaignAnalyticsResponse | null = analyticsQuery.data ?? null;
+  const loadError = bundleQuery.error ? (bundleQuery.error as Error).message : null;
+  const analyticsError = analyticsQuery.error ? (analyticsQuery.error as Error).message : null;
 
   if (loadError) {
     return (

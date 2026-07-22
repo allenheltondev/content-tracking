@@ -1,8 +1,8 @@
 import type { ReactElement } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApiFetch } from '../auth/useApiFetch';
 import { listVendors } from '../api/vendors';
-import type { Vendor } from '../api/types';
 
 const CREATE_SENTINEL = '__create_new__';
 
@@ -38,35 +38,34 @@ export default function VendorSelect({
   ariaLabel,
 }: Props): ReactElement {
   const apiFetch = useApiFetch();
-  const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const load = useCallback((): (() => void) => {
-    let cancelled = false;
-    listVendors(apiFetch, { limit: 500 })
-      .then((res) => {
-        if (!cancelled) {
-          setVendors(res.vendors);
-          setLoadError(null);
-        }
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setLoadError(err.message);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [apiFetch]);
+  // Shares the ['vendors'] cache with the Vendors route, so both must
+  // request the same page size (500).
+  const { data, error } = useQuery({
+    queryKey: ['vendors'],
+    queryFn: () => listVendors(apiFetch, { limit: 500 }),
+  });
+  const vendors = data?.vendors ?? [];
+  const loadError = error ? (error as Error).message : null;
 
-  useEffect(() => load(), [load, refreshSignal]);
+  const prevSignal = useRef(refreshSignal);
+  useEffect(() => {
+    if (prevSignal.current !== refreshSignal) {
+      prevSignal.current = refreshSignal;
+      void queryClient.invalidateQueries({ queryKey: ['vendors'] });
+    }
+  }, [refreshSignal, queryClient]);
 
   useEffect(() => {
     const onVisible = (): void => {
-      if (document.visibilityState === 'visible') load();
+      if (document.visibilityState === 'visible') {
+        void queryClient.invalidateQueries({ queryKey: ['vendors'] });
+      }
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [load]);
+  }, [queryClient]);
 
   // The bound vendor may be missing from the fetched page (deleted, or the
   // list is capped). Show a synthetic entry so the control still reflects it.

@@ -1,9 +1,10 @@
 import type { FormEvent, ReactElement } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { useApiFetch } from '../auth/useApiFetch';
 import { createContent, listContent } from '../api/content';
-import { parseList, slugify } from '../lib/text';
+import { parseList, slugify } from '../lib/text';
 import { formatDate } from '../lib/format';
 import type {
   ContentSource,
@@ -22,38 +23,30 @@ type StatusFilter = ContentStatus | 'all';
 
 export default function Content(): ReactElement {
   const apiFetch = useApiFetch();
+  const queryClient = useQueryClient();
 
-  const [content, setContent] = useState<ContentSummary[]>([]);
-  const [nextStartKey, setNextStartKey] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
-  const load = useCallback(async (startKey?: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await listContent(apiFetch, {
-        type: typeFilter === 'all' ? undefined : typeFilter,
-        source: sourceFilter === 'all' ? undefined : sourceFilter,
-        status: statusFilter === 'all' ? undefined : statusFilter,
-        startKey,
-      });
-      setContent((prev) => (startKey ? [...prev, ...res.content] : res.content));
-      setNextStartKey(res.nextStartKey);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [apiFetch, typeFilter, sourceFilter, statusFilter]);
-
-  // Reload from the top whenever a filter changes (load identity tracks them).
-  useEffect(() => { void load(); }, [load]);
+  // Filters live in the query key, so changing one restarts from page one;
+  // "Load more" appends via the cursor.
+  const filters = {
+    type: typeFilter === 'all' ? undefined : typeFilter,
+    source: sourceFilter === 'all' ? undefined : sourceFilter,
+    status: statusFilter === 'all' ? undefined : statusFilter,
+  };
+  const query = useInfiniteQuery({
+    queryKey: ['content', filters],
+    queryFn: ({ pageParam }) => listContent(apiFetch, { ...filters, startKey: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextStartKey ?? undefined,
+  });
+  const content: ContentSummary[] = query.data?.pages.flatMap((p) => p.content) ?? [];
+  const loading = query.isPending || query.isFetchingNextPage;
+  const error = query.error ? (query.error as Error).message : null;
 
   return (
     <section className="space-y-6">
@@ -70,7 +63,15 @@ export default function Content(): ReactElement {
         </button>
       </header>
 
-      {adding && <AddContentForm apiFetch={apiFetch} onCreated={() => { setAdding(false); void load(); }} />}
+      {adding && (
+        <AddContentForm
+          apiFetch={apiFetch}
+          onCreated={() => {
+            setAdding(false);
+            void queryClient.invalidateQueries({ queryKey: ['content'] });
+          }}
+        />
+      )}
 
       <div className="flex items-center gap-3 flex-wrap">
         <label className="flex items-center gap-2 text-sm">
@@ -165,11 +166,11 @@ export default function Content(): ReactElement {
             ))}
           </ul>
 
-          {nextStartKey && (
+          {query.hasNextPage && (
             <button
               type="button"
               className="btn btn-secondary"
-              onClick={() => void load(nextStartKey)}
+              onClick={() => void query.fetchNextPage()}
               disabled={loading}
             >
               {loading ? 'Loading…' : 'Load more'}

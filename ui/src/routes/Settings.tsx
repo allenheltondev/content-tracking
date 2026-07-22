@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApiFetch, ApiError } from '../auth/useApiFetch';
 import { getProfile, updateProfile } from '../api/profile';
 import {
@@ -107,9 +108,14 @@ function TabButton({
 
 function IntegrationsTab(): ReactElement {
   const apiFetch = useApiFetch();
+  const queryClient = useQueryClient();
 
-  const [profile, setProfile] = useState<ProfileResponse | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const profileQuery = useQuery({
+    queryKey: ['profile'],
+    queryFn: () => getProfile(apiFetch),
+  });
+  const profile: ProfileResponse | null = profileQuery.data ?? null;
+  const loadError = profileQuery.error ? (profileQuery.error as Error).message : null;
 
   const [brandName, setBrandName] = useState('');
   const [websiteUrl, setWebsiteUrl] = useState('');
@@ -122,26 +128,14 @@ function IntegrationsTab(): ReactElement {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const load = useCallback(() => {
-    let cancelled = false;
-    setLoadError(null);
-    getProfile(apiFetch)
-      .then((res) => {
-        if (cancelled) return;
-        setProfile(res);
-        setBrandName(res.brand.name ?? '');
-        setWebsiteUrl(res.brand.website_url ?? '');
-        setPropertyId(res.ga4.property_id ?? '');
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setLoadError(err.message);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [apiFetch]);
-
-  useEffect(() => load(), [load]);
+  // Seed the editable fields whenever fresh profile data lands (initial load
+  // and after a save writes the response into the cache).
+  useEffect(() => {
+    if (!profileQuery.data) return;
+    setBrandName(profileQuery.data.brand.name ?? '');
+    setWebsiteUrl(profileQuery.data.brand.website_url ?? '');
+    setPropertyId(profileQuery.data.ga4.property_id ?? '');
+  }, [profileQuery.data]);
 
   const submit = async (): Promise<void> => {
     setSaveError(null);
@@ -163,10 +157,8 @@ function IntegrationsTab(): ReactElement {
     setBusy(true);
     try {
       const res = await updateProfile(apiFetch, payload);
-      setProfile(res);
-      setBrandName(res.brand.name ?? '');
-      setWebsiteUrl(res.brand.website_url ?? '');
-      setPropertyId(res.ga4.property_id ?? '');
+      // The seeding effect above re-fills brand/website/property from this.
+      queryClient.setQueryData(['profile'], res);
       // Secrets are write-only — clear the inputs once stored.
       setServiceAccount('');
       setCruxKey('');
@@ -339,10 +331,15 @@ function IntegrationsTab(): ReactElement {
 
 function ExtensionTab(): ReactElement {
   const apiFetch = useApiFetch();
+  const queryClient = useQueryClient();
 
-  const [pairings, setPairings] = useState<ExtensionPairing[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const pairingsQuery = useQuery({
+    queryKey: ['extension-pairings'],
+    queryFn: async () => (await listExtensionPairings(apiFetch)).pairings,
+  });
+  const pairings: ExtensionPairing[] = pairingsQuery.data ?? [];
+  const loading = pairingsQuery.isPending;
+  const loadError = pairingsQuery.error ? (pairingsQuery.error as Error).message : null;
 
   const [generateOpen, setGenerateOpen] = useState(false);
   const [justMinted, setJustMinted] = useState<CreateExtensionPairingResponse | null>(null);
@@ -350,25 +347,12 @@ function ExtensionTab(): ReactElement {
   const [revoking, setRevoking] = useState<string | null>(null);
   const [revokeError, setRevokeError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoadError(null);
-    setLoading(true);
-    try {
-      const res = await listExtensionPairings(apiFetch);
-      setPairings(res.pairings);
-    } catch (err) {
-      setLoadError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [apiFetch]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
   const onGenerated = (res: CreateExtensionPairingResponse): void => {
-    setPairings((prev) => [...prev, res.pairing]);
+    queryClient.setQueryData<ExtensionPairing[]>(['extension-pairings'], (prev) => [
+      ...(prev ?? []),
+      res.pairing,
+    ]);
+    void queryClient.invalidateQueries({ queryKey: ['extension-pairings'] });
     setGenerateOpen(false);
     setJustMinted(res);
   };
@@ -378,7 +362,10 @@ function ExtensionTab(): ReactElement {
     setRevoking(jti);
     try {
       await revokeExtensionPairing(apiFetch, jti);
-      setPairings((prev) => prev.filter((p) => p.jti !== jti));
+      queryClient.setQueryData<ExtensionPairing[]>(['extension-pairings'], (prev) =>
+        (prev ?? []).filter((p) => p.jti !== jti),
+      );
+      void queryClient.invalidateQueries({ queryKey: ['extension-pairings'] });
     } catch (err) {
       setRevokeError(err instanceof ApiError ? err.message : (err as Error).message);
     } finally {
@@ -660,10 +647,15 @@ function NewPairingDialog({
 
 function ApiKeysTab(): ReactElement {
   const apiFetch = useApiFetch();
+  const queryClient = useQueryClient();
 
-  const [keys, setKeys] = useState<ApiKey[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const keysQuery = useQuery({
+    queryKey: ['api-keys'],
+    queryFn: async () => (await listApiKeys(apiFetch)).keys,
+  });
+  const keys: ApiKey[] = keysQuery.data ?? [];
+  const loading = keysQuery.isPending;
+  const loadError = keysQuery.error ? (keysQuery.error as Error).message : null;
 
   const [generateOpen, setGenerateOpen] = useState(false);
   const [justMinted, setJustMinted] = useState<CreateApiKeyResponse | null>(null);
@@ -671,26 +663,10 @@ function ApiKeysTab(): ReactElement {
   const [revoking, setRevoking] = useState<string | null>(null);
   const [revokeError, setRevokeError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoadError(null);
-    setLoading(true);
-    try {
-      const res = await listApiKeys(apiFetch);
-      setKeys(res.keys);
-    } catch (err) {
-      setLoadError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [apiFetch]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
   const onGenerated = (res: CreateApiKeyResponse): void => {
     const { key: _key, ...meta } = res;
-    setKeys((prev) => [...prev, meta]);
+    queryClient.setQueryData<ApiKey[]>(['api-keys'], (prev) => [...(prev ?? []), meta]);
+    void queryClient.invalidateQueries({ queryKey: ['api-keys'] });
     setGenerateOpen(false);
     setJustMinted(res);
   };
@@ -700,7 +676,10 @@ function ApiKeysTab(): ReactElement {
     setRevoking(jti);
     try {
       await revokeApiKey(apiFetch, jti);
-      setKeys((prev) => prev.filter((k) => k.jti !== jti));
+      queryClient.setQueryData<ApiKey[]>(['api-keys'], (prev) =>
+        (prev ?? []).filter((k) => k.jti !== jti),
+      );
+      void queryClient.invalidateQueries({ queryKey: ['api-keys'] });
     } catch (err) {
       setRevokeError(err instanceof ApiError ? err.message : (err as Error).message);
     } finally {

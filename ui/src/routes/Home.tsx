@@ -1,6 +1,7 @@
 import type { ReactElement, ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useApiFetch } from '../auth/useApiFetch';
 import { listCampaigns } from '../api/campaigns';
 import { listVendors } from '../api/vendors';
@@ -22,41 +23,57 @@ interface DashboardData {
 
 export default function Home(): ReactElement {
   const apiFetch = useApiFetch();
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    setError(null);
-    setData(null);
-
-    Promise.all([
-      // Content leads the dashboard; the rest enriches the sponsorship view.
+  // Content leads the dashboard; the rest enriches the sponsorship view.
+  // The key keeps the ['content'] prefix so creating content elsewhere
+  // invalidates this too, but stays distinct from the Content route's
+  // infinite query.
+  const contentQuery = useQuery({
+    queryKey: ['content', { view: 'dashboard' }],
+    queryFn: () =>
       listContent(apiFetch, {}).catch(() => ({ content: [] as ContentSummary[], nextStartKey: null })),
-      listCampaigns(apiFetch, { limit: 200 }),
-      getRevenue(apiFetch, { year: CURRENT_YEAR, grouping: 'month' }),
-      // Best-effort: names enrich the lists, last year only drives a delta.
-      listVendors(apiFetch, { limit: 500 }).catch(() => ({ vendors: [] as Vendor[] })),
-      getRevenue(apiFetch, { year: CURRENT_YEAR - 1 }).catch(() => null),
-    ])
-      .then(([contentRes, campaignsRes, thisYear, vendorsRes, lastYear]) => {
-        if (cancelled) return;
-        setData({
-          content: contentRes.content,
-          campaigns: campaignsRes.campaigns,
-          vendorMap: new Map(vendorsRes.vendors.map((v) => [v.vendor_id, v])),
-          thisYear,
-          lastYear,
-        });
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setError(err.message);
-      });
+  });
+  const campaignsQuery = useQuery({
+    queryKey: ['campaigns'],
+    queryFn: () => listCampaigns(apiFetch, { limit: 200 }),
+  });
+  const thisYearQuery = useQuery({
+    queryKey: ['revenue', { year: CURRENT_YEAR, grouping: 'month' }],
+    queryFn: () => getRevenue(apiFetch, { year: CURRENT_YEAR, grouping: 'month' }),
+  });
+  // Best-effort: names enrich the lists, last year only drives a delta.
+  const vendorsQuery = useQuery({
+    queryKey: ['vendors', { bestEffort: true }],
+    queryFn: () => listVendors(apiFetch, { limit: 500 }).catch(() => ({ vendors: [] as Vendor[] })),
+  });
+  const lastYearQuery = useQuery({
+    queryKey: ['revenue', { year: CURRENT_YEAR - 1 }],
+    queryFn: () => getRevenue(apiFetch, { year: CURRENT_YEAR - 1 }).catch(() => null),
+  });
 
-    return () => {
-      cancelled = true;
+  // Only campaigns and this-year revenue can actually fail (the rest are
+  // caught above), matching the old Promise.all error behavior.
+  const errorObj = campaignsQuery.error ?? thisYearQuery.error;
+  const error = errorObj ? (errorObj as Error).message : null;
+
+  const data = useMemo<DashboardData | null>(() => {
+    if (
+      contentQuery.data === undefined ||
+      campaignsQuery.data === undefined ||
+      thisYearQuery.data === undefined ||
+      vendorsQuery.data === undefined ||
+      lastYearQuery.data === undefined
+    ) {
+      return null;
+    }
+    return {
+      content: contentQuery.data.content,
+      campaigns: campaignsQuery.data.campaigns,
+      vendorMap: new Map(vendorsQuery.data.vendors.map((v) => [v.vendor_id, v])),
+      thisYear: thisYearQuery.data,
+      lastYear: lastYearQuery.data,
     };
-  }, [apiFetch]);
+  }, [contentQuery.data, campaignsQuery.data, thisYearQuery.data, vendorsQuery.data, lastYearQuery.data]);
 
   const partnerName = useMemo(() => {
     return (c: Campaign): string => {

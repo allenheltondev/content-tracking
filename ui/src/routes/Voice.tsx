@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useApiFetch } from '../auth/useApiFetch';
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useApiFetch } from '../auth/useApiFetch';
 import { formatDate } from '../lib/format';
 import {
   VOICE_PLATFORMS,
@@ -35,25 +36,15 @@ function formatFor(platform: string): VoiceFormat {
 
 export default function Voice(): ReactElement {
   const apiFetch = useApiFetch();
-  const [overview, setOverview] = useState<VoiceOverviewEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await getVoiceOverview(apiFetch);
-      setOverview(res.platforms);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [apiFetch]);
-
-  useEffect(() => { void load(); }, [load]);
+  const overviewQuery = useQuery({
+    queryKey: ['voice'],
+    queryFn: () => getVoiceOverview(apiFetch),
+  });
+  const overview: VoiceOverviewEntry[] = overviewQuery.data?.platforms ?? [];
+  const loading = overviewQuery.isPending;
+  const error = overviewQuery.error ? (overviewQuery.error as Error).message : null;
 
   return (
     <section className="space-y-6 max-w-3xl">
@@ -92,7 +83,7 @@ export default function Voice(): ReactElement {
         </div>
       )}
 
-      {selected && <ProfileDetail key={selected} platform={selected} onChanged={load} />}
+      {selected && <ProfileDetail key={selected} platform={selected} />}
     </section>
   );
 }
@@ -318,40 +309,32 @@ function AssessmentView({ result }: { result: VoiceAssessment }): ReactElement {
   );
 }
 
-function ProfileDetail({ platform, onChanged }: { platform: string; onChanged: () => void }): ReactElement {
+function ProfileDetail({ platform }: { platform: string }): ReactElement {
   const apiFetch = useApiFetch();
-  const [profile, setProfile] = useState<VoiceProfile | null>(null);
-  const [reflections, setReflections] = useState<VoiceReflection[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const [actionError, setActionError] = useState<string | null>(null);
   const [reflecting, setReflecting] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await getVoiceProfile(apiFetch, platform);
-      setProfile(res.profile);
-      setReflections(res.reflections);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [apiFetch, platform]);
-
-  useEffect(() => { void load(); }, [load]);
+  const profileQuery = useQuery({
+    queryKey: ['voice', platform, 'profile'],
+    queryFn: () => getVoiceProfile(apiFetch, platform),
+  });
+  const profile: VoiceProfile | null = profileQuery.data?.profile ?? null;
+  const reflections: VoiceReflection[] = profileQuery.data?.reflections ?? [];
+  const loading = profileQuery.isPending;
+  const error = actionError ?? (profileQuery.error ? (profileQuery.error as Error).message : null);
 
   const refresh = async (): Promise<void> => {
     setReflecting(true);
-    setError(null);
+    setActionError(null);
     try {
       await reflectVoiceProfile(apiFetch, platform);
-      await load();
-      onChanged();
+      // Reflection re-derives the profile server-side — refresh everything
+      // voice-related (overview, profile, samples).
+      await queryClient.invalidateQueries({ queryKey: ['voice'] });
     } catch (err) {
-      setError((err as Error).message);
+      setActionError((err as Error).message);
     } finally {
       setReflecting(false);
     }
@@ -384,7 +367,7 @@ function ProfileDetail({ platform, onChanged }: { platform: string; onChanged: (
           <SteeringEditor
             platform={platform}
             current={profile?.steering ?? null}
-            onSaved={async () => { await load(); onChanged(); }}
+            onSaved={() => queryClient.invalidateQueries({ queryKey: ['voice'] })}
           />
 
           {threshold > 0 && (
@@ -435,7 +418,7 @@ function ProfileDetail({ platform, onChanged }: { platform: string; onChanged: (
             </div>
           )}
 
-          <SamplesList platform={platform} onDeleted={async () => { await load(); onChanged(); }} />
+          <SamplesList platform={platform} />
         </>
       )}
     </div>
@@ -602,37 +585,29 @@ const SOURCE_LABEL: Record<string, string> = {
 // The memories that drive the voice. Each shows its current influence, and can
 // be muted (excluded from the voice, reversibly) or — for pasted samples that
 // won't re-capture — removed outright. Muting a published post is durable.
-function SamplesList({ platform, onDeleted }: { platform: string; onDeleted: () => void }): ReactElement {
+function SamplesList({ platform }: { platform: string }): ReactElement {
   const apiFetch = useApiFetch();
-  const [samples, setSamples] = useState<VoiceSample[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const [actionError, setActionError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await listVoiceSamples(apiFetch, platform);
-      setSamples(res.samples);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [apiFetch, platform]);
-
-  useEffect(() => { void load(); }, [load]);
+  const samplesQuery = useQuery({
+    queryKey: ['voice', platform, 'samples'],
+    queryFn: () => listVoiceSamples(apiFetch, platform),
+  });
+  const samples: VoiceSample[] = samplesQuery.data?.samples ?? [];
+  const loading = samplesQuery.isPending;
+  const error = actionError ?? (samplesQuery.error ? (samplesQuery.error as Error).message : null);
 
   const toggleMute = async (s: VoiceSample): Promise<void> => {
     setBusyId(s.sample_id);
-    setError(null);
+    setActionError(null);
     try {
       await setVoiceSampleMuted(apiFetch, s.sample_id, platform, !s.muted);
-      await load();
-      onDeleted(); // curation re-derives the profile server-side; refresh the view
+      // curation re-derives the profile server-side; refresh the view
+      await queryClient.invalidateQueries({ queryKey: ['voice'] });
     } catch (err) {
-      setError((err as Error).message);
+      setActionError((err as Error).message);
     } finally {
       setBusyId(null);
     }
@@ -640,13 +615,18 @@ function SamplesList({ platform, onDeleted }: { platform: string; onDeleted: () 
 
   const remove = async (id: string): Promise<void> => {
     setBusyId(id);
-    setError(null);
+    setActionError(null);
     try {
       await deleteVoiceSample(apiFetch, id, platform);
-      setSamples((prev) => prev.filter((s) => s.sample_id !== id));
-      onDeleted();
+      // Drop the sample from the list immediately, then refresh the
+      // voice-related views (profile influence shares, overview counts).
+      queryClient.setQueryData<{ samples: VoiceSample[] }>(
+        ['voice', platform, 'samples'],
+        (old) => (old ? { ...old, samples: old.samples.filter((s) => s.sample_id !== id) } : old),
+      );
+      void queryClient.invalidateQueries({ queryKey: ['voice'] });
     } catch (err) {
-      setError((err as Error).message);
+      setActionError((err as Error).message);
     } finally {
       setBusyId(null);
     }

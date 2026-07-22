@@ -1,11 +1,12 @@
 import type { ReactElement } from 'react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApiFetch, ApiError } from '../auth/useApiFetch';
 import { createCampaign, listCampaigns } from '../api/campaigns';
-import type { Campaign, CampaignStatus, CreateCampaignRequest } from '../api/types';
+import type { CampaignStatus, CreateCampaignRequest } from '../api/types';
 import Modal from '../components/Modal';
-import CreateCampaignForm from '../components/CreateCampaignForm';
+import CreateCampaignForm from '../components/CreateCampaignForm';
 import { formatDateRange } from '../lib/format';
 
 type StatusFilter = 'all' | CampaignStatus;
@@ -13,34 +14,26 @@ type StatusFilter = 'all' | CampaignStatus;
 export default function Campaigns(): ReactElement {
   const apiFetch = useApiFetch();
   const navigate = useNavigate();
-  const [campaigns, setCampaigns] = useState<Campaign[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [modalOpen, setModalOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    setError(null);
-    setCampaigns(null);
-    listCampaigns(apiFetch, statusFilter === 'all' ? {} : { status: statusFilter })
-      .then((res) => {
-        if (!cancelled) setCampaigns(res.campaigns);
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setError(err.message);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [apiFetch, statusFilter]);
+  const filters = statusFilter === 'all' ? {} : { status: statusFilter };
+  const { data, error: queryError } = useQuery({
+    queryKey: ['campaigns', filters],
+    queryFn: () => listCampaigns(apiFetch, filters),
+  });
+  const campaigns = data?.campaigns ?? null;
+  const error = queryError ? (queryError as Error).message : null;
 
   const handleCreate = async (payload: CreateCampaignRequest): Promise<void> => {
     setBusy(true);
     setServerError(null);
     try {
       const created = await createCampaign(apiFetch, payload);
+      void queryClient.invalidateQueries({ queryKey: ['campaigns'] });
       navigate(`/campaigns/${created.campaign_id}?tab=brief`);
     } catch (err) {
       setServerError(err instanceof ApiError ? err.message : (err as Error).message);

@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useApiFetch } from '../auth/useApiFetch';
 import { listContent } from '../api/content';
 import type { ContentStatus, ContentSummary } from '../api/types';
@@ -34,20 +35,17 @@ function monthLabel(year: number, month: number): string {
 
 export default function Calendar(): ReactElement {
   const apiFetch = useApiFetch();
-  const [content, setContent] = useState<ContentSummary[]>([]);
-  const [error, setError] = useState<string | null>(null);
 
   const now = new Date();
   const [year, setYear] = useState(now.getUTCFullYear());
   const [month, setMonth] = useState(now.getUTCMonth()); // 0-11
 
-  useEffect(() => {
-    let active = true;
-    listContent(apiFetch, {})
-      .then((res) => { if (active) setContent(res.content); })
-      .catch((err) => { if (active) setError((err as Error).message); });
-    return () => { active = false; };
-  }, [apiFetch]);
+  const { data, error: queryError } = useQuery({
+    queryKey: ['calendar'],
+    queryFn: () => listContent(apiFetch, {}),
+  });
+  const content: ContentSummary[] = useMemo(() => data?.content ?? [], [data]);
+  const error = queryError ? (queryError as Error).message : null;
 
   const byDay = useMemo(() => {
     const map = new Map<string, ContentSummary[]>();

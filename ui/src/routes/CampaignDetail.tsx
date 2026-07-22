@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApiFetch, ApiError } from '../auth/useApiFetch';
 import {
   createContentPost,
@@ -13,16 +14,11 @@ import {
 } from '../api/campaigns';
 import type {
   Campaign,
-  CampaignAnalyticsResponse,
-  CampaignBrief,
-  CampaignDraft,
+  CampaignDetailResponse,
   CampaignLink,
-  ContentPost,
   CreateContentPostRequest,
   CreateSocialPostRequest,
   DeliverableType,
-  SocialPost,
-  WebAnalyticsResponse,
 } from '../api/types';
 import ClicksChart from '../components/ClicksChart';
 import RegisterSocialPostForm from '../components/RegisterSocialPostForm';
@@ -68,15 +64,6 @@ const TAB_LABELS: Record<CampaignTab, string> = {
   reports: 'Reports',
 };
 
-interface CampaignBundle {
-  campaign: Campaign;
-  links: CampaignLink[];
-  social_posts: SocialPost[];
-  content_posts: ContentPost[];
-  brief: CampaignBrief | null;
-  draft: CampaignDraft | null;
-}
-
 // Renders the campaign workspace (header editors + Overview/Brief/Draft/
 // Promotion/Analytics/Reports tabs). Normally a route keyed off the URL's
 // :campaignId, but it also accepts an explicit `campaignId` prop so the
@@ -87,6 +74,7 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
   const campaignId = campaignIdProp ?? routeParams.campaignId;
   const [searchParams, setSearchParams] = useSearchParams();
   const apiFetch = useApiFetch();
+  const queryClient = useQueryClient();
 
   // The active tab is driven by ?tab= so a tab is deep-linkable and shareable
   // and survives reloads / back-forward. Unknown or missing values fall back
@@ -110,17 +98,6 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
     [setSearchParams],
   );
 
-  const [bundle, setBundle] = useState<CampaignBundle | null>(null);
-  const [analytics, setAnalytics] = useState<CampaignAnalyticsResponse | null>(null);
-  const [analyticsFetchedAt, setAnalyticsFetchedAt] = useState<Date | null>(null);
-  const [analyticsRefreshing, setAnalyticsRefreshing] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
-
-  const [webAnalytics, setWebAnalytics] = useState<WebAnalyticsResponse | null>(null);
-  const [webAnalyticsError, setWebAnalyticsError] = useState<string | null>(null);
-  const [webAnalyticsLoading, setWebAnalyticsLoading] = useState(false);
-
   const [postBusy, setPostBusy] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
 
@@ -133,61 +110,29 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
   const [extensionModalOpen, setExtensionModalOpen] = useState(false);
 
   // Campaign metadata + links. Cheap; fires on mount.
-  useEffect(() => {
-    if (!campaignId) return;
-    let cancelled = false;
-    setLoadError(null);
-    getCampaign(apiFetch, campaignId)
-      .then((res) => {
-        if (!cancelled) setBundle(res);
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setLoadError(err.message);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [apiFetch, campaignId]);
+  const bundleQuery = useQuery({
+    queryKey: ['campaign', campaignId],
+    queryFn: () => getCampaign(apiFetch, campaignId as string),
+    enabled: Boolean(campaignId),
+  });
+  const bundle = bundleQuery.data ?? null;
+  const loadError = bundleQuery.error ? (bundleQuery.error as Error).message : null;
 
   // Analytics. Whether the server takes the per-link fan-out path or the
   // one-shot newsletter-service campaignId rollup depends on the campaign's
-  // link_tracking_id, so this re-runs whenever that value changes (e.g.,
-  // the user just added one via the inline editor).
-  const linkTrackingId = bundle?.campaign.link_tracking_id ?? null;
-  const campaignLoaded = bundle !== null;
-  useEffect(() => {
-    if (!campaignId || !campaignLoaded) return;
-    let cancelled = false;
-    setAnalyticsError(null);
-    getCampaignAnalytics(apiFetch, campaignId)
-      .then((res) => {
-        if (!cancelled) {
-          setAnalytics(res);
-          setAnalyticsFetchedAt(new Date());
-        }
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setAnalyticsError(err.message);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [apiFetch, campaignId, campaignLoaded, linkTrackingId]);
-
-  const refreshAnalytics = useCallback(async (): Promise<void> => {
-    if (!campaignId) return;
-    setAnalyticsRefreshing(true);
-    setAnalyticsError(null);
-    try {
-      const res = await getCampaignAnalytics(apiFetch, campaignId);
-      setAnalytics(res);
-      setAnalyticsFetchedAt(new Date());
-    } catch (err) {
-      setAnalyticsError((err as Error).message);
-    } finally {
-      setAnalyticsRefreshing(false);
-    }
-  }, [apiFetch, campaignId]);
+  // link_tracking_id, so onCampaignChange below invalidates this query
+  // whenever that value changes (e.g., the user just added one via the
+  // inline editor).
+  const analyticsQuery = useQuery({
+    queryKey: ['campaign', campaignId, 'analytics'],
+    queryFn: () => getCampaignAnalytics(apiFetch, campaignId as string),
+    enabled: Boolean(campaignId) && bundle !== null,
+  });
+  const analytics = analyticsQuery.data ?? null;
+  const analyticsError = analyticsQuery.error ? (analyticsQuery.error as Error).message : null;
+  const analyticsFetchedAt =
+    analyticsQuery.dataUpdatedAt > 0 ? new Date(analyticsQuery.dataUpdatedAt) : null;
+  const analyticsRefreshing = analyticsQuery.isRefetching;
 
   // Web analytics only make sense once the campaign's main-deliverable URL is
   // set — GA4 + Core Web Vitals off blog_url for a blog, YouTube Data API off
@@ -198,28 +143,15 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
     deliverableType === 'youtube'
       ? bundle?.campaign.youtube_url ?? null
       : bundle?.campaign.blog_url ?? null;
-  useEffect(() => {
-    if (!campaignId || !analyticsUrl) {
-      setWebAnalytics(null);
-      return;
-    }
-    let cancelled = false;
-    setWebAnalyticsLoading(true);
-    setWebAnalyticsError(null);
-    getCampaignWebAnalytics(apiFetch, campaignId)
-      .then((res) => {
-        if (!cancelled) setWebAnalytics(res);
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setWebAnalyticsError(err.message);
-      })
-      .finally(() => {
-        if (!cancelled) setWebAnalyticsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [apiFetch, campaignId, deliverableType, analyticsUrl]);
+  const webAnalyticsQuery = useQuery({
+    queryKey: ['campaign', campaignId, 'web-analytics'],
+    queryFn: () => getCampaignWebAnalytics(apiFetch, campaignId as string),
+    enabled: Boolean(campaignId) && Boolean(analyticsUrl),
+  });
+  const webAnalytics = analyticsUrl ? webAnalyticsQuery.data ?? null : null;
+  const webAnalyticsError =
+    analyticsUrl && webAnalyticsQuery.error ? (webAnalyticsQuery.error as Error).message : null;
+  const webAnalyticsLoading = Boolean(analyticsUrl) && webAnalyticsQuery.isFetching;
 
   // Optimistically append a freshly minted link and rerun analytics. The
   // new link has zero clicks so the chart won't change, but link count and
@@ -231,7 +163,8 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
   // the Overview tab updates without a refetch.
   const appendLinkAndRefresh = useCallback(
     (link: CampaignLink): void => {
-      setBundle((prev) => {
+      if (!campaignId) return;
+      queryClient.setQueryData<CampaignDetailResponse>(['campaign', campaignId], (prev) => {
         if (!prev) return prev;
         const next = { ...prev, links: [...prev.links, link] };
         if (
@@ -243,12 +176,9 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
         }
         return next;
       });
-      if (!campaignId) return;
-      getCampaignAnalytics(apiFetch, campaignId)
-        .then((res) => setAnalytics(res))
-        .catch((err: Error) => setAnalyticsError(err.message));
+      void queryClient.invalidateQueries({ queryKey: ['campaign', campaignId, 'analytics'] });
     },
-    [apiFetch, campaignId],
+    [queryClient, campaignId],
   );
 
   const handleTrackPost = async (payload: CreateSocialPostRequest): Promise<void> => {
@@ -257,9 +187,10 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
     setPostError(null);
     try {
       const post = await createSocialPost(apiFetch, campaignId, payload);
-      setBundle((prev) =>
+      queryClient.setQueryData<CampaignDetailResponse>(['campaign', campaignId], (prev) =>
         prev ? { ...prev, social_posts: [...prev.social_posts, post] } : prev,
       );
+      void queryClient.invalidateQueries({ queryKey: ['campaign', campaignId], exact: true });
       setShowPostForm(false);
     } catch (err) {
       setPostError(err instanceof ApiError ? err.message : (err as Error).message);
@@ -273,11 +204,12 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
     setPostError(null);
     try {
       await deleteSocialPost(apiFetch, campaignId, postId);
-      setBundle((prev) =>
+      queryClient.setQueryData<CampaignDetailResponse>(['campaign', campaignId], (prev) =>
         prev
           ? { ...prev, social_posts: prev.social_posts.filter((p) => p.post_id !== postId) }
           : prev,
       );
+      void queryClient.invalidateQueries({ queryKey: ['campaign', campaignId], exact: true });
     } catch (err) {
       setPostError(err instanceof ApiError ? err.message : (err as Error).message);
     }
@@ -289,9 +221,10 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
     setContentError(null);
     try {
       const post = await createContentPost(apiFetch, campaignId, payload);
-      setBundle((prev) =>
+      queryClient.setQueryData<CampaignDetailResponse>(['campaign', campaignId], (prev) =>
         prev ? { ...prev, content_posts: [...prev.content_posts, post] } : prev,
       );
+      void queryClient.invalidateQueries({ queryKey: ['campaign', campaignId], exact: true });
       setShowContentForm(false);
     } catch (err) {
       setContentError(err instanceof ApiError ? err.message : (err as Error).message);
@@ -305,11 +238,12 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
     setContentError(null);
     try {
       await deleteContentPost(apiFetch, campaignId, postId);
-      setBundle((prev) =>
+      queryClient.setQueryData<CampaignDetailResponse>(['campaign', campaignId], (prev) =>
         prev
           ? { ...prev, content_posts: prev.content_posts.filter((p) => p.post_id !== postId) }
           : prev,
       );
+      void queryClient.invalidateQueries({ queryKey: ['campaign', campaignId], exact: true });
     } catch (err) {
       setContentError(err instanceof ApiError ? err.message : (err as Error).message);
     }
@@ -338,8 +272,27 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
 
   const { campaign, links, social_posts: socialPosts, content_posts: contentPosts } = bundle;
 
-  const onCampaignChange = (updated: Campaign): void =>
-    setBundle((prev) => (prev ? { ...prev, campaign: updated } : prev));
+  const onCampaignChange = (updated: Campaign): void => {
+    const previous = campaign;
+    queryClient.setQueryData<CampaignDetailResponse>(['campaign', campaignId], (prev) =>
+      prev ? { ...prev, campaign: updated } : prev,
+    );
+    // The analytics fetch path depends on link_tracking_id (see the analytics
+    // query comment above), so refetch when it changes.
+    if (previous.link_tracking_id !== updated.link_tracking_id) {
+      void queryClient.invalidateQueries({ queryKey: ['campaign', campaignId, 'analytics'] });
+    }
+    // Web analytics follow the main-deliverable URL; refetch when it changes.
+    const previousUrl =
+      (previous.deliverable_type ?? 'blog') === 'youtube'
+        ? previous.youtube_url
+        : previous.blog_url;
+    const updatedUrl =
+      (updated.deliverable_type ?? 'blog') === 'youtube' ? updated.youtube_url : updated.blog_url;
+    if (previousUrl !== updatedUrl) {
+      void queryClient.invalidateQueries({ queryKey: ['campaign', campaignId, 'web-analytics'] });
+    }
+  };
 
   return (
     <section className="space-y-6">
@@ -654,7 +607,11 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
           apiFetch={apiFetch}
           campaign={campaign}
           brief={bundle.brief}
-          onBriefChange={(brief) => setBundle((prev) => (prev ? { ...prev, brief } : prev))}
+          onBriefChange={(brief) => {
+            queryClient.setQueryData<CampaignDetailResponse>(['campaign', campaignId], (prev) =>
+              prev ? { ...prev, brief } : prev,
+            );
+          }}
           onCampaignChange={onCampaignChange}
           onLinkCreated={appendLinkAndRefresh}
         />
@@ -674,7 +631,7 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
                 <button
                   type="button"
                   className="btn btn-secondary py-1 px-2 text-sm"
-                  onClick={() => void refreshAnalytics()}
+                  onClick={() => void analyticsQuery.refetch()}
                   disabled={analyticsRefreshing}
                 >
                   {analyticsRefreshing ? 'Refreshing…' : 'Refresh'}
@@ -753,7 +710,11 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
           campaign={campaign}
           brief={bundle.brief}
           draft={bundle.draft}
-          onDraftChange={(draft) => setBundle((prev) => (prev ? { ...prev, draft } : prev))}
+          onDraftChange={(draft) => {
+            queryClient.setQueryData<CampaignDetailResponse>(['campaign', campaignId], (prev) =>
+              prev ? { ...prev, draft } : prev,
+            );
+          }}
         />
       )}
 
