@@ -1,5 +1,5 @@
 import { logger } from "./logger.mjs";
-import { ApiError } from "./errors.mjs";
+import { ApiError, BadRequestError } from "./errors.mjs";
 
 // Wraps a Powertools Router with the conventions every route in this
 // service shares: JSON responses, CORS headers, correlation IDs, and
@@ -86,6 +86,21 @@ export function jsonResponse(statusCode, body) {
 // code" if a non-null body (even "") is paired with one of these. So we
 // must omit the body entirely for them.
 const NULL_BODY_STATUSES = new Set([204, 205, 304]);
+
+// Shared JSON body parser for every route module. `optional: true` allows
+// an absent body (e.g. a POST that takes no payload) and returns {} so
+// validators can treat "no body" and "empty object" the same way.
+export function parseBody(event, { optional = false } = {}) {
+  if (!event.body) {
+    if (optional) return {};
+    throw new BadRequestError("Missing request body");
+  }
+  try {
+    return JSON.parse(event.body);
+  } catch {
+    throw new BadRequestError("Invalid JSON body");
+  }
+}
 
 export function emptyResponse(statusCode = 204) {
   return {

@@ -1,5 +1,4 @@
-import { BadRequestError } from "../services/errors.mjs";
-import { emptyResponse, jsonResponse } from "../services/http-handler.mjs";
+import { emptyResponse, jsonResponse, parseBody } from "../services/http-handler.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import {
   formatContentPost,
@@ -79,15 +78,4 @@ export function registerContentPostRoutes(app) {
     await deleteContentPost(campaignId, postId);
     return emptyResponse(204);
   });
-}
-
-function parseBody(event) {
-  if (!event.body) {
-    throw new BadRequestError("Missing request body");
-  }
-  try {
-    return JSON.parse(event.body);
-  } catch {
-    throw new BadRequestError("Invalid JSON body");
-  }
 }

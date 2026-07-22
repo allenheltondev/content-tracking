@@ -1,5 +1,5 @@
 import { requirePublisherTenantId, requireTenantId } from "../services/identity.mjs";
-import { jsonResponse } from "../services/http-handler.mjs";
+import { jsonResponse, parseBody } from "../services/http-handler.mjs";
 import { BadRequestError } from "../services/errors.mjs";
 import { getContent } from "../domain/content.mjs";
 import { emitStartReview } from "../services/review-events.mjs";
@@ -128,18 +128,4 @@ export function registerContentReviewRoutes(app) {
     );
     return jsonResponse(200, formatSuggestion(updated));
   });
-}
-
-// Mirrors the per-route body parser used across this service (see routes/
-// voice.mjs). `optional` allows an absent body (POST /reviews takes none).
-function parseBody(event, { optional = false } = {}) {
-  if (!event.body) {
-    if (optional) return undefined;
-    throw new BadRequestError("Missing request body");
-  }
-  try {
-    return JSON.parse(event.body);
-  } catch {
-    throw new BadRequestError("Invalid JSON body");
-  }
 }

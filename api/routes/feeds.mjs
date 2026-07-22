@@ -1,6 +1,6 @@
 import { requireTenantId } from "../services/identity.mjs";
 import { trackActivity } from "../services/activity.mjs";
-import { emptyResponse, jsonResponse } from "../services/http-handler.mjs";
+import { emptyResponse, jsonResponse, parseBody } from "../services/http-handler.mjs";
 import { BadRequestError } from "../services/errors.mjs";
 import { aggregateFeeds } from "../services/rss.mjs";
 import { suggestContentAngles } from "../services/bedrock.mjs";
@@ -236,16 +236,4 @@ function parseLimit(raw, cap) {
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 1) return cap;
   return Math.min(n, cap);
-}
-
-function parseBody(event, { optional = false } = {}) {
-  if (!event.body) {
-    if (optional) return {};
-    throw new BadRequestError("Missing request body");
-  }
-  try {
-    return JSON.parse(event.body);
-  } catch {
-    throw new BadRequestError("Invalid JSON body");
-  }
 }

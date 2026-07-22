@@ -1,8 +1,7 @@
 import { requireTenantId } from "../services/identity.mjs";
 import { trackActivity } from "../services/activity.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
-import { emptyResponse, jsonResponse } from "../services/http-handler.mjs";
-import { BadRequestError } from "../services/errors.mjs";
+import { emptyResponse, jsonResponse, parseBody } from "../services/http-handler.mjs";
 import { embedText } from "../services/embeddings.mjs";
 import { queryVoiceSamples, deleteVoiceSample, putVoiceSample } from "../services/voice-vectors.mjs";
 import { composeVoicePost, assessVoiceMatch } from "../services/bedrock.mjs";
@@ -259,16 +258,5 @@ async function reflectAfterCuration(tenantId, platform) {
   } catch (err) {
     logger.warn("Post-curation reflection failed (non-fatal)", { platform, error: err?.message });
     return null;
-  }
-}
-
-function parseBody(event) {
-  if (!event.body) {
-    throw new BadRequestError("Missing request body");
-  }
-  try {
-    return JSON.parse(event.body);
-  } catch {
-    throw new BadRequestError("Invalid JSON body");
   }
 }

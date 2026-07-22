@@ -10,7 +10,7 @@ import {
 import { requireTenantId } from "../services/identity.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import { decodeCursor, encodeCursor, parseLimit } from "../services/pagination.mjs";
-import { emptyResponse, jsonResponse } from "../services/http-handler.mjs";
+import { emptyResponse, jsonResponse, parseBody } from "../services/http-handler.mjs";
 import { BadRequestError } from "../services/errors.mjs";
 import { formatVendor, validateVendorPayload } from "../validation/vendor.mjs";
 
@@ -82,15 +82,4 @@ export function registerVendorRoutes(app) {
       .sort((a, b) => b.created_at.localeCompare(a.created_at));
     return jsonResponse(200, { vendor_id: vendorId, campaigns });
   });
-}
-
-function parseBody(event) {
-  if (!event.body) {
-    throw new BadRequestError("Missing request body");
-  }
-  try {
-    return JSON.parse(event.body);
-  } catch {
-    throw new BadRequestError("Invalid JSON body");
-  }
 }

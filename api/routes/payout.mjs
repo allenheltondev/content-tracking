@@ -1,5 +1,5 @@
 import { BadRequestError } from "../services/errors.mjs";
-import { jsonResponse } from "../services/http-handler.mjs";
+import { jsonResponse, parseBody } from "../services/http-handler.mjs";
 import { assertCampaignOwned, updateCampaignPayout } from "../domain/campaign.mjs";
 import { requireTenantId } from "../services/identity.mjs";
 import { applyPaidAtDefault, formatPayout, validatePayoutPayload } from "../validation/payout.mjs";
@@ -41,15 +41,4 @@ export function registerPayoutRoutes(app) {
     const updated = await updateCampaignPayout(campaignId, fields);
     return jsonResponse(200, formatCampaign(updated));
   });
-}
-
-function parseBody(event) {
-  if (!event.body) {
-    throw new BadRequestError("Missing request body");
-  }
-  try {
-    return JSON.parse(event.body);
-  } catch {
-    throw new BadRequestError("Invalid JSON body");
-  }
 }

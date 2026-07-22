@@ -21,7 +21,7 @@ import { validateCrosspostRequest } from "../validation/blog.mjs";
 import { requirePublisherTenantId, requireTenantId } from "../services/identity.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import { decodeCursor, encodeCursor, parseLimit } from "../services/pagination.mjs";
-import { emptyResponse, jsonResponse } from "../services/http-handler.mjs";
+import { emptyResponse, jsonResponse, parseBody } from "../services/http-handler.mjs";
 import { BadRequestError, ConflictError, NotFoundError } from "../services/errors.mjs";
 import { embedText } from "../services/embeddings.mjs";
 import { queryContentChunks } from "../services/content-vectors.mjs";
@@ -360,15 +360,4 @@ function resolveCitations(sourcesUsed, chunks) {
     citations.push({ contentId: chunk.contentId, title: chunk.title, slug: chunk.slug, type: chunk.type });
   }
   return citations;
-}
-
-function parseBody(event) {
-  if (!event.body) {
-    throw new BadRequestError("Missing request body");
-  }
-  try {
-    return JSON.parse(event.body);
-  } catch {
-    throw new BadRequestError("Invalid JSON body");
-  }
 }
