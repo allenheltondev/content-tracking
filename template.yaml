@@ -948,8 +948,12 @@ Resources:
         - AWSLambdaBasicExecutionRole
         - Version: 2012-10-17
           Statement:
-            # Read the stream.
-            - Effect: Allow
+            # Read the stream. Anchored: the other stream consumers alias
+            # this exact statement so a fix here propagates to all of them.
+            # (The bedrock/s3vectors statements are NOT anchored on purpose —
+            # they differ per function as least-privilege variations.)
+            - &ddb-stream-read-statement
+              Effect: Allow
               Action:
                 - dynamodb:DescribeStream
                 - dynamodb:GetRecords
@@ -1042,16 +1046,8 @@ Resources:
         - AWSLambdaBasicExecutionRole
         - Version: 2012-10-17
           Statement:
-            # Read the stream.
-            - Effect: Allow
-              Action:
-                - dynamodb:DescribeStream
-                - dynamodb:GetRecords
-                - dynamodb:GetShardIterator
-                - dynamodb:ListStreams
-              Resource:
-                - !GetAtt ContentTrackingTable.StreamArn
-                - !Sub "${ContentTrackingTable.StreamArn}/*"
+            # Read the stream (aliased from VectorizeContent's statement).
+            - *ddb-stream-read-statement
             # Query pending suggestions and re-stamp / skip them.
             - Effect: Allow
               Action:
@@ -1160,16 +1156,8 @@ Resources:
         - AWSLambdaBasicExecutionRole
         - Version: 2012-10-17
           Statement:
-            # Read the stream.
-            - Effect: Allow
-              Action:
-                - dynamodb:DescribeStream
-                - dynamodb:GetRecords
-                - dynamodb:GetShardIterator
-                - dynamodb:ListStreams
-              Resource:
-                - !GetAtt ContentTrackingTable.StreamArn
-                - !Sub "${ContentTrackingTable.StreamArn}/*"
+            # Read the stream (aliased from VectorizeContent's statement).
+            - *ddb-stream-read-statement
             # Enqueue trailing-reflection catch-ups onto the delay queue.
             - Effect: Allow
               Action:
