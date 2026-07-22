@@ -3,7 +3,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApiFetch } from '../auth/useApiFetch';
 import { createContent, listContent } from '../api/content';
-import { parseList, slugify } from '../lib/text';
+import { parseList, slugify } from '../lib/text';
+import { formatDate } from '../lib/format';
 import type {
   ContentSource,
   ContentStatus,
@@ -18,12 +19,6 @@ const CONTENT_STATUSES: ContentStatus[] = ['draft', 'scheduled', 'published', 'a
 type TypeFilter = ContentType | 'all';
 type SourceFilter = ContentSource | 'all';
 type StatusFilter = ContentStatus | 'all';
-
-function fmtDate(iso: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
-}
 
 export default function Content(): ReactElement {
   const apiFetch = useApiFetch();
@@ -142,7 +137,7 @@ export default function Content(): ReactElement {
                 >
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="font-medium text-foreground truncate">{c.title}</span>
-                    <span className="text-xs text-muted-foreground shrink-0">{fmtDate(c.created_at)}</span>
+                    <span className="text-xs text-muted-foreground shrink-0">{formatDate(c.created_at)}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-1 mt-1">
                     {c.type && (

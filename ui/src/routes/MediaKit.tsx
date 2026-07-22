@@ -9,22 +9,8 @@ import {
   publishMediaKit,
   unpublishMediaKit,
 } from '../api/mediaKit';
-import type { MediaKitListItem, MediaKitPublishState, MediaKitStats } from '../api/types';
-
-const intFmt = new Intl.NumberFormat('en-US');
-
-function fmtCompact(n: number | null | undefined): string {
-  if (typeof n !== 'number' || !isFinite(n)) return '—';
-  const abs = Math.abs(n);
-  if (abs >= 1e6) return `${(Math.round((n / 1e6) * 10) / 10).toString()}M`;
-  if (abs >= 1e3) return `${(Math.round((n / 1e3) * 10) / 10).toString()}K`;
-  return intFmt.format(n);
-}
-
-function fmtPercent(rate: number | null | undefined): string {
-  if (typeof rate !== 'number' || !isFinite(rate)) return '—';
-  return `${(rate * 100).toFixed(1)}%`;
-}
+import type { MediaKitListItem, MediaKitPublishState, MediaKitStats } from '../api/types';
+import { fmtCompact, fmtPercent, intFmt } from '../lib/format';
 
 export default function MediaKit(): ReactElement {
   const apiFetch = useApiFetch();

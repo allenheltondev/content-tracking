@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useApiFetch } from '../auth/useApiFetch';
+import { useApiFetch } from '../auth/useApiFetch';
+import { formatDate } from '../lib/format';
 import {
   VOICE_PLATFORMS,
   checkVoice,
@@ -27,13 +28,7 @@ function asString(v: unknown): string | null {
 }
 function asStringArray(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim().length > 0) : [];
-}
-function fmtDate(iso: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
-}
-// "blog" is inherently long-form; everything else is short-form social.
+}// "blog" is inherently long-form; everything else is short-form social.
 function formatFor(platform: string): VoiceFormat {
   return platform === 'blog' ? 'blog' : 'social';
 }
@@ -154,7 +149,7 @@ function OverviewCard({
           {corpus.total_samples === 1 ? 'sample' : 'samples'}
         </span>
         {corpus.earliest_published && corpus.latest_published && (
-          <span>{fmtDate(corpus.earliest_published)} – {fmtDate(corpus.latest_published)}</span>
+          <span>{formatDate(corpus.earliest_published)} – {formatDate(corpus.latest_published)}</span>
         )}
         {Object.entries(corpus.by_source).map(([src, n]) => (
           <span key={src}>{SOURCE_LABEL[src] ?? src} ×{n}</span>
@@ -430,7 +425,7 @@ function ProfileDetail({ platform, onChanged }: { platform: string; onChanged: (
                 {reflections.map((r) => (
                   <li key={r.reflection_id} className="text-sm border-l-2 border-border pl-3">
                     <div className="text-xs text-muted-foreground">
-                      {r.version != null ? `v${r.version}` : 'update'} · {fmtDate(r.created_at)}
+                      {r.version != null ? `v${r.version}` : 'update'} · {formatDate(r.created_at)}
                     </div>
                     {r.portrait && <p className="text-foreground mt-0.5">{r.portrait}</p>}
                     {r.change_summary && <p className="text-muted-foreground mt-0.5">{r.change_summary}</p>}
@@ -683,7 +678,7 @@ function SamplesList({ platform, onDeleted }: { platform: string; onDeleted: () 
                   <p className="text-sm text-foreground line-clamp-2">{s.text}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {SOURCE_LABEL[s.source ?? ''] ?? s.source ?? 'sample'}
-                    {' · '}{s.published_at ? `published ${fmtDate(s.published_at)}` : fmtDate(s.created_at)}
+                    {' · '}{s.published_at ? `published ${formatDate(s.published_at)}` : formatDate(s.created_at)}
                     {' · '}
                     {s.muted
                       ? <span className="text-muted-foreground">muted</span>

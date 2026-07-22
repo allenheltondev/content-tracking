@@ -5,7 +5,8 @@ import { useApiFetch, ApiError } from '../auth/useApiFetch';
 import { createCampaign, listCampaigns } from '../api/campaigns';
 import type { Campaign, CampaignStatus, CreateCampaignRequest } from '../api/types';
 import Modal from '../components/Modal';
-import CreateCampaignForm from '../components/CreateCampaignForm';
+import CreateCampaignForm from '../components/CreateCampaignForm';
+import { formatDateRange } from '../lib/format';
 
 type StatusFilter = 'all' | CampaignStatus;
 
@@ -139,12 +140,6 @@ export default function Campaigns(): ReactElement {
       </Modal>
     </section>
   );
-}
-
-function formatDateRange(startDate: string | null, endDate: string | null): string {
-  if (!startDate && !endDate) return '-';
-  if (startDate && endDate) return `${startDate} → ${endDate}`;
-  return startDate ?? endDate ?? '-';
 }
 
 function formatCreatedAt(iso: string): string {

@@ -32,17 +32,12 @@ import type {
 import Markdown from '../components/MarkdownLazy';
 import ContentReview from '../components/review/ContentReview';
 import { parseList } from '../lib/text';
-import CampaignDetail from './CampaignDetail';
+import CampaignDetail from './CampaignDetail';
+import { formatTimestamp } from '../lib/format';
 
 const CONTENT_STATUSES: ContentStatus[] = ['draft', 'scheduled', 'published', 'archived'];
 const CONTENT_TYPES: ContentType[] = ['blog', 'social', 'video'];
 const CONTENT_SOURCES: ContentSource[] = ['owned', 'sponsored'];
-
-function fmtDate(iso: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
-}
 
 // Detail view for a single piece of content — the app's central object. Shows
 // the rendered body, its metadata, the sponsorship (campaign) hanging off it
@@ -93,8 +88,8 @@ export default function ContentDetail(): ReactElement {
             <header className="space-y-2">
               <h1 className="text-2xl font-semibold text-foreground">{content.title}</h1>
               <p className="text-xs text-muted-foreground">
-                {content.slug} · created {fmtDate(content.created_at)}
-                {content.updated_at && content.updated_at !== content.created_at && ` · updated ${fmtDate(content.updated_at)}`}
+                {content.slug} · created {formatTimestamp(content.created_at)}
+                {content.updated_at && content.updated_at !== content.created_at && ` · updated ${formatTimestamp(content.updated_at)}`}
               </p>
               {content.description && (
                 <p className="text-sm text-muted-foreground">{content.description}</p>

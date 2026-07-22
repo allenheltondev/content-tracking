@@ -6,6 +6,7 @@ import { getRevenue } from '../api/revenue';
 import { listVendors } from '../api/vendors';
 import type { RevenueResponse, Vendor } from '../api/types';
 import RevenueChart from '../components/RevenueChart';
+import { formatMoney } from '../lib/format';
 
 const CURRENT_YEAR = new Date().getUTCFullYear();
 const WIDE_START = '1900-01-01';
@@ -262,16 +263,4 @@ function RevenueTile({ label, value }: { label: string; value: string }): ReactE
       <span className="text-2xl font-semibold text-foreground mt-1 block">{value}</span>
     </div>
   );
-}
-
-function formatMoney(amount: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: 'currency',
-      currency,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  } catch {
-    return `${amount} ${currency}`;
-  }
 }

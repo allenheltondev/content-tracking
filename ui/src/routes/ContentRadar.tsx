@@ -2,7 +2,8 @@ import type { ReactElement } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { useApiFetch } from '../auth/useApiFetch';
 import { VOICE_PLATFORMS, platformLabel } from '../api/voice';
-import TagsInput from '../components/TagsInput';
+import TagsInput from '../components/TagsInput';
+import { formatDate } from '../lib/format';
 import {
   addFeedSource,
   deleteFeedSource,
@@ -19,12 +20,6 @@ import type {
   FeedItem,
   FeedSource,
 } from '../api/types';
-
-function fmtDate(iso: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
-}
 
 // Only http(s) URLs are safe to render as an anchor href. A feed-supplied
 // javascript:/data: link would otherwise be a stored-XSS/phishing vector.
@@ -294,7 +289,7 @@ function AngleCard({ angle, items }: { angle: ContentAngle; items: FeedItem[] })
                     <span className="text-muted-foreground"> — {it.feed_title}</span>
                   )}
                   {it.published_at && (
-                    <span className="text-muted-foreground"> · {fmtDate(it.published_at)}</span>
+                    <span className="text-muted-foreground"> · {formatDate(it.published_at)}</span>
                   )}
                 </li>
                 );
@@ -630,13 +625,13 @@ function FeedHealth({ feed }: { feed: FeedSource }): ReactElement | null {
   if (feed.last_status === 'ok') {
     return (
       <p className="text-xs text-success-700 mt-0.5">
-        ✓ {feed.last_item_count ?? 0} items · checked {fmtDate(feed.last_fetched_at)}
+        ✓ {feed.last_item_count ?? 0} items · checked {formatDate(feed.last_fetched_at)}
       </p>
     );
   }
   return (
     <p className="text-xs text-error-600 mt-0.5">
-      ✕ {feed.last_error ?? 'could not be read'} · checked {fmtDate(feed.last_fetched_at)}
+      ✕ {feed.last_error ?? 'could not be read'} · checked {formatDate(feed.last_fetched_at)}
     </p>
   );
 }

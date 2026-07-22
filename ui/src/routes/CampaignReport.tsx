@@ -8,7 +8,9 @@ import type {
   CampaignDetailResponse,
   CampaignLink,
 } from '../api/types';
-import ClicksChart from '../components/ClicksChart';
+import ClicksChart from '../components/ClicksChart';
+import BaseTile from '../components/Tile';
+import { formatDateRange, truncate } from '../lib/format';
 
 // Print-friendly campaign report. Renders outside the App shell so no
 // nav, no sign-out button, no padding chrome shows up in the printed
@@ -93,7 +95,7 @@ export default function CampaignReport(): ReactElement {
           )}
           <div>
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">Dates</dt>
-            <dd className="text-foreground">{formatDateRange(campaign.startDate, campaign.endDate)}</dd>
+            <dd className="text-foreground">{formatDateRange(campaign.startDate, campaign.endDate, 'to')}</dd>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">Status</dt>
@@ -208,12 +210,15 @@ export default function CampaignReport(): ReactElement {
   );
 }
 
+// Print-friendly wrapper: reports get exported to PDF, so tiles need a
+// visible border once shadows are stripped.
 function Tile({ label, value }: { label: string; value: string }): ReactElement {
   return (
-    <div className="card card-body !py-3 print:shadow-none print:border print:border-border">
-      <span className="text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
-      <span className="text-2xl font-semibold text-foreground mt-1 block">{value}</span>
-    </div>
+    <BaseTile
+      label={label}
+      value={value}
+      className="print:shadow-none print:border print:border-border"
+    />
   );
 }
 
@@ -298,14 +303,4 @@ function pickLatest(values: (string | null)[]): string | null {
     if (!best || v > best) best = v;
   }
   return best ? best.slice(0, 10) : null;
-}
-
-function formatDateRange(startDate: string | null, endDate: string | null): string {
-  if (!startDate && !endDate) return '-';
-  if (startDate && endDate) return `${startDate} to ${endDate}`;
-  return startDate ?? endDate ?? '-';
-}
-
-function truncate(s: string, n: number): string {
-  return s.length <= n ? s : `${s.slice(0, n - 1)}…`;
 }

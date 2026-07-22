@@ -11,6 +11,7 @@ import {
   YAxis,
 } from 'recharts';
 import type { RevenueGroup } from '../api/types';
+import { formatMoney } from '../lib/format';
 
 interface Props {
   year: number;
@@ -101,18 +102,6 @@ export default function RevenueChart({ year, monthGroups, currency }: Props): Re
       </ResponsiveContainer>
     </div>
   );
-}
-
-function formatMoney(amount: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: 'currency',
-      currency,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  } catch {
-    return `${amount} ${currency}`;
-  }
 }
 
 function abbreviate(v: number): string {

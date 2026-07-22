@@ -8,6 +8,7 @@ import { getRevenue } from '../api/revenue';
 import { listContent } from '../api/content';
 import type { Campaign, ContentSummary, RevenueResponse, Vendor } from '../api/types';
 import RevenueChart from '../components/RevenueChart';
+import { formatMoney } from '../lib/format';
 
 const CURRENT_YEAR = new Date().getUTCFullYear();
 
@@ -435,16 +436,4 @@ function formatShortDate(iso: string): string {
     year: 'numeric',
     timeZone: 'UTC',
   }).format(d);
-}
-
-function formatMoney(amount: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: 'currency',
-      currency,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  } catch {
-    return `${amount} ${currency}`;
-  }
 }
