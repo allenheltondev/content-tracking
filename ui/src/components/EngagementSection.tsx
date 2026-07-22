@@ -10,30 +10,57 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { getContentPostSnapshots } from '../api/campaigns';
-import type {
-  ContentPlatform,
-  ContentPost,
-  ContentPostSnapshot,
-} from '../api/types';
+import { getContentPostSnapshots, getSocialPostSnapshots } from '../api/campaigns';
+import type { ContentPost, SocialPost } from '../api/types';
 import type { ApiFetch } from '../auth/useApiFetch';
+import Tile from './Tile';
+import { relativeTime, titleCase, truncate } from '../lib/format';
 
-// Content-bucket counterpart to SocialEngagementSection. Same chart UX
-// (per-day cumulative or delta, top-post table, staleness flagging) but
-// reads from /content-posts/{id}/snapshots so the buckets stay reportable
-// independently. Helpers are intentionally duplicated rather than shared
-// because each bucket may grow bucket-specific metric semantics later.
+// One engagement panel for both metric buckets. The buckets stay reportable
+// independently (social posts vs cross-posted content), but the UX is
+// identical — per-day cumulative or delta chart, platform totals, top-post
+// table, staleness flagging — so the bucket only selects the copy and which
+// snapshots endpoint is called.
+
+type Bucket = 'social' | 'content';
+
+// Both post types share the fields this panel reads; keep the component
+// structural so either bucket's array type-checks.
+type EngagementPost = SocialPost | ContentPost;
+
+interface Snapshot {
+  snapshot_date: string;
+  metrics: Record<string, number>;
+}
 
 interface Props {
   apiFetch: ApiFetch;
   campaignId: string;
-  posts: ContentPost[];
+  posts: EngagementPost[];
+  bucket: Bucket;
 }
 
 type ChartMode = 'cumulative' | 'delta';
 
+const BUCKET_COPY: Record<Bucket, { title: string; empty: string }> = {
+  social: {
+    title: 'Social engagement',
+    empty:
+      'No social posts tracked yet. Add posts from the Promotion tab to chart engagement over time.',
+  },
+  content: {
+    title: 'Content engagement',
+    empty:
+      'No content posts tracked yet. Add Medium or dev.to posts from the Promotion tab to chart engagement over time.',
+  },
+};
+
+// Posts whose last_fetched is older than this are flagged stale so the user
+// knows the extension hasn't recently captured them.
 const STALE_AFTER_DAYS = 2;
 
+// Recharts cycles through these for metric lines. Resolved at render time
+// via CSS variables so they track the active theme.
 const SERIES_COLORS = [
   'rgb(var(--primary-600))',
   'rgb(var(--success-600))',
@@ -43,33 +70,39 @@ const SERIES_COLORS = [
   'rgb(var(--primary-400))',
 ];
 
-export default function ContentEngagementSection({
+export default function EngagementSection({
   apiFetch,
   campaignId,
   posts,
+  bucket,
 }: Props): ReactElement {
-  const [snapshots, setSnapshots] = useState<Record<string, ContentPostSnapshot[]>>({});
+  const [snapshots, setSnapshots] = useState<Record<string, Snapshot[]>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<ChartMode>('cumulative');
+  const copy = BUCKET_COPY[bucket];
 
+  // Refetch whenever the post set changes. Personal-scale: a handful of
+  // posts per campaign, so a parallel fan-out is fine. If a per-post call
+  // fails we surface a single error and continue with what we got.
   useEffect(() => {
     if (posts.length === 0) {
       setSnapshots({});
       return;
     }
+    const fetchSnapshots = bucket === 'social' ? getSocialPostSnapshots : getContentPostSnapshots;
     let cancelled = false;
     setLoading(true);
     setError(null);
     Promise.all(
       posts.map((p) =>
-        getContentPostSnapshots(apiFetch, campaignId, p.post_id)
-          .then((res) => ({ id: p.post_id, snapshots: res.snapshots }))
-          .catch((err: Error) => ({ id: p.post_id, snapshots: [], err })),
+        fetchSnapshots(apiFetch, campaignId, p.post_id)
+          .then((res) => ({ id: p.post_id, snapshots: res.snapshots as Snapshot[] }))
+          .catch((err: Error) => ({ id: p.post_id, snapshots: [] as Snapshot[], err })),
       ),
     ).then((results) => {
       if (cancelled) return;
-      const map: Record<string, ContentPostSnapshot[]> = {};
+      const map: Record<string, Snapshot[]> = {};
       const failed: string[] = [];
       for (const r of results) {
         map[r.id] = r.snapshots;
@@ -84,7 +117,7 @@ export default function ContentEngagementSection({
     return () => {
       cancelled = true;
     };
-  }, [apiFetch, campaignId, posts]);
+  }, [apiFetch, campaignId, posts, bucket]);
 
   const totals = useMemo(() => computeCurrentTotals(posts), [posts]);
   const platformTotals = useMemo(() => computePlatformTotals(posts), [posts]);
@@ -99,18 +132,15 @@ export default function ContentEngagementSection({
   if (posts.length === 0) {
     return (
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-foreground">Content engagement</h2>
-        <p className="text-sm text-muted-foreground">
-          No content posts tracked yet. Add Medium or dev.to posts from the Promotion tab
-          to chart engagement over time.
-        </p>
+        <h2 className="text-lg font-semibold text-foreground">{copy.title}</h2>
+        <p className="text-sm text-muted-foreground">{copy.empty}</p>
       </section>
     );
   }
 
   return (
     <section className="space-y-3">
-      <h2 className="text-lg font-semibold text-foreground">Content engagement</h2>
+      <h2 className="text-lg font-semibold text-foreground">{copy.title}</h2>
       {error && <p className="form-error">{error}</p>}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -156,8 +186,8 @@ export default function ContentEngagementSection({
         </p>
       ) : chartData.length === 0 ? (
         <p className="rounded-md bg-muted text-muted-foreground text-sm text-center py-6">
-          No engagement history yet. The extension writes a snapshot each time it
-          captures a post.
+          No engagement history yet. The extension writes a snapshot each time
+          it captures a post.
         </p>
       ) : (
         <div className="card card-body">
@@ -240,48 +270,8 @@ function ModeToggle({
   );
 }
 
-function Tile({
-  label,
-  value,
-  sublabel,
-  tone = 'default',
-  hint,
-  slot,
-}: {
-  label: string;
-  value: string;
-  sublabel?: string;
-  tone?: 'default' | 'warning';
-  hint?: string;
-  slot?: string;
-}): ReactElement {
-  const toneClass = tone === 'warning' ? 'text-warning-700' : 'text-foreground';
-  return (
-    <div className={`card card-body !py-3${slot ? ' relative' : ''}`}>
-      {slot && (
-        <span
-          data-booked-slot={slot}
-          className="absolute top-2 right-2 flex items-center"
-        />
-      )}
-      <span
-        className={`text-xs uppercase tracking-wide text-muted-foreground${
-          hint ? ' cursor-help' : ''
-        }`}
-        title={hint}
-      >
-        {label}
-      </span>
-      <span className={`text-2xl font-semibold ${toneClass} mt-1 block`}>{value}</span>
-      {sublabel && (
-        <span className="text-xs text-muted-foreground mt-0.5 block truncate">{sublabel}</span>
-      )}
-    </div>
-  );
-}
-
 interface RankedPost {
-  post: ContentPost;
+  post: EngagementPost;
   total: number;
   topMetric: string | null;
   topMetricValue: number;
@@ -342,7 +332,7 @@ function TopPostsTable({ posts }: { posts: RankedPost[] }): ReactElement {
   );
 }
 
-function computeCurrentTotals(posts: ContentPost[]): {
+function computeCurrentTotals(posts: EngagementPost[]): {
   total: number;
   staleCount: number;
 } {
@@ -359,9 +349,9 @@ function computeCurrentTotals(posts: ContentPost[]): {
 }
 
 function computePlatformTotals(
-  posts: ContentPost[],
-): { platform: ContentPlatform; total: number; postCount: number }[] {
-  const map = new Map<ContentPlatform, { total: number; postCount: number }>();
+  posts: EngagementPost[],
+): { platform: string; total: number; postCount: number }[] {
+  const map = new Map<string, { total: number; postCount: number }>();
   for (const p of posts) {
     const entry = map.get(p.platform) ?? { total: 0, postCount: 0 };
     entry.postCount++;
@@ -375,7 +365,7 @@ function computePlatformTotals(
     .sort((a, b) => b.total - a.total);
 }
 
-function rankPosts(posts: ContentPost[]): RankedPost[] {
+function rankPosts(posts: EngagementPost[]): RankedPost[] {
   const cutoff = Date.now() - STALE_AFTER_DAYS * 86_400_000;
   return posts
     .map((post): RankedPost => {
@@ -398,9 +388,7 @@ function rankPosts(posts: ContentPost[]): RankedPost[] {
     .sort((a, b) => b.total - a.total);
 }
 
-function collectMetricKeys(
-  snapshots: Record<string, ContentPostSnapshot[]>,
-): string[] {
+function collectMetricKeys(snapshots: Record<string, Snapshot[]>): string[] {
   const set = new Set<string>();
   for (const list of Object.values(snapshots)) {
     for (const snap of list) {
@@ -410,8 +398,14 @@ function collectMetricKeys(
   return Array.from(set).sort();
 }
 
+// Builds the rechart-ready series. For each calendar day between the first
+// and last snapshot we sum every post's most-recent-on-or-before metric
+// values; days without any captured-yet posts are filled with zero so the
+// x-axis is continuous. In "delta" mode we then subtract the previous
+// day's value per metric to surface daily change (clamped at 0 to avoid
+// negative dips when a metric is later removed by the platform).
 function buildDailySeries(
-  snapshots: Record<string, ContentPostSnapshot[]>,
+  snapshots: Record<string, Snapshot[]>,
   mode: ChartMode,
 ): Record<string, number | string>[] {
   const postIds = Object.keys(snapshots).filter((id) => snapshots[id].length > 0);
@@ -427,7 +421,7 @@ function buildDailySeries(
   }
   if (!minDate || !maxDate) return [];
 
-  const sortedPerPost: Record<string, ContentPostSnapshot[]> = {};
+  const sortedPerPost: Record<string, Snapshot[]> = {};
   for (const id of postIds) {
     sortedPerPost[id] = [...snapshots[id]].sort((a, b) =>
       a.snapshot_date.localeCompare(b.snapshot_date),
@@ -442,7 +436,7 @@ function buildDailySeries(
     for (const key of allKeys) row[key] = 0;
     for (const id of postIds) {
       const list = sortedPerPost[id];
-      let mostRecent: ContentPostSnapshot | null = null;
+      let mostRecent: Snapshot | null = null;
       for (const s of list) {
         if (s.snapshot_date <= day) mostRecent = s;
         else break;
@@ -479,7 +473,7 @@ function enumerateDays(start: string, end: string): string[] {
   return days;
 }
 
-function latestFetched(posts: ContentPost[]): Date | null {
+function latestFetched(posts: EngagementPost[]): Date | null {
   let latest: number | null = null;
   for (const p of posts) {
     if (!p.last_fetched) continue;
@@ -487,23 +481,4 @@ function latestFetched(posts: ContentPost[]): Date | null {
     if (latest === null || t > latest) latest = t;
   }
   return latest === null ? null : new Date(latest);
-}
-
-function relativeTime(d: Date): string {
-  const diffMs = Date.now() - d.getTime();
-  const mins = Math.floor(diffMs / 60_000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
-function truncate(s: string, n: number): string {
-  return s.length <= n ? s : `${s.slice(0, n - 1)}…`;
-}
-
-function titleCase(s: string): string {
-  return s.length === 0 ? s : s[0].toUpperCase() + s.slice(1);
 }
