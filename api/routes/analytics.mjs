@@ -1,5 +1,5 @@
 import { jsonResponse } from "../services/http-handler.mjs";
-import { UpstreamError } from "../services/errors.mjs";
+import { NotFoundError, UpstreamError } from "../services/errors.mjs";
 import { requireTenantId } from "../services/identity.mjs";
 import { assertCampaignOwned } from "../domain/campaign.mjs";
 import { findLink } from "../domain/link.mjs";
@@ -14,7 +14,7 @@ export function registerAnalyticsRoutes(app) {
     await assertCampaignOwned(campaignId, tenantId);
     const link = await findLink(campaignId, linkId);
     if (!link) {
-      return jsonResponse(404, { message: `Link ${linkId} not found in campaign ${campaignId}` });
+      throw new NotFoundError("Link", linkId);
     }
 
     let analytics;
@@ -22,7 +22,9 @@ export function registerAnalyticsRoutes(app) {
       analytics = await fetchLinkAnalytics(link.code);
     } catch (err) {
       if (err instanceof UpstreamError) {
-        return jsonResponse(502, { message: "Upstream analytics service unavailable" });
+        // Re-throw with a stable client-facing message; the central error
+        // mapper turns this into the standard { message, code } shape.
+        throw new UpstreamError("Upstream analytics service unavailable", err.upstreamStatus);
       }
       throw err;
     }
@@ -49,7 +51,7 @@ export function registerAnalyticsRoutes(app) {
     const result = await getCampaignAnalytics(campaignId);
 
     if (result.link_count > 0 && result.upstream_failures === result.link_count) {
-      return jsonResponse(502, { message: "All upstream analytics calls failed" });
+      throw new UpstreamError("All upstream analytics calls failed");
     }
 
     return jsonResponse(200, result);

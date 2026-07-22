@@ -1,4 +1,4 @@
-import { BadRequestError } from "../services/errors.mjs";
+import { BadRequestError, NotFoundError } from "../services/errors.mjs";
 import { jsonResponse } from "../services/http-handler.mjs";
 import { logger } from "../services/logger.mjs";
 import { findCampaign, assertCampaignOwned } from "../domain/campaign.mjs";
@@ -28,7 +28,7 @@ export function registerWebAnalyticsRoutes(app) {
     await assertCampaignOwned(campaignId, tenantId);
     const campaign = await findCampaign(campaignId);
     if (!campaign) {
-      return jsonResponse(404, { message: `Campaign ${campaignId} not found` });
+      throw new NotFoundError("Campaign", campaignId);
     }
 
     if ((campaign.deliverableType ?? "blog") === "youtube") {
