@@ -13,11 +13,9 @@ import {
   updateContent,
 } from "../domain/content.mjs";
 import { createCampaign, findCampaign } from "../domain/campaign.mjs";
-import { getTenant } from "../domain/tenant.mjs";
-import { getBlogCredentials } from "../services/blog-credentials.mjs";
-import { transformBlogForPlatform } from "../services/parse-blog.mjs";
-import { getAdapter } from "../services/blog-platforms/index.mjs";
+import { crosspostContent } from "../services/content-crosspost.mjs";
 import { validateCrosspostRequest } from "../validation/blog.mjs";
+import { requireCampaignId } from "../validation/common.mjs";
 import { requirePublisherTenantId, requireTenantId } from "../services/identity.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import { decodeCursor, encodeCursor, parseLimit } from "../services/pagination.mjs";
@@ -42,15 +40,6 @@ import {
   validateContentQuestion,
   validateContentUpdate,
 } from "../validation/content.mjs";
-
-const CAMPAIGN_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
-
-function requireCampaignId(value) {
-  if (typeof value !== "string" || !CAMPAIGN_ID_RE.test(value)) {
-    throw new BadRequestError("campaign_id must be 1-64 characters of letters, digits, underscores, or hyphens");
-  }
-  return value;
-}
 
 // Content catalog CRUD. Every route resolves the tenant from the authorizer
 // sub (requireTenantId) and passes it as the first argument to the domain,
@@ -275,43 +264,7 @@ export function registerContentRoutes(app) {
     const content = await getContent(tenantId, contentId);
     const { platforms } = validateCrosspostRequest(parseBody(event));
 
-    const [tenant, credentials, catalogPage, existingVariants] = await Promise.all([
-      getTenant(tenantId),
-      getBlogCredentials(tenantId),
-      listContentByTenant(tenantId, { limit: 1000 }),
-      listPublishVariants(tenantId, contentId),
-    ]);
-    const baseUrl = tenant?.canonicalBaseUrl;
-    const catalog = catalogPage.items ?? [];
-    const alreadyPublished = new Map(
-      existingVariants.filter((v) => v.url).map((v) => [v.platform, v.url]),
-    );
-
-    const results = [];
-    for (const platform of platforms) {
-      if (alreadyPublished.has(platform)) {
-        results.push({ platform, status: "skipped", url: alreadyPublished.get(platform) });
-        continue;
-      }
-      try {
-        const transformed = transformBlogForPlatform({ blog: content, catalog, platform, baseUrl });
-        const config = tenant?.platforms?.[platform] ?? {};
-        const published = await getAdapter(platform).publish({
-          blog: content,
-          content: transformed.body,
-          tags: transformed.tags,
-          config,
-          credential: credentials?.[platform],
-        });
-        await putPublishVariant(tenantId, contentId, platform, {
-          url: published.url,
-          publishedAt: new Date().toISOString(),
-        });
-        results.push({ platform, status: "succeeded", url: published.url });
-      } catch (err) {
-        results.push({ platform, status: "failed", error: String(err?.message ?? err) });
-      }
-    }
+    const results = await crosspostContent({ tenantId, content, platforms });
 
     return jsonResponse(200, { content_id: contentId, results });
   }));

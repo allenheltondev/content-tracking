@@ -1,10 +1,10 @@
-import { BadRequestError } from "../services/errors.mjs";
+import { BadRequestError } from "../services/errors.mjs";
+import { ISO_DATE_RE } from "./common.mjs";
 
 // Same throw-on-fail pattern as validation/vendor.mjs.
 
 const CURRENCY_RE = /^[A-Z]{3}$/;
 const INVOICE_REF_MAX = 200;
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export const AGGREGATION_CURRENCY = "USD";
 

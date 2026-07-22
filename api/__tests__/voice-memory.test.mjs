@@ -22,6 +22,7 @@ jest.unstable_mockModule("../domain/voice.mjs", () => ({
   getVoiceSample: jest.fn(),
   putVoiceProfile: jest.fn(),
   createReflection: jest.fn(),
+  setVoiceSampleMuted: jest.fn(),
 }));
 
 const { embedText } = await import("../services/embeddings.mjs");
@@ -31,12 +32,13 @@ const { enqueueReflectionCatchup } = await import("../services/reflection-queue.
 const { NotFoundError } = await import("../services/errors.mjs");
 const {
   claimReflectionSlot, countSampleOnce, createVoiceSample, deleteVoiceSampleRow, listRecentSamples,
-  getVoiceProfile, getVoiceSample, putVoiceProfile, createReflection,
+  getVoiceProfile, getVoiceSample, putVoiceProfile, createReflection, setVoiceSampleMuted,
 } = await import("../domain/voice.mjs");
 const {
   recordVoiceSample, runReflection, maybeReflect,
   captureContentVoiceSample, removeContentVoiceSample,
   buildContentSampleText, contentVoiceSampleId, isVoiceEligibleContent,
+  reflectAfterCuration, removeSampleAndSync, setSampleMutedAndSync,
 } = await import("../services/voice-memory.mjs");
 
 const sample = {
@@ -335,5 +337,44 @@ describe("content auto-capture", () => {
 
   test("contentVoiceSampleId is deterministic", () => {
     expect(contentVoiceSampleId("C1")).toBe("CONTENT-C1");
+  });
+});
+
+describe("curation sync", () => {
+  test("mute drops the vector and skips re-embedding", async () => {
+    setVoiceSampleMuted.mockResolvedValue({ sampleId: "S1", platform: "x", text: "a", muted: true });
+
+    const updated = await setSampleMutedAndSync("T1", "x", "S1", true);
+
+    expect(setVoiceSampleMuted).toHaveBeenCalledWith("T1", "x", "S1", true);
+    expect(deleteVoiceSample).toHaveBeenCalledWith({ tenantId: "T1", platform: "x", sampleId: "S1" });
+    expect(putVoiceSample).not.toHaveBeenCalled();
+    expect(updated.muted).toBe(true);
+  });
+
+  test("unmute re-embeds from the stored text and re-adds the vector", async () => {
+    setVoiceSampleMuted.mockResolvedValue({
+      sampleId: "S1", platform: "x", format: "social", text: "hello", publishedAt: "2026-06-01",
+    });
+    embedText.mockResolvedValue([0.5]);
+
+    await setSampleMutedAndSync("T1", "x", "S1", false);
+
+    expect(embedText).toHaveBeenCalledWith("hello");
+    expect(putVoiceSample).toHaveBeenCalledWith(expect.objectContaining({
+      sampleId: "S1", embedding: [0.5], publishedAt: "2026-06-01",
+    }));
+  });
+
+  test("remove deletes the row and the vector", async () => {
+    await removeSampleAndSync("T1", "x", "S1");
+
+    expect(deleteVoiceSampleRow).toHaveBeenCalledWith("T1", "x", "S1");
+    expect(deleteVoiceSample).toHaveBeenCalledWith({ tenantId: "T1", platform: "x", sampleId: "S1" });
+  });
+
+  test("a reflection failure is swallowed so the curation action succeeds", async () => {
+    listRecentSamples.mockRejectedValue(new Error("dynamo down"));
+    await expect(reflectAfterCuration("T1", "x")).resolves.toBeNull();
   });
 });

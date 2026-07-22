@@ -1,10 +1,10 @@
-import { BadRequestError } from "../services/errors.mjs";
+import { BadRequestError } from "../services/errors.mjs";
+import { ISO_DATE_RE } from "./common.mjs";
 
 // Query-param validation for GET /insights. Optional startDate/endDate
 // (both-or-neither); defaults to the last 90 days. Returns a normalized
 // { startDate, endDate } the domain consumes.
 
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_DAYS = 90;
 const MAX_DAYS = 730;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;

@@ -3,10 +3,14 @@ import { trackActivity } from "../services/activity.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import { emptyResponse, jsonResponse, parseBody } from "../services/http-handler.mjs";
 import { embedText } from "../services/embeddings.mjs";
-import { queryVoiceSamples, deleteVoiceSample, putVoiceSample } from "../services/voice-vectors.mjs";
+import { queryVoiceSamples } from "../services/voice-vectors.mjs";
 import { composeVoicePost, assessVoiceMatch } from "../services/bedrock.mjs";
-import { runReflection } from "../services/voice-memory.mjs";
-import { logger } from "../services/logger.mjs";
+import {
+  reflectAfterCuration,
+  removeSampleAndSync,
+  runReflection,
+  setSampleMutedAndSync,
+} from "../services/voice-memory.mjs";
 import {
   COMPOSE_CANDIDATE_POOL,
   COMPOSE_EXAMPLE_COUNT,
@@ -17,12 +21,10 @@ import {
 } from "../services/voice-recency.mjs";
 import {
   createVoiceSample,
-  deleteVoiceSampleRow,
   getVoiceProfile,
   listProfiles,
   listReflections,
   listRecentSamples,
-  setVoiceSampleMuted,
   setVoiceSteering,
 } from "../domain/voice.mjs";
 import {
@@ -171,19 +173,7 @@ export function registerVoiceRoutes(app) {
     const platform = validatePlatform(event.queryStringParameters?.platform);
     const { muted } = validateSampleUpdate(parseBody(event));
 
-    const updated = await setVoiceSampleMuted(tenantId, platform, params.id, muted);
-    if (muted) {
-      await deleteVoiceSample({ tenantId, platform, sampleId: params.id });
-    } else {
-      // Re-embed from the stored text so an unmuted sample rejoins compose
-      // retrieval. The row is the source of truth for the text + anchor.
-      const embedding = await embedText(updated.text);
-      await putVoiceSample({
-        tenantId, platform, format: updated.format, sampleId: params.id,
-        text: updated.text, embedding, publishedAt: updated.publishedAt ?? updated.createdAt,
-      });
-    }
-    await reflectAfterCuration(tenantId, platform);
+    const updated = await setSampleMutedAndSync(tenantId, platform, params.id, muted);
     return jsonResponse(200, formatVoiceSample(updated));
   });
 
@@ -195,9 +185,7 @@ export function registerVoiceRoutes(app) {
   app.delete("/voice/samples/:id", async ({ event, params }) => {
     const tenantId = requireTenantId(event);
     const platform = validatePlatform(event.queryStringParameters?.platform);
-    await deleteVoiceSampleRow(tenantId, platform, params.id);
-    await deleteVoiceSample({ tenantId, platform, sampleId: params.id });
-    await reflectAfterCuration(tenantId, platform);
+    await removeSampleAndSync(tenantId, platform, params.id);
     return emptyResponse(204);
   });
 
@@ -245,18 +233,4 @@ export function registerVoiceRoutes(app) {
     const updated = await runReflection(tenantId, platform);
     return jsonResponse(200, { profile: formatVoiceProfile(updated) });
   }));
-}
-
-// After a curation action (mute, unmute, delete, steer) re-derives the profile
-// so the change is reflected in the learned voice right away. Best-effort: a
-// reflection failure must not fail the user's action — the manual "Refresh now"
-// path and the next automatic reflection both recover. Returns the updated
-// profile row, or null when nothing could be reflected.
-async function reflectAfterCuration(tenantId, platform) {
-  try {
-    return await runReflection(tenantId, platform);
-  } catch (err) {
-    logger.warn("Post-curation reflection failed (non-fatal)", { platform, error: err?.message });
-    return null;
-  }
 }

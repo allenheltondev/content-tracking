@@ -7,9 +7,9 @@ import { getProfileSettings } from "../domain/profile.mjs";
 import { readCruxApiKey, readGa4ServiceAccount } from "../services/ga-secrets.mjs";
 import { fetchPageMetrics } from "../services/google-analytics.mjs";
 import { fetchWebVitals } from "../services/core-web-vitals.mjs";
-import { loadCampaignYoutube } from "../services/campaign-youtube.mjs";
+import { loadCampaignYoutube } from "../services/campaign-youtube.mjs";
+import { ISO_DATE_RE } from "../validation/common.mjs";
 
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_RANGE_DAYS = 28;
 
 // GET /campaigns/:campaignId/web-analytics

@@ -14,7 +14,12 @@ jest.unstable_mockModule("../services/bedrock.mjs", () => ({
   composeVoicePost: jest.fn(),
   assessVoiceMatch: jest.fn(),
 }));
-jest.unstable_mockModule("../services/voice-memory.mjs", () => ({ runReflection: jest.fn() }));
+jest.unstable_mockModule("../services/voice-memory.mjs", () => ({
+  runReflection: jest.fn(),
+  reflectAfterCuration: jest.fn(),
+  setSampleMutedAndSync: jest.fn(),
+  removeSampleAndSync: jest.fn(),
+}));
 jest.unstable_mockModule("../domain/voice.mjs", () => ({
   createVoiceSample: jest.fn(),
   deleteVoiceSampleRow: jest.fn(),
@@ -27,12 +32,14 @@ jest.unstable_mockModule("../domain/voice.mjs", () => ({
 }));
 
 const { embedText } = await import("../services/embeddings.mjs");
-const { queryVoiceSamples, deleteVoiceSample, putVoiceSample } = await import("../services/voice-vectors.mjs");
+const { queryVoiceSamples } = await import("../services/voice-vectors.mjs");
 const { composeVoicePost, assessVoiceMatch } = await import("../services/bedrock.mjs");
-const { runReflection } = await import("../services/voice-memory.mjs");
 const {
-  createVoiceSample, deleteVoiceSampleRow, getVoiceProfile, listProfiles, listReflections, listRecentSamples,
-  setVoiceSampleMuted, setVoiceSteering,
+  runReflection, reflectAfterCuration, setSampleMutedAndSync, removeSampleAndSync,
+} = await import("../services/voice-memory.mjs");
+const {
+  createVoiceSample, getVoiceProfile, listProfiles, listReflections, listRecentSamples,
+  setVoiceSteering,
 } = await import("../domain/voice.mjs");
 const { registerVoiceRoutes } = await import("../routes/voice.mjs");
 
@@ -243,49 +250,28 @@ describe("GET/PATCH/DELETE /voice/samples", () => {
     expect(byId.FRESH.influence_share + byId.OLD.influence_share).toBeCloseTo(1, 2);
   });
 
-  test("PATCH muted:true drops the vector, mutes the row, and re-derives the profile", async () => {
-    setVoiceSampleMuted.mockResolvedValue({ sampleId: "S1", platform: "x", text: "a", muted: true });
+  // The mute/unmute/delete orchestration (vector sync + post-curation
+  // reflection) lives in services/voice-memory.mjs and is covered by
+  // voice-memory.test.mjs; these tests pin the route → service delegation.
+  test("PATCH muted delegates to the curation sync and returns the updated row", async () => {
+    setSampleMutedAndSync.mockResolvedValue({ sampleId: "S1", platform: "x", text: "a", muted: true });
     const res = await routes["PATCH /voice/samples/:id"](ctx({ params: { id: "S1" }, query: { platform: "x" }, body: { muted: true } }));
     expect(res.statusCode).toBe(200);
-    expect(setVoiceSampleMuted).toHaveBeenCalledWith(SUB, "x", "S1", true);
-    expect(deleteVoiceSample).toHaveBeenCalledWith({ tenantId: SUB, platform: "x", sampleId: "S1" });
-    expect(putVoiceSample).not.toHaveBeenCalled();
-    expect(runReflection).toHaveBeenCalledWith(SUB, "x");
+    expect(setSampleMutedAndSync).toHaveBeenCalledWith(SUB, "x", "S1", true);
     expect(JSON.parse(res.body).muted).toBe(true);
-  });
-
-  test("PATCH muted:false re-embeds the sample and re-derives the profile", async () => {
-    setVoiceSampleMuted.mockResolvedValue({ sampleId: "S1", platform: "x", format: "social", text: "hello", publishedAt: "2026-06-01" });
-    embedText.mockResolvedValue([0.5]);
-    const res = await routes["PATCH /voice/samples/:id"](ctx({ params: { id: "S1" }, query: { platform: "x" }, body: { muted: false } }));
-    expect(res.statusCode).toBe(200);
-    expect(setVoiceSampleMuted).toHaveBeenCalledWith(SUB, "x", "S1", false);
-    expect(embedText).toHaveBeenCalledWith("hello");
-    expect(putVoiceSample).toHaveBeenCalledWith(expect.objectContaining({ sampleId: "S1", embedding: [0.5], publishedAt: "2026-06-01" }));
-    expect(runReflection).toHaveBeenCalledWith(SUB, "x");
   });
 
   test("PATCH rejects a non-boolean muted", async () => {
     await expect(routes["PATCH /voice/samples/:id"](ctx({ params: { id: "S1" }, query: { platform: "x" }, body: { muted: "yes" } })))
       .rejects.toThrow(/muted/);
+    expect(setSampleMutedAndSync).not.toHaveBeenCalled();
   });
 
-  test("DELETE removes the row and the vector, then re-derives the profile", async () => {
-    deleteVoiceSampleRow.mockResolvedValue();
-    deleteVoiceSample.mockResolvedValue();
+  test("DELETE delegates to the curation sync", async () => {
+    removeSampleAndSync.mockResolvedValue();
     const res = await routes["DELETE /voice/samples/:id"](ctx({ params: { id: "S1" }, query: { platform: "x" } }));
     expect(res.statusCode).toBe(204);
-    expect(deleteVoiceSampleRow).toHaveBeenCalledWith(SUB, "x", "S1");
-    expect(deleteVoiceSample).toHaveBeenCalledWith({ tenantId: SUB, platform: "x", sampleId: "S1" });
-    expect(runReflection).toHaveBeenCalledWith(SUB, "x");
-  });
-
-  test("a curation reflection failure does not fail the user's action", async () => {
-    deleteVoiceSampleRow.mockResolvedValue();
-    deleteVoiceSample.mockResolvedValue();
-    runReflection.mockRejectedValue(new Error("bedrock down"));
-    const res = await routes["DELETE /voice/samples/:id"](ctx({ params: { id: "S1" }, query: { platform: "x" } }));
-    expect(res.statusCode).toBe(204);
+    expect(removeSampleAndSync).toHaveBeenCalledWith(SUB, "x", "S1");
   });
 });
 
@@ -314,17 +300,17 @@ describe("profiles", () => {
 
   test("PUT /voice/profiles/:platform/steering sets the note and re-derives immediately", async () => {
     setVoiceSteering.mockResolvedValue({ platform: "x", steering: "be concise" });
-    runReflection.mockResolvedValue({ platform: "x", profile: { tone: "tight" }, version: 4, steering: "be concise" });
+    reflectAfterCuration.mockResolvedValue({ platform: "x", profile: { tone: "tight" }, version: 4, steering: "be concise" });
     const res = await routes["PUT /voice/profiles/:platform/steering"](ctx({ params: { platform: "x" }, body: { note: "be concise" } }));
     expect(res.statusCode).toBe(200);
     expect(setVoiceSteering).toHaveBeenCalledWith(SUB, "x", "be concise");
-    expect(runReflection).toHaveBeenCalledWith(SUB, "x");
+    expect(reflectAfterCuration).toHaveBeenCalledWith(SUB, "x");
     expect(JSON.parse(res.body).profile.steering).toBe("be concise");
   });
 
   test("PUT steering falls back to the steered row when there's nothing to reflect yet", async () => {
     setVoiceSteering.mockResolvedValue({ platform: "x", steering: "be bold" });
-    runReflection.mockResolvedValue(null); // no samples yet
+    reflectAfterCuration.mockResolvedValue(null); // no samples yet
     getVoiceProfile.mockResolvedValue({ platform: "x", steering: "be bold" });
     const res = await routes["PUT /voice/profiles/:platform/steering"](ctx({ params: { platform: "x" }, body: { note: "be bold" } }));
     expect(JSON.parse(res.body).profile.steering).toBe("be bold");
@@ -333,7 +319,7 @@ describe("profiles", () => {
 
   test("PUT steering accepts null to clear", async () => {
     setVoiceSteering.mockResolvedValue({ platform: "x" });
-    runReflection.mockResolvedValue({ platform: "x", profile: {}, version: 5 });
+    reflectAfterCuration.mockResolvedValue({ platform: "x", profile: {}, version: 5 });
     const res = await routes["PUT /voice/profiles/:platform/steering"](ctx({ params: { platform: "x" }, body: { note: null } }));
     expect(res.statusCode).toBe(200);
     expect(setVoiceSteering).toHaveBeenCalledWith(SUB, "x", null);

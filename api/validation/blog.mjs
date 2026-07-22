@@ -1,4 +1,5 @@
-import { BadRequestError } from "../services/errors.mjs";
+import { BadRequestError } from "../services/errors.mjs";
+import { CAMPAIGN_ID_RE } from "./common.mjs";
 
 // Validation + formatting for the Blog entity. Request/response bodies are
 // snake_case; internal storage is camelCase (matching validation/vendor.mjs
@@ -18,7 +19,6 @@ const CAMPAIGN_ID_MAX = 64;
 const CONTENT_MAX = 300_000;
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const CAMPAIGN_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 function requireObject(body) {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {

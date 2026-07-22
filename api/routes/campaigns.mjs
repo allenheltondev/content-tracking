@@ -3,57 +3,32 @@ import { jsonResponse, parseBody } from "../services/http-handler.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import { logger } from "../services/logger.mjs";
 import { decodeCursor, encodeCursor, parseLimit } from "../services/pagination.mjs";
-import { reviewDraft, summarizeBrief } from "../services/bedrock.mjs";
-import { fetchGoogleDocText } from "../services/google-docs.mjs";
-import {
-  getBriefObjectBytes,
-  presignBriefDownload,
-  presignBriefUpload,
-  putBriefTranscript,
-} from "../services/s3.mjs";
+import { attachBrief, reviewCampaignDraft } from "../services/brief-pipeline.mjs";
+import { presignBriefDownload, presignBriefUpload } from "../services/s3.mjs";
 import { formatCampaign, validateCampaignCreate, validateCampaignUpdate } from "../validation/campaign.mjs";
 import {
-  conversationToTranscript,
   validateBriefSubmission,
   validateUploadUrlRequest,
 } from "../validation/brief.mjs";
 import { validateDraftSubmission } from "../validation/draft.mjs";
 import { applyPaidAtDefault } from "../validation/payout.mjs";
+import { requireUlid } from "../validation/common.mjs";
+import { formatLink } from "../validation/link.mjs";
 import {
   assertCampaignOwned,
   createCampaign,
-  findCampaign,
   getCampaignWithLinks,
   listCampaigns,
   updateCampaignFields,
 } from "../domain/campaign.mjs";
 import { requireTenantId } from "../services/identity.mjs";
 import { trackActivity } from "../services/activity.mjs";
-import { assertVendorOwned, listVendors } from "../domain/vendor.mjs";
-import { getBriefForCampaign, saveBriefForCampaign } from "../domain/brief.mjs";
-import {
-  getDraftForCampaign,
-  saveDraftForCampaign,
-  saveDraftReview,
-} from "../domain/draft.mjs";
+import { assertVendorOwned } from "../domain/vendor.mjs";
+import { getDraftForCampaign, saveDraftForCampaign } from "../domain/draft.mjs";
 import { formatSocialPost } from "../validation/social-post.mjs";
 import { formatContentPost } from "../validation/content-post.mjs";
 
 const VALID_STATUSES = new Set(["draft", "active", "monitoring", "completed"]);
-const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
-
-const formatLink = (row) => ({
-  link_id: row.linkId,
-  code: row.code,
-  short_url: row.shortUrl,
-  role: row.role,
-  platform: row.platform,
-  url: row.url,
-  src: row.src ?? null,
-  notes: row.notes ?? null,
-  expires_at: row.expiresAt,
-  created_at: row.createdAt,
-});
 
 const formatBrief = (row, downloadUrl) => ({
   source_type: row.sourceType,
@@ -207,59 +182,10 @@ export function registerCampaignRoutes(app) {
     requireUlid(campaignId, "campaignId");
     const submission = validateBriefSubmission(parseBody(event));
 
-    let s3Key;
-    let bedrockInput;
-    if (submission.source_type === "chat") {
-      const transcript = conversationToTranscript(submission.conversation);
-      s3Key = await putBriefTranscript({ campaignId, body: transcript });
-      bedrockInput = { sourceType: "chat", text: transcript };
-    } else {
-      s3Key = `uploads/${campaignId}.pdf`;
-      let pdfBytes;
-      try {
-        pdfBytes = await getBriefObjectBytes(s3Key);
-      } catch (err) {
-        // The caller likely forgot to PUT the PDF before POSTing, or the
-        // upload URL expired. Surface as 400 with the cause.
-        logger.warn("Brief PDF not found in S3", { campaignId, error: err?.message });
-        throw new BadRequestError(
-          `No PDF found at ${s3Key}. Upload to the presigned URL first.`,
-        );
-      }
-      bedrockInput = { sourceType: "pdf", pdfBytes };
-    }
-
-    // Give the model what we already know about the campaign and the
-    // vendors in our system so it can avoid re-suggesting what's set and
-    // match the brief's vendor against an existing record rather than
-    // fabricating a new spelling. Both are best-effort: empty list /
-    // missing campaign just means the prompt has less context.
-    const [existingCampaign, vendorList] = await Promise.all([
-      findCampaign(campaignId),
-      listVendors({ tenantId }),
-    ]);
-    bedrockInput.existingCampaign = existingCampaign;
-    bedrockInput.vendors = (vendorList.items ?? []).map((v) => ({
-      vendorId: v.vendorId,
-      name: v.name,
-    }));
-
-    // Let exceptions propagate. We're inside withIdempotency, which caches
-    // *return values*, not thrown errors — returning a 502 here would pin
-    // every retry with the same Idempotency-Key to the stale failure for
-    // the full TTL. Throwing lets http-handler map UpstreamError → 502 and
-    // the idempotency record gets cleaned up so the next retry re-runs.
-    const toolInput = await summarizeBrief(bedrockInput);
-    const { summary, suggested_campaign } = toolInput;
-    const warnings = Array.isArray(toolInput.warnings) ? [...toolInput.warnings] : [];
-
-    await saveBriefForCampaign({
+    const { summary, suggested_campaign, warnings } = await attachBrief({
       campaignId,
-      sourceType: submission.source_type,
-      s3Key,
-      summary,
-      suggestedCampaign: suggested_campaign,
-      warnings,
+      tenantId,
+      submission,
     });
 
     return jsonResponse(201, {
@@ -312,33 +238,7 @@ export function registerCampaignRoutes(app) {
     await assertCampaignOwned(campaignId, tenantId);
     requireUlid(campaignId, "campaignId");
 
-    const draft = await getDraftForCampaign(campaignId);
-    if (!draft) {
-      throw new NotFoundError("Draft", campaignId);
-    }
-    if (!draft.docId) {
-      throw new BadRequestError("Draft review currently supports Google Docs links only.");
-    }
-
-    const brief = await getBriefForCampaign(campaignId);
-    if (!brief) {
-      throw new BadRequestError("Attach a brief to this campaign before reviewing its draft.");
-    }
-
-    // Fetch + Bedrock errors propagate (BadRequestError / UpstreamError).
-    // As with the brief flow, throwing lets withIdempotency drop the
-    // record so a retry re-runs rather than pinning the failure.
-    const draftText = await fetchGoogleDocText(draft.docId);
-    const review = await reviewDraft({ brief, draftText });
-    const updated = await saveDraftReview(campaignId, review);
-
-    logger.info("Draft reviewed", { campaignId, verdict: review?.verdict });
+    const updated = await reviewCampaignDraft(campaignId);
     return jsonResponse(201, formatDraft(updated));
   }));
-}
-
-function requireUlid(value, field) {
-  if (!value || !ULID_RE.test(value)) {
-    throw new BadRequestError(`${field} must be a ULID`);
-  }
 }
