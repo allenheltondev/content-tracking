@@ -1,7 +1,4 @@
-import {
-  ConditionalCheckFailedException,
-  TransactionCanceledException,
-} from "@aws-sdk/client-dynamodb";
+import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import {
   DeleteCommand,
   GetCommand,
@@ -221,12 +218,4 @@ export async function listCampaignsForVendor(vendorId, tenantId) {
     ExpressionAttributeValues: { ":pk": `VENDOR#${vendorId}`, ":prefix": "CAMPAIGN#" },
   }));
   return result.Items ?? [];
-}
-
-// Surfaces TransactionCanceledException reasons so callers can handle
-// individual condition failures (e.g., vendor disappeared between the
-// existence check and the transaction).
-export function isVendorTransactionCancelled(err) {
-  if (err instanceof TransactionCanceledException) return true;
-  return err?.name === "TransactionCanceledException";
 }
