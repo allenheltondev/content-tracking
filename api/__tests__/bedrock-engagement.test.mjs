@@ -3,32 +3,22 @@ import { jest } from "@jest/globals";
 process.env.BEDROCK_MODEL_ID = "us.amazon.nova-pro-v1:0";
 process.env.BEDROCK_REGION = "us-east-1";
 
-const { BedrockRuntimeClient } = await import("@aws-sdk/client-bedrock-runtime");
+// recommendEngagement runs on the shared @readysetcloud/agent runtime; mock
+// runAgent so the suite verifies how it invokes it (prompt, input, schema,
+// sampling config) without loading Strands/Bedrock.
+jest.unstable_mockModule("@readysetcloud/agent", () => ({ runAgent: jest.fn() }));
+
+const { runAgent } = await import("@readysetcloud/agent");
 const { recommendEngagement } = await import("../services/bedrock/engagement.mjs");
 const { UpstreamError } = await import("../services/errors.mjs");
 
+const okRun = (output) => ({ output, text: JSON.stringify(output), structured: true, stopReason: "endTurn", invocationState: {} });
+
 describe("services/bedrock recommendEngagement", () => {
-  let mockSend;
+  beforeEach(() => jest.clearAllMocks());
 
-  beforeEach(() => {
-    mockSend = jest.fn();
-    BedrockRuntimeClient.prototype.send = mockSend;
-    jest.clearAllMocks();
-  });
-
-  const toolResponse = (input) => ({
-    stopReason: "tool_use",
-    output: {
-      message: {
-        role: "assistant",
-        content: [{ toolUse: { name: "record_engagement_recommendations", input } }],
-      },
-    },
-    usage: { inputTokens: 300, outputTokens: 120 },
-  });
-
-  test("forces the tool, caches the system prompt, and gives more token headroom", async () => {
-    mockSend.mockResolvedValueOnce(toolResponse({
+  test("forces the recommendations schema and gives more token headroom", async () => {
+    runAgent.mockResolvedValueOnce(okRun({
       summary: "Push it to dev communities.",
       recommendations: [
         { channel: "reddit r/webdev", action: "promote", priority: "high", rationale: "fits", suggested_message: "Try this" },
@@ -50,15 +40,30 @@ describe("services/bedrock recommendEngagement", () => {
     expect(result.summary).toBe("Push it to dev communities.");
     expect(result.recommendations[0].channel).toBe("reddit r/webdev");
 
-    const command = mockSend.mock.calls[0][0];
-    expect(command.input.toolConfig.toolChoice.tool.name).toBe("record_engagement_recommendations");
-    expect(command.input.inferenceConfig.maxTokens).toBe(3072);
-    expect(command.input.system).toEqual(
-      expect.arrayContaining([expect.objectContaining({ cachePoint: { type: "default" } })]),
-    );
+    const call = runAgent.mock.calls[0][0];
+    expect(call.systemPrompt).toContain("record_engagement_recommendations");
+    expect(call.temperature).toBe(0.5);
+    expect(call.maxTokens).toBe(3072);
+    expect(call.maxIterations).toBe(1);
+
+    // The zod schema enforces the recommendation shape: every entry needs a
+    // channel, a valid action/priority, a rationale, and a suggested message.
+    expect(call.outputSchema.safeParse({
+      summary: "s",
+      recommendations: [
+        { channel: "hn", action: "promote", priority: "medium", rationale: "r", suggested_message: "m" },
+      ],
+    }).success).toBe(true);
+    expect(call.outputSchema.safeParse({
+      summary: "s",
+      recommendations: [
+        { channel: "hn", action: "repost", priority: "medium", rationale: "r", suggested_message: "m" },
+      ],
+    }).success).toBe(false);
+    expect(call.outputSchema.safeParse({ summary: "s" }).success).toBe(false);
 
     // The distribution history the model must respect is folded into the prompt.
-    const userText = command.input.messages[0].content[0].text;
+    const userText = call.input;
     expect(userText).toContain("WORK ITEM");
     expect(userText).toContain("https://medium.com/p/abc");
     expect(userText).toContain("ALREADY CROSS-POSTED");
@@ -74,7 +79,7 @@ describe("services/bedrock recommendEngagement", () => {
   });
 
   test("notes when nothing has been distributed yet", async () => {
-    mockSend.mockResolvedValueOnce(toolResponse({ summary: "Fresh.", recommendations: [] }));
+    runAgent.mockResolvedValueOnce(okRun({ summary: "Fresh.", recommendations: [] }));
 
     await recommendEngagement({
       contentPost: { platform: "medium", url: "https://medium.com/p/x" },
@@ -85,7 +90,7 @@ describe("services/bedrock recommendEngagement", () => {
       socialPosts: [],
     });
 
-    const userText = mockSend.mock.calls[0][0].input.messages[0].content[0].text;
+    const userText = runAgent.mock.calls[0][0].input;
     expect(userText).toContain("(none yet)");
     expect(userText).toContain("(nothing yet)");
     expect(userText).not.toContain("USER GUIDANCE");
@@ -94,7 +99,7 @@ describe("services/bedrock recommendEngagement", () => {
   });
 
   test("wraps Bedrock errors in UpstreamError", async () => {
-    mockSend.mockRejectedValueOnce(new Error("throttled"));
+    runAgent.mockRejectedValueOnce(new Error("throttled"));
     await expect(
       recommendEngagement({ contentPost: { url: "u" }, crossPostLinks: [], otherContentPosts: [], socialPosts: [] }),
     ).rejects.toThrow(UpstreamError);

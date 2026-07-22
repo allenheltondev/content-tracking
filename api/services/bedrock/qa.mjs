@@ -1,44 +1,31 @@
-import { invokeToolUse, streamConverseText } from "./client.mjs";
+import { z } from "zod";
+import { invokeStructured, streamConverseText } from "./client.mjs";
 
-// Grounded Q&A over the creator's own catalog: structured (forced-tool)
+// Grounded Q&A over the creator's own catalog: structured (schema-forced)
 // answers for the REST endpoints, plus a streaming variant for the live
 // "ask" experience.
 
-// Tool the model is forced to call when answering a question about the blog
-// catalog. Structured args keep the grounded answer, the sources it actually
-// used, and a self-assessed confidence cleanly separated.
-const RECORD_BLOG_ANSWER_TOOL = {
-  toolSpec: {
-    name: "record_blog_answer",
-    description:
-      "Record an answer to a question about the creator's blog catalog, grounded only in the provided excerpts.",
-    inputSchema: {
-      json: {
-        type: "object",
-        required: ["answer", "sources_used", "confidence"],
-        properties: {
-          answer: {
-            type: "string",
-            description:
-              "The answer, written for the creator, grounded ONLY in the provided source excerpts. If the excerpts don't contain the answer, say so plainly rather than guessing.",
-          },
-          sources_used: {
-            type: "array",
-            description:
-              "The [n] source numbers whose excerpts the answer actually draws on. Empty when no source was relevant.",
-            items: { type: "integer", minimum: 1 },
-          },
-          confidence: {
-            type: "string",
-            enum: ["high", "medium", "low"],
-            description:
-              "How well the excerpts support the answer: 'high' when they directly and fully answer it, 'low' when they barely touch it or don't.",
-          },
-        },
-      },
-    },
-  },
-};
+// Schema the model's answer is forced to conform to when answering a question
+// about the creator's blog catalog, grounded only in the provided excerpts.
+// Structured output keeps the grounded answer, the sources it actually used,
+// and a self-assessed confidence cleanly separated.
+const BLOG_ANSWER_SCHEMA = z.object({
+  answer: z
+    .string()
+    .describe(
+      "The answer, written for the creator, grounded ONLY in the provided source excerpts. If the excerpts don't contain the answer, say so plainly rather than guessing.",
+    ),
+  sources_used: z
+    .array(z.number().int().min(1))
+    .describe(
+      "The [n] source numbers whose excerpts the answer actually draws on. Empty when no source was relevant.",
+    ),
+  confidence: z
+    .enum(["high", "medium", "low"])
+    .describe(
+      "How well the excerpts support the answer: 'high' when they directly and fully answer it, 'low' when they barely touch it or don't.",
+    ),
+});
 
 const BLOG_QA_SYSTEM_PROMPT = `You are a research assistant for a content creator, answering questions about THEIR OWN past blog posts. You are given the question and a set of numbered excerpts retrieved from their catalog by semantic search.
 
@@ -61,14 +48,12 @@ export async function answerBlogQuestion({ question, chunks }) {
     })
     .join("\n\n");
 
-  const userContent = [{
-    text: `Question: ${question}\n\n=== SOURCE EXCERPTS (ranked by relevance) ===\n${sources}\n=== END EXCERPTS ===`,
-  }];
+  const input = `Question: ${question}\n\n=== SOURCE EXCERPTS (ranked by relevance) ===\n${sources}\n=== END EXCERPTS ===`;
 
-  return invokeToolUse({
+  return invokeStructured({
     system: BLOG_QA_SYSTEM_PROMPT,
-    userContent,
-    tool: RECORD_BLOG_ANSWER_TOOL,
+    input,
+    schema: BLOG_ANSWER_SCHEMA,
     // Grounded synthesis: a little headroom for phrasing, but kept low so the
     // model stays close to the source text.
     temperature: 0.2,
@@ -76,41 +61,27 @@ export async function answerBlogQuestion({ question, chunks }) {
   });
 }
 
-// Tool the model is forced to call when answering a question about the
-// content catalog. Same shape as record_blog_answer: the grounded answer, the
-// sources it actually used, and a self-assessed confidence, kept separate.
-const RECORD_CONTENT_ANSWER_TOOL = {
-  toolSpec: {
-    name: "record_content_answer",
-    description:
-      "Record an answer to a question about the creator's content catalog, grounded only in the provided excerpts.",
-    inputSchema: {
-      json: {
-        type: "object",
-        required: ["answer", "sources_used", "confidence"],
-        properties: {
-          answer: {
-            type: "string",
-            description:
-              "The answer, written for the creator, grounded ONLY in the provided source excerpts. If the excerpts don't contain the answer, say so plainly rather than guessing.",
-          },
-          sources_used: {
-            type: "array",
-            description:
-              "The [n] source numbers whose excerpts the answer actually draws on. Empty when no source was relevant.",
-            items: { type: "integer", minimum: 1 },
-          },
-          confidence: {
-            type: "string",
-            enum: ["high", "medium", "low"],
-            description:
-              "How well the excerpts support the answer: 'high' when they directly and fully answer it, 'low' when they barely touch it or don't.",
-          },
-        },
-      },
-    },
-  },
-};
+// Schema the model's answer is forced to conform to when answering a question
+// about the creator's content catalog, grounded only in the provided excerpts.
+// Same shape as the blog answer: the grounded answer, the sources it actually
+// used, and a self-assessed confidence, kept separate.
+const CONTENT_ANSWER_SCHEMA = z.object({
+  answer: z
+    .string()
+    .describe(
+      "The answer, written for the creator, grounded ONLY in the provided source excerpts. If the excerpts don't contain the answer, say so plainly rather than guessing.",
+    ),
+  sources_used: z
+    .array(z.number().int().min(1))
+    .describe(
+      "The [n] source numbers whose excerpts the answer actually draws on. Empty when no source was relevant.",
+    ),
+  confidence: z
+    .enum(["high", "medium", "low"])
+    .describe(
+      "How well the excerpts support the answer: 'high' when they directly and fully answer it, 'low' when they barely touch it or don't.",
+    ),
+});
 
 const CONTENT_QA_SYSTEM_PROMPT = `You are a research assistant for a content creator, answering questions about THEIR OWN past content. You are given the question and a set of numbered excerpts retrieved from their catalog by semantic search.
 
@@ -133,14 +104,12 @@ export async function answerContentQuestion({ question, chunks }) {
     })
     .join("\n\n");
 
-  const userContent = [{
-    text: `Question: ${question}\n\n=== SOURCE EXCERPTS (ranked by relevance) ===\n${sources}\n=== END EXCERPTS ===`,
-  }];
+  const input = `Question: ${question}\n\n=== SOURCE EXCERPTS (ranked by relevance) ===\n${sources}\n=== END EXCERPTS ===`;
 
-  return invokeToolUse({
+  return invokeStructured({
     system: CONTENT_QA_SYSTEM_PROMPT,
-    userContent,
-    tool: RECORD_CONTENT_ANSWER_TOOL,
+    input,
+    schema: CONTENT_ANSWER_SCHEMA,
     // Grounded synthesis: a little headroom for phrasing, but kept low so the
     // model stays close to the source text.
     temperature: 0.2,

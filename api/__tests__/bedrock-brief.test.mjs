@@ -3,6 +3,12 @@ import { jest } from "@jest/globals";
 process.env.BEDROCK_MODEL_ID = "us.amazon.nova-pro-v1:0";
 process.env.BEDROCK_REGION = "us-east-1";
 
+// reviewDraft runs on the shared @readysetcloud/agent runtime (mocked here);
+// summarizeBrief stays on the raw Converse tool-use path because it needs PDF
+// document blocks + prompt caching, so its tests keep the SDK send mock.
+jest.unstable_mockModule("@readysetcloud/agent", () => ({ runAgent: jest.fn() }));
+
+const { runAgent } = await import("@readysetcloud/agent");
 const { BedrockRuntimeClient } = await import("@aws-sdk/client-bedrock-runtime");
 const { summarizeBrief, reviewDraft } = await import("../services/bedrock/brief.mjs");
 const { UpstreamError } = await import("../services/errors.mjs");
@@ -156,32 +162,12 @@ describe("services/bedrock summarizeBrief", () => {
 });
 
 describe("services/bedrock reviewDraft", () => {
-  let mockSend;
+  beforeEach(() => jest.clearAllMocks());
 
-  beforeEach(() => {
-    mockSend = jest.fn();
-    BedrockRuntimeClient.prototype.send = mockSend;
-    jest.clearAllMocks();
-  });
+  const okRun = (output) => ({ output, text: JSON.stringify(output), structured: true, stopReason: "endTurn", invocationState: {} });
 
-  test("forces the record_draft_review tool and folds the brief into the prompt", async () => {
-    mockSend.mockResolvedValueOnce({
-      stopReason: "tool_use",
-      output: {
-        message: {
-          role: "assistant",
-          content: [
-            {
-              toolUse: {
-                name: "record_draft_review",
-                input: { verdict: "minor_revisions", summary: "Solid, small tweaks." },
-              },
-            },
-          ],
-        },
-      },
-      usage: { inputTokens: 200, outputTokens: 80 },
-    });
+  test("forces the draft-review schema and folds the brief into the prompt", async () => {
+    runAgent.mockResolvedValueOnce(okRun({ verdict: "minor_revisions", summary: "Solid, small tweaks." }));
 
     const review = await reviewDraft({
       brief: {
@@ -196,19 +182,31 @@ describe("services/bedrock reviewDraft", () => {
 
     expect(review.verdict).toBe("minor_revisions");
 
-    const command = mockSend.mock.calls[0][0];
-    expect(command.input.toolConfig.toolChoice.tool.name).toBe("record_draft_review");
-    expect(command.input.system).toEqual(
-      expect.arrayContaining([expect.objectContaining({ cachePoint: { type: "default" } })]),
-    );
+    const call = runAgent.mock.calls[0][0];
+    expect(call.systemPrompt).toContain("record_draft_review");
+    expect(call.temperature).toBe(0.3);
+    expect(call.maxTokens).toBe(2048);
+    expect(call.maxIterations).toBe(1);
 
-    const userText = command.input.messages[0].content[0].text;
+    // The zod schema closes the verdict enum, requires the summary, and
+    // requires severity + detail on every issue.
+    expect(call.outputSchema.safeParse({
+      verdict: "ready", summary: "s",
+      issues: [{ severity: "high", detail: "d", suggestion: "fix" }],
+      missing_requirements: ["cta"],
+    }).success).toBe(true);
+    expect(call.outputSchema.safeParse({ verdict: "publish_now", summary: "s" }).success).toBe(false);
+    expect(call.outputSchema.safeParse({
+      verdict: "ready", summary: "s", issues: [{ severity: "high" }],
+    }).success).toBe(false);
+
+    const userText = call.input;
     expect(userText).toContain("mention pricing");
     expect(userText).toContain("Here is my blog about Acme.");
   });
 
   test("wraps Bedrock errors in UpstreamError", async () => {
-    mockSend.mockRejectedValueOnce(new Error("throttled"));
+    runAgent.mockRejectedValueOnce(new Error("throttled"));
     await expect(reviewDraft({ brief: {}, draftText: "x" })).rejects.toThrow(UpstreamError);
   });
 });

@@ -1,4 +1,5 @@
-import { invokeToolUse } from "./client.mjs";
+import { z } from "zod";
+import { invokeStructured } from "./client.mjs";
 
 // ---------------------------------------------------------------------------
 // Content Radar: read what the creator's subscribed feeds are publishing right
@@ -7,88 +8,74 @@ import { invokeToolUse } from "./client.mjs";
 // feed items (cited by number) so ideas are anchored in the conversation
 // happening now, not invented.
 // ---------------------------------------------------------------------------
-const RECORD_CONTENT_ANGLES_TOOL = {
-  toolSpec: {
-    name: "record_content_angles",
-    description:
-      "Record content angles and topic ideas derived from what the creator's subscribed feeds are currently publishing, tailored to the creator's voice.",
-    inputSchema: {
-      json: {
-        type: "object",
-        required: ["summary", "angles"],
-        properties: {
-          summary: {
-            type: "string",
-            description:
-              "Two- to three-sentence read on what's being talked about across the feeds right now and where the strongest openings are for this creator.",
-          },
-          themes: {
-            type: "array",
-            description:
-              "The distinct themes surfacing across the feed items right now, strongest first. A theme groups related stories; aim for 2-5.",
-            items: {
-              type: "object",
-              required: ["theme"],
-              properties: {
-                theme: { type: "string", description: "Short name for the theme (a few words)." },
-                momentum: {
-                  type: "string",
-                  enum: ["surging", "steady", "emerging", "fading"],
-                  description: "How much energy this theme has across the feeds right now.",
-                },
-                why_it_fits: {
-                  type: "string",
-                  description:
-                    "Why this theme is (or isn't) a natural fit for this creator, given their voice and the topics they already build on.",
-                },
-              },
-            },
-          },
-          angles: {
-            type: "array",
-            description:
-              "Concrete content ideas the creator could publish, strongest first. Aim for 4-8 high-quality angles, each a fresh take rather than a rehash of a feed item.",
-            items: {
-              type: "object",
-              required: ["title", "angle", "rationale"],
-              properties: {
-                title: {
-                  type: "string",
-                  description: "A working headline for the piece, written the way this creator titles their work.",
-                },
-                angle: {
-                  type: "string",
-                  description:
-                    "The specific take or argument — what the creator would say that the feeds aren't already saying, and why it's theirs to make.",
-                },
-                format: {
-                  type: "string",
-                  description:
-                    "Suggested format/platform for this idea (e.g. blog, x thread, linkedin post, newsletter), matching where the creator publishes.",
-                },
-                rationale: {
-                  type: "string",
-                  description:
-                    "Why this angle lands now: what in the feeds makes it timely and how it extends the creator's existing topics.",
-                },
-                on_voice_note: {
-                  type: "string",
-                  description:
-                    "How to keep it on-voice — the tone, structure, or signature moves from this creator's style to apply.",
-                },
-                sources: {
-                  type: "array",
-                  description: "The [n] feed-item numbers this angle draws on. Empty when it's a net-new connection.",
-                  items: { type: "integer", minimum: 1 },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  },
-};
+
+// record_content_angles: Record content angles and topic ideas derived from
+// what the creator's subscribed feeds are currently publishing, tailored to
+// the creator's voice.
+const CONTENT_ANGLES_SCHEMA = z.object({
+  summary: z
+    .string()
+    .describe(
+      "Two- to three-sentence read on what's being talked about across the feeds right now and where the strongest openings are for this creator.",
+    ),
+  themes: z
+    .array(
+      z.object({
+        theme: z.string().describe("Short name for the theme (a few words)."),
+        momentum: z
+          .enum(["surging", "steady", "emerging", "fading"])
+          .optional()
+          .describe("How much energy this theme has across the feeds right now."),
+        why_it_fits: z
+          .string()
+          .optional()
+          .describe(
+            "Why this theme is (or isn't) a natural fit for this creator, given their voice and the topics they already build on.",
+          ),
+      }),
+    )
+    .optional()
+    .describe(
+      "The distinct themes surfacing across the feed items right now, strongest first. A theme groups related stories; aim for 2-5.",
+    ),
+  angles: z
+    .array(
+      z.object({
+        title: z
+          .string()
+          .describe("A working headline for the piece, written the way this creator titles their work."),
+        angle: z
+          .string()
+          .describe(
+            "The specific take or argument — what the creator would say that the feeds aren't already saying, and why it's theirs to make.",
+          ),
+        format: z
+          .string()
+          .optional()
+          .describe(
+            "Suggested format/platform for this idea (e.g. blog, x thread, linkedin post, newsletter), matching where the creator publishes.",
+          ),
+        rationale: z
+          .string()
+          .describe(
+            "Why this angle lands now: what in the feeds makes it timely and how it extends the creator's existing topics.",
+          ),
+        on_voice_note: z
+          .string()
+          .optional()
+          .describe(
+            "How to keep it on-voice — the tone, structure, or signature moves from this creator's style to apply.",
+          ),
+        sources: z
+          .array(z.number().int().min(1))
+          .optional()
+          .describe("The [n] feed-item numbers this angle draws on. Empty when it's a net-new connection."),
+      }),
+    )
+    .describe(
+      "Concrete content ideas the creator could publish, strongest first. Aim for 4-8 high-quality angles, each a fresh take rather than a rehash of a feed item.",
+    ),
+});
 
 const CONTENT_ANGLES_SYSTEM_PROMPT = `You are a content strategist for a specific solo creator. You are given (1) a snapshot of what the RSS/Atom feeds they follow are publishing right now, as a numbered list of items; (2) their learned writing voice — one or more plain-English voice "portraits" describing how they sound on each platform; and (3) the recent topics they've been building on (titles of their own recent work). Your job is to spot where the current conversation intersects with what this creator does, and propose content angles they could publish that authentically sound like them.
 
@@ -122,14 +109,12 @@ Rules:
 // steering. Returns { summary, themes?, angles }.
 export async function suggestContentAngles({ items, voicePortraits, recentTopics, interests, avoid, audience, platform, guidance }) {
   const contextBlock = formatContentAnglesContext({ items, voicePortraits, recentTopics, interests, avoid, audience, platform, guidance });
-  const userContent = [{
-    text: `Propose content angles from the current feed snapshot by calling the record_content_angles tool.\n\n${contextBlock}`,
-  }];
+  const input = `Propose content angles from the current feed snapshot by calling the record_content_angles tool.\n\n${contextBlock}`;
 
-  return invokeToolUse({
+  return invokeStructured({
     system: CONTENT_ANGLES_SYSTEM_PROMPT,
-    userContent,
-    tool: RECORD_CONTENT_ANGLES_TOOL,
+    input,
+    schema: CONTENT_ANGLES_SCHEMA,
     // Ideation is generative — give it warmth and room, like the engagement
     // and compose pipelines.
     temperature: 0.6,
