@@ -21,6 +21,7 @@ import DeleteVendorModal from '../components/DeleteVendorModal';
 import Modal from '../components/Modal';
 import CreateCampaignForm from '../components/CreateCampaignForm';
 import ReportLinkDialog from '../components/ReportLinkDialog';
+import { formatDateRange, formatMoney } from '../lib/format';
 
 const WIDE_START = '1900-01-01';
 const WIDE_END = '2999-12-31';
@@ -399,22 +400,4 @@ function extractCampaignCount(err: ApiError): number | null {
   const message = typeof err.message === 'string' ? err.message : '';
   const match = message.match(/(\d+)\s+linked campaign/i);
   return match ? Number(match[1]) : null;
-}
-
-function formatMoney(amount: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: 'currency',
-      currency,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  } catch {
-    return `${amount} ${currency}`;
-  }
-}
-
-function formatDateRange(startDate: string | null, endDate: string | null): string {
-  if (!startDate && !endDate) return '-';
-  if (startDate && endDate) return `${startDate} → ${endDate}`;
-  return startDate ?? endDate ?? '-';
 }

@@ -3,7 +3,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { ApiError, type ApiFetch } from '../auth/useApiFetch';
 import { generateCampaignReport, listCampaignReports } from '../api/campaigns';
 import type { CampaignReportListItem, CampaignReportResponse } from '../api/types';
-import ReportLinkDialog from './ReportLinkDialog';
+import ReportLinkDialog from './ReportLinkDialog';
+import { formatDate } from '../lib/format';
 
 // History of generated reports for a campaign. Each row is a frozen snapshot
 // with the date it was taken and the date its share link expires. Generating
@@ -143,9 +144,4 @@ export default function CampaignReportsTab({
 function formatDateTime(iso: string): string {
   const d = new Date(iso);
   return isNaN(d.getTime()) ? iso : d.toLocaleString();
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return isNaN(d.getTime()) ? iso : d.toLocaleDateString();
 }

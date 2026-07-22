@@ -10,23 +10,13 @@ import {
   YAxis,
 } from 'recharts';
 import { useApiFetch } from '../auth/useApiFetch';
-import { getInsights } from '../api/insights';
+import { getInsights } from '../api/insights';
+import { fmtInt, fmtPercent } from '../lib/format';
 import type {
   InsightsResponse,
   InsightsTimeseriesPoint,
   InsightsTopPost,
 } from '../api/types';
-
-const intFmt = new Intl.NumberFormat('en-US');
-
-function fmtInt(n: number | null | undefined): string {
-  return typeof n === 'number' && isFinite(n) ? intFmt.format(n) : '—';
-}
-
-function fmtPercent(rate: number | null | undefined): string {
-  if (typeof rate !== 'number' || !isFinite(rate)) return '—';
-  return `${(rate * 100).toFixed(1)}%`;
-}
 
 // Signed percentage for period-over-period deltas. Null renders as a neutral
 // dash (no prior period to compare against).

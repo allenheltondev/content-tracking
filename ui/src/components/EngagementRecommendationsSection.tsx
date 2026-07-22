@@ -4,7 +4,8 @@ import {
   generateEngagementRecommendation,
   getEngagementRecommendation,
 } from '../api/recommendations';
-import { ApiError, type ApiFetch } from '../auth/useApiFetch';
+import { ApiError, type ApiFetch } from '../auth/useApiFetch';
+import { formatTimestamp, truncate } from '../lib/format';
 import type {
   ContentPost,
   EngagementRecommendation,
@@ -251,13 +252,4 @@ function priorityClass(priority: RecommendationPriority): string {
     default:
       return 'bg-muted text-muted-foreground';
   }
-}
-
-function formatTimestamp(iso: string): string {
-  const d = new Date(iso);
-  return isNaN(d.getTime()) ? iso : d.toLocaleString();
-}
-
-function truncate(s: string, n: number): string {
-  return s.length <= n ? s : `${s.slice(0, n - 1)}…`;
 }
