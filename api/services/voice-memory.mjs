@@ -1,6 +1,6 @@
 import { embedText } from "./embeddings.mjs";
 import { putVoiceSample, deleteVoiceSample } from "./voice-vectors.mjs";
-import { reflectVoiceProfile } from "./bedrock.mjs";
+import { reflectVoiceProfile } from "./bedrock/voice.mjs";
 import { logger } from "./logger.mjs";
 import { NotFoundError } from "./errors.mjs";
 import { isEligibleSample, selectRecencyWeighted, voiceHalfLifeDays } from "./voice-recency.mjs";

@@ -6,7 +6,7 @@ import { logger } from "./logger.mjs";
 import { UpstreamError } from "./errors.mjs";
 
 // Text embeddings via Amazon Titan Text Embeddings V2 on Bedrock. Kept
-// separate from services/bedrock.mjs (which owns the Converse chat pipeline)
+// separate from services/bedrock/ (which owns the Converse chat pipeline)
 // because embeddings use the InvokeModel API with a model-specific request
 // body, a different model id, and a different env var — conflating them would
 // muddy both. Billed through Bedrock (covered by AWS credits); the API
@@ -23,7 +23,7 @@ const bedrock = new BedrockRuntimeClient({ region: BEDROCK_REGION });
 
 // Embeds a single string and returns the embedding as number[]. `normalize`
 // is on so cosine distance in the vector index behaves as expected. Throws
-// UpstreamError on any Bedrock failure (matching services/bedrock.mjs) so the
+// UpstreamError on any Bedrock failure (matching services/bedrock/) so the
 // vectorizer can let the record retry.
 export async function embedText(text, { dimensions = EMBEDDING_DIMENSIONS } = {}) {
   if (typeof text !== "string" || text.trim().length === 0) {

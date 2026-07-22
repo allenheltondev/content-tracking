@@ -4,7 +4,7 @@ import { withIdempotency } from "../services/idempotency.mjs";
 import { emptyResponse, jsonResponse, parseBody } from "../services/http-handler.mjs";
 import { embedText } from "../services/embeddings.mjs";
 import { queryVoiceSamples } from "../services/voice-vectors.mjs";
-import { composeVoicePost, assessVoiceMatch } from "../services/bedrock.mjs";
+import { composeVoicePost, assessVoiceMatch } from "../services/bedrock/voice.mjs";
 import {
   reflectAfterCuration,
   removeSampleAndSync,

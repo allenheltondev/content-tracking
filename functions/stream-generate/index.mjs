@@ -11,7 +11,8 @@ import {
   rankVoiceSamples,
 } from "../../api/services/voice-recency.mjs";
 import { getVoiceProfile } from "../../api/domain/voice.mjs";
-import { streamVoicePost, streamBlogAnswer } from "../../api/services/bedrock-stream.mjs";
+import { streamVoicePost } from "../../api/services/bedrock/voice.mjs";
+import { streamBlogAnswer } from "../../api/services/bedrock/qa.mjs";
 import { validateComposeRequest } from "../../api/validation/voice.mjs";
 import { validateBlogQuestion } from "../../api/validation/blog.mjs";
 import { logger } from "../../api/services/logger.mjs";

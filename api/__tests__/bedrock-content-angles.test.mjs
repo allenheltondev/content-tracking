@@ -4,7 +4,7 @@ process.env.BEDROCK_MODEL_ID = "us.amazon.nova-pro-v1:0";
 process.env.BEDROCK_REGION = "us-east-1";
 
 const { BedrockRuntimeClient } = await import("@aws-sdk/client-bedrock-runtime");
-const { suggestContentAngles } = await import("../services/bedrock.mjs");
+const { suggestContentAngles } = await import("../services/bedrock/angles.mjs");
 
 describe("services/bedrock suggestContentAngles", () => {
   let mockSend;

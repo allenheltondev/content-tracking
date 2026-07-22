@@ -6,7 +6,7 @@ process.env.ENVIRONMENT = "staging";
 // Mock every collaborator so the route logic is exercised in isolation: the
 // Bedrock call, the campaign read that gathers distribution context, and the
 // recommendation store.
-jest.unstable_mockModule("../services/bedrock.mjs", () => ({
+jest.unstable_mockModule("../services/bedrock/engagement.mjs", () => ({
   recommendEngagement: jest.fn(),
 }));
 jest.unstable_mockModule("../services/content-fetch.mjs", () => ({
@@ -24,7 +24,7 @@ jest.unstable_mockModule("../domain/engagement-recommendation.mjs", () => ({
   getEngagementRecommendation: jest.fn(),
 }));
 
-const { recommendEngagement } = await import("../services/bedrock.mjs");
+const { recommendEngagement } = await import("../services/bedrock/engagement.mjs");
 const { fetchContentText } = await import("../services/content-fetch.mjs");
 const { getCampaignWithLinks, assertCampaignOwned } = await import("../domain/campaign.mjs");
 const { getProfileSettings } = await import("../domain/profile.mjs");

@@ -8,7 +8,7 @@ process.env.TABLE_NAME = "test-booked";
 // exercised in isolation.
 jest.unstable_mockModule("../services/idempotency.mjs", () => ({ withIdempotency: (fn) => fn }));
 jest.unstable_mockModule("../services/activity.mjs", () => ({ trackActivity: jest.fn(), ACTIVITY_SERVICE: "booked" }));
-jest.unstable_mockModule("../services/bedrock.mjs", () => ({ reviewDraft: jest.fn(), summarizeBrief: jest.fn() }));
+jest.unstable_mockModule("../services/bedrock/brief.mjs", () => ({ reviewDraft: jest.fn(), summarizeBrief: jest.fn() }));
 jest.unstable_mockModule("../services/google-docs.mjs", () => ({ extractGoogleDocId: jest.fn(), fetchGoogleDocText: jest.fn() }));
 jest.unstable_mockModule("../services/s3.mjs", () => ({
   getBriefObjectBytes: jest.fn(),
