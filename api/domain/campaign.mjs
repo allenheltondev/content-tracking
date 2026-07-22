@@ -216,6 +216,25 @@ function gsi1Cursor(item) {
   return { pk: item.pk, sk: item.sk, gsi1pk: item.gsi1pk, gsi1sk: item.gsi1sk };
 }
 
+// Drains the paginated campaign list into a flat array, every status
+// included. Used by the account-wide aggregates (insights, media kit)
+// that span all campaigns. Memory-unbounded by design at personal scale;
+// revisit if the campaign count ever makes a full materialization risky.
+export async function listAllCampaigns(tenantId) {
+  const all = [];
+  let exclusiveStartKey;
+  do {
+    const { items, lastEvaluatedKey } = await listCampaigns({
+      limit: 500,
+      exclusiveStartKey,
+      tenantId,
+    });
+    for (const item of items) all.push(item);
+    exclusiveStartKey = lastEvaluatedKey;
+  } while (exclusiveStartKey);
+  return all;
+}
+
 // Campaigns at a given status for a tenant. Pages the GSI1 "CAMPAIGNS"
 // partition with a status + tenant filter; the data set is personal-scale so
 // we fully consume it.

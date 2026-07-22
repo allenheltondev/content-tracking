@@ -4,7 +4,7 @@ process.env.TABLE_NAME = "test-booked";
 
 // Mock every collaborator so the aggregation logic is exercised in isolation.
 jest.unstable_mockModule("../domain/campaign.mjs", () => ({
-  listCampaigns: jest.fn(),
+  listAllCampaigns: jest.fn(),
 }));
 jest.unstable_mockModule("../domain/social-post.mjs", () => ({
   listSocialPosts: jest.fn(),
@@ -19,7 +19,7 @@ jest.unstable_mockModule("../services/profile-assets.mjs", () => ({
   signProfileAssetUrl: jest.fn(),
 }));
 
-const { listCampaigns } = await import("../domain/campaign.mjs");
+const { listAllCampaigns } = await import("../domain/campaign.mjs");
 const { listSocialPosts } = await import("../domain/social-post.mjs");
 const { listContentPosts } = await import("../domain/content-post.mjs");
 const { getProfileSettings } = await import("../domain/profile.mjs");
@@ -59,13 +59,10 @@ describe("buildMediaKitSnapshot", () => {
 
   test("aggregates followers, reach, engagement, and campaign counts", async () => {
     getProfileSettings.mockResolvedValue(FULL_PROFILE);
-    listCampaigns.mockResolvedValue({
-      items: [
+    listAllCampaigns.mockResolvedValue([
         { campaignId: "C1", status: "completed" },
         { campaignId: "C2", status: "active" },
-      ],
-      lastEvaluatedKey: undefined,
-    });
+      ]);
     listSocialPosts.mockImplementation((id) =>
       Promise.resolve(
         id === "C1"
@@ -97,7 +94,7 @@ describe("buildMediaKitSnapshot", () => {
 
   test("maps identity and signs avatar/logo for the requested ttl", async () => {
     getProfileSettings.mockResolvedValue(FULL_PROFILE);
-    listCampaigns.mockResolvedValue({ items: [], lastEvaluatedKey: undefined });
+    listAllCampaigns.mockResolvedValue([]);
     listSocialPosts.mockResolvedValue([]);
     listContentPosts.mockResolvedValue([]);
 
@@ -118,24 +115,25 @@ describe("buildMediaKitSnapshot", () => {
     expect(snap.featuredCollaborations).toHaveLength(1);
   });
 
-  test("paginates through every campaign page", async () => {
+  test("aggregates across every campaign in the list", async () => {
     getProfileSettings.mockResolvedValue({});
-    listCampaigns
-      .mockResolvedValueOnce({ items: [{ campaignId: "C1", status: "completed" }], lastEvaluatedKey: { k: 1 } })
-      .mockResolvedValueOnce({ items: [{ campaignId: "C2", status: "completed" }], lastEvaluatedKey: undefined });
+    listAllCampaigns.mockResolvedValue([
+      { campaignId: "C1", status: "completed" },
+      { campaignId: "C2", status: "completed" },
+    ]);
     listSocialPosts.mockResolvedValue([]);
     listContentPosts.mockResolvedValue([]);
 
     const snap = await buildMediaKitSnapshot();
 
-    expect(listCampaigns).toHaveBeenCalledTimes(2);
+    expect(listSocialPosts).toHaveBeenCalledTimes(2);
     expect(snap.stats.campaignsTotal).toBe(2);
     expect(snap.stats.campaignsCompleted).toBe(2);
   });
 
   test("empty profile yields zeroed stats and null engagement rate", async () => {
     getProfileSettings.mockResolvedValue(null);
-    listCampaigns.mockResolvedValue({ items: [], lastEvaluatedKey: undefined });
+    listAllCampaigns.mockResolvedValue([]);
     listSocialPosts.mockResolvedValue([]);
     listContentPosts.mockResolvedValue([]);
 
@@ -181,7 +179,7 @@ describe("buildMediaKitSnapshot", () => {
 
   test("a signing failure degrades the asset url to null", async () => {
     getProfileSettings.mockResolvedValue({ avatarKey: "profile/avatar-01HZX7M6Z5GQK6T7Q8N9R0P1V2.png" });
-    listCampaigns.mockResolvedValue({ items: [], lastEvaluatedKey: undefined });
+    listAllCampaigns.mockResolvedValue([]);
     listSocialPosts.mockResolvedValue([]);
     listContentPosts.mockResolvedValue([]);
     signProfileAssetUrl.mockImplementation(() => {

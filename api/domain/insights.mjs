@@ -1,4 +1,5 @@
-import { listCampaigns } from "./campaign.mjs";
+import { runInBatches } from "../services/concurrency.mjs";
+import { listAllCampaigns } from "./campaign.mjs";
 import { listSocialPosts, listSocialPostSnapshots } from "./social-post.mjs";
 import { listContentPosts, listContentPostSnapshots } from "./content-post.mjs";
 import { splitPostMetrics } from "./post-metrics.mjs";
@@ -52,8 +53,10 @@ export async function buildInsightsSummary({ startDate, endDate, topLimit = 10, 
   const campaignName = new Map(campaigns.map((c) => [c.campaignId, c.name]));
 
   // Fan out to every tracked post, then to each post's snapshot history.
-  const postBatches = await Promise.all(
-    campaigns.map(async (c) => {
+  // Batched so a large account fires a bounded number of concurrent
+  // queries instead of 2×campaigns + posts all at once.
+  const postBatches = await runInBatches(
+    campaigns.map((c) => async () => {
       const [social, content] = await Promise.all([
         listSocialPosts(c.campaignId),
         listContentPosts(c.campaignId),
@@ -68,8 +71,8 @@ export async function buildInsightsSummary({ startDate, endDate, topLimit = 10, 
 
   // For each post, load snapshots and normalize to a sorted series of
   // cumulative levels: [{ date, views, impressions, engagements }].
-  const series = await Promise.all(
-    posts.map(async ({ post, kind }) => {
+  const series = await runInBatches(
+    posts.map(({ post, kind }) => async () => {
       const rows =
         kind === "social"
           ? await listSocialPostSnapshots(post.campaignId, post.postId)
@@ -234,22 +237,4 @@ function sumTotals(rows) {
 function pctChange(current, prior) {
   if (typeof prior !== "number" || prior <= 0) return null;
   return (current - prior) / prior;
-}
-
-// Drains the paginated campaign list into a flat array. Insights span every
-// campaign regardless of status. Personal-scale, so fully consuming the
-// pages is fine. (Mirrors the media-kit helper.)
-async function listAllCampaigns(tenantId) {
-  const all = [];
-  let exclusiveStartKey;
-  do {
-    const { items, lastEvaluatedKey } = await listCampaigns({
-      limit: 500,
-      exclusiveStartKey,
-      tenantId,
-    });
-    for (const item of items) all.push(item);
-    exclusiveStartKey = lastEvaluatedKey;
-  } while (exclusiveStartKey);
-  return all;
 }
