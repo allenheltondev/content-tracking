@@ -64,6 +64,11 @@ export function fmtPercent(rate: number | null | undefined): string {
   return `${(rate * 100).toFixed(1)}%`;
 }
 
+// 0.42 -> "42%". Whole-number variant used by the campaign analytics tiles.
+export function fmtPercentWhole(rate: number): string {
+  return `${Math.round(rate * 100)}%`;
+}
+
 export function truncate(s: string, n: number): string {
   return s.length <= n ? s : `${s.slice(0, n - 1)}…`;
 }
