@@ -16,7 +16,7 @@ jest.unstable_mockModule("../services/media-kit-renderer.mjs", () => ({
 jest.unstable_mockModule("../services/media-kit-store.mjs", () => ({
   putMediaKitHtml: jest.fn(),
 }));
-jest.unstable_mockModule("../services/vendor-report-store.mjs", () => ({
+jest.unstable_mockModule("../services/report-signing.mjs", () => ({
   signReportUrl: jest.fn(),
   SIGNED_URL_TTL_SECONDS: 7 * 24 * 60 * 60,
 }));
@@ -38,7 +38,7 @@ jest.unstable_mockModule("../services/identity.mjs", () => ({
 const { buildMediaKitSnapshot } = await import("../domain/media-kit.mjs");
 const { renderMediaKitHtml } = await import("../services/media-kit-renderer.mjs");
 const { putMediaKitHtml } = await import("../services/media-kit-store.mjs");
-const { signReportUrl } = await import("../services/vendor-report-store.mjs");
+const { signReportUrl } = await import("../services/report-signing.mjs");
 const { saveMediaKitRecord, listMediaKitRecords } = await import("../domain/media-kit-record.mjs");
 const { reportObjectExpiresAtMs } = await import("../domain/vendor-report-record.mjs");
 const { mintShortLink } = await import("../services/newsletter-service.mjs");

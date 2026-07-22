@@ -1,4 +1,5 @@
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { s3 } from "./s3.mjs";
 
 // Storage glue for media-kit HTML artifacts. Like the campaign and vendor
 // reports, rendered media kits are written to the private reports bucket and
@@ -6,11 +7,9 @@ import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 // bucket/distribution but live under a distinct `reports/media-kit/...` key
 // prefix.
 //
-// Signing is NOT reimplemented here: services/vendor-report-store.mjs
-// exports a generic `signReportUrl(key)` (the signing scheme is keyed off
-// the object key, not the resource) which the route reuses.
-
-const s3 = new S3Client({});
+// Signing is NOT reimplemented here: services/report-signing.mjs exports
+// the generic `signReportUrl(key)` (keyed off the object key, not the
+// resource) which the route reuses.
 
 function mediaKitKey(reportId) {
   return `reports/media-kit/${reportId}.html`;

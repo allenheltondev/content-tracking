@@ -1,4 +1,5 @@
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { s3 } from "./s3.mjs";
 
 // Storage glue for campaign report HTML artifacts. Like vendor reports,
 // rendered campaign reports are written to the private reports bucket and
@@ -6,11 +7,9 @@ import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 // bucket/distribution as vendor reports but live under a distinct
 // `reports/campaigns/...` key prefix.
 //
-// Signing is NOT reimplemented here: services/vendor-report-store.mjs
-// exports a generic `signReportUrl(key)` (the signing scheme is keyed off
-// the object key, not the vendor) which the routes reuse for both kinds.
-
-const s3 = new S3Client({});
+// Signing is NOT reimplemented here: services/report-signing.mjs exports
+// the generic `signReportUrl(key)` (keyed off the object key, not the
+// resource) which the routes reuse for every report family.
 
 function campaignReportKey(campaignId, reportId) {
   return `reports/campaigns/${campaignId}/${reportId}.html`;

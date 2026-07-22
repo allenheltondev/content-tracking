@@ -5,13 +5,14 @@ import { buildVendorReportSnapshot } from "../domain/vendor-report.mjs";
 import { assertVendorOwned } from "../domain/vendor.mjs";
 import { requireTenantId } from "../services/identity.mjs";
 import { renderVendorReportHtml } from "../services/report-renderer.mjs";
-import { putReportHtml, signReportUrl, SIGNED_URL_TTL_SECONDS } from "../services/vendor-report-store.mjs";
+import { putReportHtml } from "../services/vendor-report-store.mjs";
+import { signReportUrl, SIGNED_URL_TTL_SECONDS } from "../services/report-signing.mjs";
 import {
   listReportRecords,
   reportObjectExpiresAtMs,
   saveReportRecord,
 } from "../domain/vendor-report-record.mjs";
-import { VENDOR_ID_RE } from "../validation/vendor.mjs";
+import { VENDOR_ID_RE } from "../validation/vendor.mjs";
 import { ISO_DATE_RE } from "../validation/common.mjs";
 
 

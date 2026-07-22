@@ -2,8 +2,8 @@ import {
   CopyObjectCommand,
   DeleteObjectCommand,
   PutObjectCommand,
-  S3Client,
 } from "@aws-sdk/client-s3";
+import { s3 } from "./s3.mjs";
 
 // Storage glue for the PUBLIC media kit (the brand-facing teaser published
 // to a stable vanity URL). Unlike the signed campaign/vendor reports, these
@@ -13,8 +13,6 @@ import {
 //
 // Keeping public content in its own bucket means a config slip here can
 // never expose the private, signed-URL-only sponsor reports.
-
-const s3 = new S3Client({});
 
 const PUBLIC_BUCKET = process.env.PUBLIC_MEDIA_KIT_BUCKET;
 const PUBLIC_DOMAIN = process.env.PUBLIC_MEDIA_KIT_DOMAIN;

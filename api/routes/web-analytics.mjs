@@ -3,14 +3,11 @@ import { jsonResponse } from "../services/http-handler.mjs";
 import { logger } from "../services/logger.mjs";
 import { findCampaign, assertCampaignOwned } from "../domain/campaign.mjs";
 import { requireTenantId } from "../services/identity.mjs";
-import { getProfileSettings } from "../domain/profile.mjs";
-import { readCruxApiKey, readGa4ServiceAccount } from "../services/ga-secrets.mjs";
-import { fetchPageMetrics } from "../services/google-analytics.mjs";
+import { readCruxApiKey } from "../services/ga-secrets.mjs";
+import { defaultGa4Range, loadGa4Section } from "../services/ga4.mjs";
 import { fetchWebVitals } from "../services/core-web-vitals.mjs";
-import { loadCampaignYoutube } from "../services/campaign-youtube.mjs";
+import { loadCampaignYoutube } from "../services/campaign-youtube.mjs";
 import { ISO_DATE_RE } from "../validation/common.mjs";
-
-const DEFAULT_RANGE_DAYS = 28;
 
 // GET /campaigns/:campaignId/web-analytics
 //
@@ -59,15 +56,9 @@ export function registerWebAnalyticsRoutes(app) {
 
     const { startDate, endDate } = resolveRange(event.queryStringParameters ?? {});
 
-    const [settings, serviceAccount, cruxKey] = await Promise.all([
-      getProfileSettings(),
-      readGa4ServiceAccount(),
-      readCruxApiKey(),
-    ]);
-
     const [ga4, coreWebVitals] = await Promise.all([
-      loadGa4({ settings, serviceAccount, propertyId: settings?.ga4PropertyId, pagePath, startDate, endDate }),
-      loadCoreWebVitals({ cruxKey, url: campaign.blogUrl }),
+      loadGa4Section({ pagePath, startDate, endDate }),
+      loadCoreWebVitals({ url: campaign.blogUrl }),
     ]);
 
     return jsonResponse(200, {
@@ -82,20 +73,8 @@ export function registerWebAnalyticsRoutes(app) {
   });
 }
 
-async function loadGa4({ serviceAccount, propertyId, pagePath, startDate, endDate }) {
-  if (!propertyId || !serviceAccount) {
-    return { configured: false, error: null };
-  }
-  try {
-    const report = await fetchPageMetrics({ serviceAccount, propertyId, pagePath, startDate, endDate });
-    return { configured: true, error: null, ...report };
-  } catch (err) {
-    logger.warn("GA4 fetch failed", { error: err?.message });
-    return { configured: true, error: err?.message ?? "unknown" };
-  }
-}
-
-async function loadCoreWebVitals({ cruxKey, url }) {
+async function loadCoreWebVitals({ url }) {
+  const cruxKey = await readCruxApiKey();
   if (!cruxKey) {
     return { configured: false, error: null };
   }
@@ -109,10 +88,9 @@ async function loadCoreWebVitals({ cruxKey, url }) {
 }
 
 function resolveRange(qs) {
-  const end = new Date();
-  const start = new Date(end.getTime() - (DEFAULT_RANGE_DAYS - 1) * 86400000);
-  const startDate = qs.startDate ?? toIsoDate(start);
-  const endDate = qs.endDate ?? toIsoDate(end);
+  const dflt = defaultGa4Range();
+  const startDate = qs.startDate ?? dflt.startDate;
+  const endDate = qs.endDate ?? dflt.endDate;
 
   if (!ISO_DATE_RE.test(startDate) || !ISO_DATE_RE.test(endDate)) {
     throw new BadRequestError("startDate and endDate must be YYYY-MM-DD");
@@ -121,8 +99,4 @@ function resolveRange(qs) {
     throw new BadRequestError("startDate must not be after endDate");
   }
   return { startDate, endDate };
-}
-
-function toIsoDate(date) {
-  return date.toISOString().slice(0, 10);
 }

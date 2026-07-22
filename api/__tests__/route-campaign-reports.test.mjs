@@ -16,7 +16,7 @@ jest.unstable_mockModule("../services/campaign-report-renderer.mjs", () => ({
 jest.unstable_mockModule("../services/campaign-report-store.mjs", () => ({
   putCampaignReportHtml: jest.fn(),
 }));
-jest.unstable_mockModule("../services/vendor-report-store.mjs", () => ({
+jest.unstable_mockModule("../services/report-signing.mjs", () => ({
   signReportUrl: jest.fn(),
   SIGNED_URL_TTL_SECONDS: 7 * 24 * 60 * 60,
 }));
@@ -42,7 +42,7 @@ jest.unstable_mockModule("../domain/campaign.mjs", () => ({
 const { buildCampaignReportSnapshot } = await import("../domain/campaign-report.mjs");
 const { renderCampaignReportHtml } = await import("../services/campaign-report-renderer.mjs");
 const { putCampaignReportHtml } = await import("../services/campaign-report-store.mjs");
-const { signReportUrl } = await import("../services/vendor-report-store.mjs");
+const { signReportUrl } = await import("../services/report-signing.mjs");
 const { saveCampaignReportRecord, listCampaignReportRecords } = await import(
   "../domain/campaign-report-record.mjs"
 );
