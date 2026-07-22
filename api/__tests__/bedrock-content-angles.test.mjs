@@ -3,25 +3,21 @@ import { jest } from "@jest/globals";
 process.env.BEDROCK_MODEL_ID = "us.amazon.nova-pro-v1:0";
 process.env.BEDROCK_REGION = "us-east-1";
 
-const { BedrockRuntimeClient } = await import("@aws-sdk/client-bedrock-runtime");
+// suggestContentAngles runs on the shared @readysetcloud/agent runtime; mock
+// runAgent so the suite verifies how it invokes it (prompt, input, schema,
+// sampling config) without loading Strands/Bedrock.
+jest.unstable_mockModule("@readysetcloud/agent", () => ({ runAgent: jest.fn() }));
+
+const { runAgent } = await import("@readysetcloud/agent");
 const { suggestContentAngles } = await import("../services/bedrock/angles.mjs");
 
+const okRun = (output) => ({ output, text: JSON.stringify(output), structured: true, stopReason: "endTurn", invocationState: {} });
+
 describe("services/bedrock suggestContentAngles", () => {
-  let mockSend;
-  beforeEach(() => {
-    mockSend = jest.fn();
-    BedrockRuntimeClient.prototype.send = mockSend;
-    jest.clearAllMocks();
-  });
+  beforeEach(() => jest.clearAllMocks());
 
-  const toolResponse = (input) => ({
-    stopReason: "tool_use",
-    output: { message: { role: "assistant", content: [{ toolUse: { name: "record_content_angles", input } }] } },
-    usage: { inputTokens: 100, outputTokens: 50 },
-  });
-
-  test("forces the record_content_angles tool and returns its input", async () => {
-    mockSend.mockResolvedValueOnce(toolResponse({
+  test("forces the content-angles schema and returns the structured output", async () => {
+    runAgent.mockResolvedValueOnce(okRun({
       summary: "AI agents dominate the feeds.",
       themes: [{ theme: "agents", momentum: "surging" }],
       angles: [{ title: "Why agents fail", angle: "take", rationale: "timely", sources: [1] }],
@@ -43,15 +39,31 @@ describe("services/bedrock suggestContentAngles", () => {
     expect(result.summary).toBe("AI agents dominate the feeds.");
     expect(result.angles[0].title).toBe("Why agents fail");
 
-    const command = mockSend.mock.calls[0][0];
-    expect(command.input.toolConfig.toolChoice.tool.name).toBe("record_content_angles");
-    // System prompt is cache-marked, same as the other pipelines.
-    expect(command.input.system).toEqual(
-      expect.arrayContaining([expect.objectContaining({ cachePoint: { type: "default" } })]),
-    );
+    const call = runAgent.mock.calls[0][0];
+    expect(call.systemPrompt).toContain("structured result");
+    expect(call.temperature).toBe(0.6);
+    expect(call.maxTokens).toBe(3072);
+    expect(call.maxIterations).toBe(1);
+
+    // The zod schema enforces the angle shape: every angle needs a title, the
+    // take itself, and a rationale; theme momentum is a closed enum.
+    expect(call.outputSchema.safeParse({
+      summary: "s",
+      themes: [{ theme: "agents", momentum: "emerging", why_it_fits: "fits" }],
+      angles: [{ title: "t", angle: "a", rationale: "r", format: "blog", sources: [1, 2] }],
+    }).success).toBe(true);
+    expect(call.outputSchema.safeParse({
+      summary: "s",
+      angles: [{ title: "t", angle: "a" }],
+    }).success).toBe(false);
+    expect(call.outputSchema.safeParse({
+      summary: "s",
+      themes: [{ theme: "agents", momentum: "exploding" }],
+      angles: [],
+    }).success).toBe(false);
 
     // The user message carries the numbered feed items, the voice portrait, and topics.
-    const text = command.input.messages[0].content[0].text;
+    const text = call.input;
     expect(text).toMatch(/\[1\] Agents everywhere/);
     expect(text).toMatch(/blunt, example-first/);
     expect(text).toMatch(/Serverless event patterns/);
@@ -64,12 +76,12 @@ describe("services/bedrock suggestContentAngles", () => {
   });
 
   test("notes an empty feed instead of inventing items", async () => {
-    mockSend.mockResolvedValueOnce(toolResponse({ summary: "No feed items right now.", angles: [] }));
+    runAgent.mockResolvedValueOnce(okRun({ summary: "No feed items right now.", angles: [] }));
 
     const result = await suggestContentAngles({ items: [], voicePortraits: [], recentTopics: [] });
     expect(result.angles).toEqual([]);
 
-    const text = mockSend.mock.calls[0][0].input.messages[0].content[0].text;
+    const text = runAgent.mock.calls[0][0].input;
     expect(text).toMatch(/no feed items available/i);
     expect(text).toMatch(/no learned voice yet/i);
   });

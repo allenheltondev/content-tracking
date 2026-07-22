@@ -1,87 +1,69 @@
-import { invokeToolUse } from "./client.mjs";
+import { z } from "zod";
+import { invokeStructured } from "./client.mjs";
 
 // Engagement recommendations: propose where else to cross-post or promote a
 // piece of content, grounded in its existing distribution history.
 
-// Tool the model is forced to call when recommending where else to push a
-// piece of content. Structured tool args beat parsing prose, same as the
-// brief and draft-review pipelines.
-const RECORD_ENGAGEMENT_RECOMMENDATIONS_TOOL = {
-  toolSpec: {
-    name: "record_engagement_recommendations",
-    description:
-      "Record recommendations for where else to cross-post or promote a piece of content to boost engagement.",
-    inputSchema: {
-      json: {
-        type: "object",
-        required: ["summary", "recommendations"],
-        properties: {
-          summary: {
-            type: "string",
-            description:
-              "One- or two-sentence overall distribution strategy for this piece, grounded in where it has and hasn't been shared yet.",
-          },
-          recommendations: {
-            type: "array",
-            description:
-              "Concrete places to cross-post or promote this content, strongest first. Aim for 3-6 high-quality entries, not a long generic list.",
-            items: {
-              type: "object",
-              required: ["channel", "action", "priority", "rationale", "suggested_message"],
-              properties: {
-                channel: {
-                  type: "string",
-                  description:
-                    "The platform or venue, as specific as possible: linkedin, x, bluesky, a named subreddit (reddit r/webdev), hacker news, a relevant newsletter, mastodon, a youtube community post, ...",
-                },
-                action: {
-                  type: "string",
-                  enum: ["cross_post", "promote"],
-                  description:
-                    "'cross_post' to republish the full piece on that channel; 'promote' to share a link or teaser that drives traffic back to the original.",
-                },
-                priority: {
-                  type: "string",
-                  enum: ["high", "medium", "low"],
-                  description: "Expected payoff relative to effort, given audience fit.",
-                },
-                rationale: {
-                  type: "string",
-                  description:
-                    "Why this channel fits this content and audience, and why it extends reach rather than duplicating somewhere it's already shared.",
-                },
-                suggested_message: {
-                  type: "string",
-                  description:
-                    "A ready-to-use caption or post tailored to that channel's norms and length, with a fresh angle that does NOT restate what was already said on social media.",
-                },
-              },
-            },
-          },
-          already_covered: {
-            type: "array",
-            description:
-              "Channels or venues this content is already cross-posted to or has already been promoted on, so the user can see they were considered and intentionally skipped.",
-            items: { type: "string" },
-          },
-        },
-      },
-    },
-  },
-};
+// record_engagement_recommendations: Record recommendations for where else to
+// cross-post or promote a piece of content to boost engagement. Structured
+// output beats parsing prose, same as the brief and draft-review pipelines.
+const ENGAGEMENT_RECOMMENDATIONS_SCHEMA = z.object({
+  summary: z
+    .string()
+    .describe(
+      "One- or two-sentence overall distribution strategy for this piece, grounded in where it has and hasn't been shared yet.",
+    ),
+  recommendations: z
+    .array(
+      z.object({
+        channel: z
+          .string()
+          .describe(
+            "The platform or venue, as specific as possible: linkedin, x, bluesky, a named subreddit (reddit r/webdev), hacker news, a relevant newsletter, mastodon, a youtube community post, ...",
+          ),
+        action: z
+          .enum(["cross_post", "promote"])
+          .describe(
+            "'cross_post' to republish the full piece on that channel; 'promote' to share a link or teaser that drives traffic back to the original.",
+          ),
+        priority: z
+          .enum(["high", "medium", "low"])
+          .describe("Expected payoff relative to effort, given audience fit."),
+        rationale: z
+          .string()
+          .describe(
+            "Why this channel fits this content and audience, and why it extends reach rather than duplicating somewhere it's already shared.",
+          ),
+        suggested_message: z
+          .string()
+          .describe(
+            "A ready-to-use caption or post tailored to that channel's norms and length, with a fresh angle that does NOT restate what was already said on social media.",
+          ),
+      }),
+    )
+    .describe(
+      "Concrete places to cross-post or promote this content, strongest first. Aim for 3-6 high-quality entries, not a long generic list.",
+    ),
+  already_covered: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Channels or venues this content is already cross-posted to or has already been promoted on, so the user can see they were considered and intentionally skipped.",
+    ),
+});
 
 const ENGAGEMENT_SYSTEM_PROMPT = `You are a content distribution and audience-growth strategist for a solo content creator. You are given a single published piece of content (the "work item") — usually including the page text we fetched from its URL — plus everything we already know about how it and its campaign have been distributed: the campaign brief, where the piece is already cross-posted, the other content pieces in the same campaign, and the social-media posts that have already promoted it.
 
 Ground your recommendations in what the piece is actually about. When the fetched content is present, use it to judge topic, depth, and tone; when it could not be fetched, fall back to the URL, notes, and brief.
 
-Recommend additional places the creator should cross-post or promote this content to boost engagement, by calling the record_engagement_recommendations tool. For each recommendation provide channel, action (cross_post or promote), priority, a rationale, and a ready-to-use suggested_message.
+Recommend additional places the creator should cross-post or promote this content to boost engagement, returned as a structured result. For each recommendation provide channel, action (cross_post or promote), priority, a rationale, and a ready-to-use suggested_message.
 
 Rules:
 - Do NOT recommend a channel the content is already cross-posted to or has already been promoted on. List those under already_covered instead so the user sees they were considered and skipped.
 - Vary the angle across recommendations; every suggested_message must say something fresh and must not restate the existing social copy you were shown.
 - Favor channels that match the content's platform and topic, and where this creator's audience plausibly is. Quality over quantity — 3 to 6 strong recommendations beat a long generic list.
 - cross_post is for channels where republishing the full piece makes sense (and note canonical/duplicate-content concerns in the rationale when relevant); promote is for sharing a link or teaser.
-- Be concrete and practical. Do not write prose outside the tool — only call the record_engagement_recommendations tool.`;
+- Be concrete and practical. Do not write prose outside the structured result.`;
 
 // Recommends where else to cross-post or promote a content piece. `contentPost`
 // is the work item (platform, url, notes). The remaining inputs are the
@@ -112,14 +94,12 @@ export async function recommendEngagement({
     goal,
   });
 
-  const userContent = [{
-    text: `Recommend where else to cross-post or promote this content by calling the record_engagement_recommendations tool.\n\n${contextBlock}`,
-  }];
+  const input = `Recommend where else to cross-post or promote this content as a structured result.\n\n${contextBlock}`;
 
-  return invokeToolUse({
+  return invokeStructured({
     system: ENGAGEMENT_SYSTEM_PROMPT,
-    userContent,
-    tool: RECORD_ENGAGEMENT_RECOMMENDATIONS_TOOL,
+    input,
+    schema: ENGAGEMENT_RECOMMENDATIONS_SCHEMA,
     // Distribution ideas and channel-specific copy are the most generative
     // of the three pipelines, so give the model the most headroom.
     temperature: 0.5,

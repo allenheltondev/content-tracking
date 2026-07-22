@@ -1,4 +1,5 @@
-import { invokeToolUse, MODEL_ID } from "./client.mjs";
+import { z } from "zod";
+import { invokeToolUse, invokeStructured, MODEL_ID } from "./client.mjs";
 
 // Brief pipeline: extract structured campaign metadata from an influencer
 // marketing brief, and review a blog draft against the brief it was written
@@ -209,80 +210,46 @@ function formatBriefContext({ existingCampaign, vendors }) {
   return `\n\n${sections.join("\n\n")}`;
 }
 
-// Tool the model is forced to call when reviewing a draft. Same rationale
-// as RECORD_BRIEF_TOOL: structured tool args beat parsing prose.
-const RECORD_DRAFT_REVIEW_TOOL = {
-  toolSpec: {
-    name: "record_draft_review",
-    description:
-      "Record structured editorial feedback on a blog draft, assessed against its campaign brief.",
-    inputSchema: {
-      json: {
-        type: "object",
-        required: ["verdict", "summary"],
-        properties: {
-          verdict: {
-            type: "string",
-            enum: ["ready", "minor_revisions", "major_revisions"],
-            description:
-              "Overall readiness: 'ready' to publish, 'minor_revisions' for small fixes, 'major_revisions' for substantial work.",
-          },
-          summary: {
-            type: "string",
-            description: "One-paragraph overall assessment of the draft.",
-          },
-          brief_alignment: {
-            type: "string",
-            description:
-              "How well the draft fulfills the brief's deliverables, required topics, tone, and must-mention features.",
-          },
-          strengths: {
-            type: "array",
-            description: "Specific things the draft does well.",
-            items: { type: "string" },
-          },
-          issues: {
-            type: "array",
-            description: "Concrete, actionable problems to fix before publishing.",
-            items: {
-              type: "object",
-              required: ["severity", "detail"],
-              properties: {
-                severity: {
-                  type: "string",
-                  enum: ["high", "medium", "low"],
-                },
-                area: {
-                  type: "string",
-                  description:
-                    "What the issue is about: brief-coverage, structure, tone, accuracy, clarity, cta, seo, ...",
-                },
-                detail: {
-                  type: "string",
-                  description: "What's wrong, referencing the relevant part of the draft.",
-                },
-                suggestion: {
-                  type: "string",
-                  description: "How to fix it.",
-                },
-              },
-            },
-          },
-          missing_requirements: {
-            type: "array",
-            description:
-              "Brief requirements (deliverables, must-mention features, CTAs) the draft does not address.",
-            items: { type: "string" },
-          },
-        },
-      },
-    },
-  },
-};
+// record_draft_review: Record structured editorial feedback on a blog draft,
+// assessed against its campaign brief. Same rationale as RECORD_BRIEF_TOOL:
+// structured output beats parsing prose.
+const DRAFT_REVIEW_SCHEMA = z.object({
+  verdict: z
+    .enum(["ready", "minor_revisions", "major_revisions"])
+    .describe(
+      "Overall readiness: 'ready' to publish, 'minor_revisions' for small fixes, 'major_revisions' for substantial work.",
+    ),
+  summary: z.string().describe("One-paragraph overall assessment of the draft."),
+  brief_alignment: z
+    .string()
+    .optional()
+    .describe(
+      "How well the draft fulfills the brief's deliverables, required topics, tone, and must-mention features.",
+    ),
+  strengths: z.array(z.string()).optional().describe("Specific things the draft does well."),
+  issues: z
+    .array(
+      z.object({
+        severity: z.enum(["high", "medium", "low"]),
+        area: z
+          .string()
+          .optional()
+          .describe("What the issue is about: brief-coverage, structure, tone, accuracy, clarity, cta, seo, ..."),
+        detail: z.string().describe("What's wrong, referencing the relevant part of the draft."),
+        suggestion: z.string().optional().describe("How to fix it."),
+      }),
+    )
+    .optional()
+    .describe("Concrete, actionable problems to fix before publishing."),
+  missing_requirements: z
+    .array(z.string())
+    .optional()
+    .describe("Brief requirements (deliverables, must-mention features, CTAs) the draft does not address."),
+});
 
 const REVIEW_SYSTEM_PROMPT = `You are an experienced content editor reviewing a blog draft against the campaign brief it was written for. You are given the brief (summary, deliverables, target metrics, and any must-mention requirements) and the full draft text.
 
-Review the draft and return your feedback by calling the record_draft_review tool. Assess:
+Review the draft and return your feedback as a structured result. Assess:
 
 - Brief alignment: does the draft cover every required deliverable, topic, and must-mention feature? Is the tone and length appropriate for the brief? Surface anything the brief asks for that the draft omits in missing_requirements.
 - Quality: structure and flow, clarity, accuracy of claims, and whether the introduction and conclusion are effective.
@@ -296,14 +263,12 @@ Be specific and actionable. Every issue should reference the relevant part of th
 // plain-text draft pulled from Google Docs.
 export async function reviewDraft({ brief, draftText }) {
   const briefBlock = formatBriefForReview(brief);
-  const userContent = [{
-    text: `Review the following blog draft against its campaign brief by calling the record_draft_review tool.\n\n=== CAMPAIGN BRIEF ===\n${briefBlock}\n\n=== DRAFT ===\n${draftText}\n=== END DRAFT ===`,
-  }];
+  const input = `Review the following blog draft against its campaign brief and return a structured result.\n\n=== CAMPAIGN BRIEF ===\n${briefBlock}\n\n=== DRAFT ===\n${draftText}\n=== END DRAFT ===`;
 
-  return invokeToolUse({
+  return invokeStructured({
     system: REVIEW_SYSTEM_PROMPT,
-    userContent,
-    tool: RECORD_DRAFT_REVIEW_TOOL,
+    input,
+    schema: DRAFT_REVIEW_SCHEMA,
     // Reviewing is a touch more generative than extraction; a little
     // headroom helps the model phrase suggestions without going off-piste.
     temperature: 0.3,

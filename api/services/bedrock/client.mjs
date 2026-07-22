@@ -3,6 +3,7 @@ import {
   ConverseCommand,
   ConverseStreamCommand,
 } from "@aws-sdk/client-bedrock-runtime";
+import { runAgent } from "@readysetcloud/agent";
 import { logger } from "../logger.mjs";
 import { UpstreamError } from "../errors.mjs";
 
@@ -16,6 +17,43 @@ export const MODEL_ID = process.env.BEDROCK_MODEL_ID;
 const BEDROCK_REGION = process.env.BEDROCK_REGION || process.env.AWS_REGION || "us-east-1";
 
 const bedrock = new BedrockRuntimeClient({ region: BEDROCK_REGION });
+
+// Structured one-shot over the shared @readysetcloud/agent runtime: runAgent
+// forces the model to emit against the zod `schema` (via the Strands SDK's
+// structured-output tool) and throws when it can't conform, so a resolved call
+// is a schema-valid one. This replaces the hand-written forced-tool JSON
+// schemas for text-only pipelines; invokeToolUse below remains for calls that
+// need Converse content blocks (PDF documents) and prompt caching.
+//
+// runAgent reads BEDROCK_MODEL_ID / BEDROCK_REGION itself, but would silently
+// fall back to a default model when unset — we fail fast instead, matching
+// invokeToolUse. Errors map to UpstreamError identically so routes behave the
+// same regardless of which path a feature module uses.
+export async function invokeStructured({ system, input, schema, temperature = 0.1, maxTokens = 2048 }) {
+  if (!MODEL_ID) {
+    throw new Error("BEDROCK_MODEL_ID env var is not set");
+  }
+
+  try {
+    const { output } = await runAgent({
+      input,
+      systemPrompt: system,
+      outputSchema: schema,
+      temperature,
+      maxTokens,
+      // One model call, no tool loop — these are pure structured analyses.
+      maxIterations: 1,
+    });
+    return output;
+  } catch (err) {
+    logger.error("Bedrock structured call failed", {
+      modelId: MODEL_ID,
+      error: err?.message,
+      name: err?.name,
+    });
+    throw new UpstreamError(`Bedrock call failed: ${err?.message ?? "unknown"}`, 502);
+  }
+}
 
 // Shared Converse plumbing: forces a single tool call, marks the system
 // prompt cacheable, logs usage, and returns the tool input. The brief,
