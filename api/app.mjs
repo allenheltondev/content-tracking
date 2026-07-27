@@ -56,9 +56,18 @@ registerVoiceRoutes(app);
 registerFeedRoutes(app);
 registerAgentRoutes(app);
 
-app.notFound(({ event }) => {
-  const method = event.httpMethod || event?.requestContext?.http?.method;
-  const path = event.path || event?.requestContext?.http?.path;
+// Powertools stores this under its own NotFoundError in the same error
+// registry as errorHandler below, so it is invoked as (error, requestContext)
+// — not with the ({ event }) shape a route handler receives. Reading `event`
+// off the error instead of the context threw a TypeError here, and the Router
+// swallows a throwing error handler into its built-in 500
+// ({"statusCode":500,"error":"Internal Server Error",...}) — so an unmatched
+// path answered with an opaque 500 and the warn below never reached
+// CloudWatch. Callers that branch on 404 (the Hugo action's by-slug upsert)
+// treated that as fatal.
+app.notFound((_err, { event }) => {
+  const method = event?.httpMethod || event?.requestContext?.http?.method;
+  const path = event?.path || event?.requestContext?.http?.path;
   logger.warn("Route not matched", { method, path });
   return jsonResponse(404, { message: `No route registered for ${method} ${path}` });
 });
