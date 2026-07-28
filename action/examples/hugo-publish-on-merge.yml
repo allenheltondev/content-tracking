@@ -1,0 +1,43 @@
+# Drop this into a Hugo blog repo at .github/workflows/content-publish.yml,
+# alongside the review workflow (examples/hugo-content-review.yml).
+#
+# When a post lands on the default branch, this syncs its Booked record with the
+# merged file — final body, final metadata — and marks it published. Publishing
+# is what starts voice learning: Booked captures the post as a voice sample
+# anchored on its front-matter date, so the profile learns from what you
+# actually shipped, and when.
+#
+# Prerequisites in the blog repo (same as the review workflow):
+#   - Variable  BOOKED_API_URL  = base URL of the deployed Booked API.
+#   - Secret    BOOKED_API_KEY  = an API key minted from Booked's /api-keys.
+name: Content publish
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'content/**/*.md'
+      - 'content/**/*.markdown'
+
+permissions:
+  contents: read
+
+# Merges are serialized so two landing back-to-back can't race on the same post.
+concurrency:
+  group: content-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: allenheltondev/content-tracking/action@main # pin a tag/SHA in production
+        with:
+          mode: publish
+          api-url: ${{ vars.BOOKED_API_URL }}
+          api-key: ${{ secrets.BOOKED_API_KEY }}
+          posts-dir: content/
+          # Optional. Leave it out unless this repo publishes somewhere other
+          # than the site configured in Booked (Settings → Publishing): posts
+          # store their canonical as a path, and Booked resolves it.
+          # site-url: https://example.com

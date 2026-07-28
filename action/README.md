@@ -11,8 +11,13 @@ Booked stack.
 
 ## What it does
 
-On a `pull_request`, for each changed `*.md` / `*.markdown` under your posts
-directory (drafts skipped):
+Two modes, meant for two workflows in the same blog repo: `review` (default) on
+the PR, and `publish` on the merge.
+
+### `mode: review` — on a `pull_request`
+
+For each changed `*.md` / `*.markdown` under your posts directory (drafts
+skipped):
 
 1. Parse the Hugo front matter (title / slug / date) and split off the body.
 2. Upsert into Booked by slug (`GET /content/by-slug/{slug}` → `PATCH`, else `POST`).
@@ -22,10 +27,40 @@ directory (drafts skipped):
    changed line (one-click **Commit suggestion**), and a summary comment for the
    rest. Re-runs update the same summary comment instead of stacking.
 
+### `mode: publish` — on the merge
+
+Once a post lands on the default branch it isn't a draft under review any more,
+so its Booked record is brought fully in line with the merged file:
+
+1. Parse the front matter of each merged post (drafts still skipped).
+2. Upsert by slug, as in review mode — a post that never went through a review
+   PR is created here.
+3. Write the final body **and the full metadata set** — title, description,
+   tags, categories, publish date, canonical URL — and set the status to
+   `published`.
+
+Setting a blog post to `published` is what **starts voice learning**: Booked
+captures the post as a voice sample anchored on its publish date, which feeds
+embedding, counting, and (at the threshold) a reflection that re-derives your
+style profile. Nothing in the workflow calls voice directly — publishing is the
+trigger. That's why the front-matter date matters: it's the sample's position on
+the recency curve, and without one the sample falls back to whenever the record
+happened to be created.
+
+The merged file is the source of truth for metadata, so a description or tag
+**removed** from front matter is cleared in Booked. Two fields are left alone:
+`canonical_url` is only ever set (never cleared, since you may have filled it in
+from the app), and `campaign_id` is app-owned linkage the action never touches.
+
+Both `on: push` to the default branch and `on: pull_request` with
+`types: [closed]` work; the push form is in the example below.
+
 ## Usage
 
-A ready-to-copy workflow is in [`examples/hugo-content-review.yml`](examples/hugo-content-review.yml).
-Add it to your Hugo repo at `.github/workflows/content-review.yml`:
+Ready-to-copy workflows are in [`examples/`](examples): review on PRs
+([`hugo-content-review.yml`](examples/hugo-content-review.yml)) and publish on
+merge ([`hugo-publish-on-merge.yml`](examples/hugo-publish-on-merge.yml)). Add
+the first to your Hugo repo at `.github/workflows/content-review.yml`:
 
 ```yaml
 # .github/workflows/content-review.yml
@@ -67,18 +102,54 @@ optional.
 
 | Input | Required | Default | Description |
 | --- | --- | --- | --- |
+| `mode` | no | `review` | `review` (PR) or `publish` (merge). |
 | `api-url` | yes | — | Base URL of the Booked API (e.g. `https://api.example.com/v1`). |
 | `api-key` | yes | — | Booked API key (mint via `/api-keys`, store as a secret). Sent as the `Authorization` header. |
 | `posts-dir` | no | `content/` | Only changed markdown files under this prefix are reviewed. |
 | `platform` | no | `''` | Platform for the on-voice (brand) lens grounding (e.g. `blog`). |
+| `site-url` | no | `''` | Publish mode: overrides Booked's canonical base URL, storing absolute canonical URLs against it. Leave unset to store paths (recommended). |
 | `github-token` | no | `${{ github.token }}` | Token used to post PR comments. |
+
+### Outputs (publish mode)
+
+| Output | Description |
+| --- | --- |
+| `published` | JSON array of `{ path, content_id, created }`. |
+| `published-count` | How many posts were published. |
+
+### Canonical URLs
+
+Publish mode records each post's canonical as a **path** — `/blog/my-post/` —
+not a full URL. Booked resolves it with the canonical base URL from
+**Settings → Publishing**, so the domain lives in one place: move sites and it's
+a settings change, not a rewrite of every record.
+
+The path is Hugo's default permalink (the post's section path plus its slug —
+`content/blog/my-post.md` → `/blog/my-post/`). If your site overrides
+`permalinks` in config, set `url` in the post's front matter and that wins.
+
+Two things override the path:
+
+- An **absolute** `canonicalURL` / `canonical_url` / `url` in front matter is
+  stored as written — that's a post whose canonical lives on another domain.
+- The **`site-url` input** makes the action store absolute URLs against that
+  base. Use it only when this repo publishes somewhere other than the site
+  configured in Booked; otherwise leave it unset and let Settings own the base.
+
+If neither Booked nor `site-url` has a base, the job warns: the path is still
+stored and still right, but nothing can turn it into a URL, so cross-posts go
+out without a canonical. Against a Booked deployment that predates relative
+canonicals the job warns and records no canonical at all, since sending a path
+to that API would reject the post; set `site-url` (or upgrade the stack) to
+record canonicals there.
 
 ### The API key
 
 Mint a Booked API key from the dashboard (`/api-keys`) and store it as the
 `BOOKED_API_KEY` secret in the Hugo repo. It's scoped to publisher endpoints:
-create/update content, start a review, and read suggestions — it can't resolve
-suggestions (accept/reject stays a human action in the app).
+create/update content, start a review, read suggestions, and read the publishing
+settings (the canonical base URL) — it can't resolve suggestions (accept/reject
+stays a human action in the app) and can't read the rest of your profile.
 
 ## Notes / limits
 
@@ -94,6 +165,15 @@ suggestions (accept/reject stays a human action in the app).
 - If a review doesn't finish inside the poll window (~3 min), that post is
   reported under **Not reviewed** in the summary comment rather than posted as
   a partial result. Re-run the job once it lands.
+- Publish mode fails the job if any post fails to publish: nothing downstream
+  retries it, and a post that fails silently is a post the voice never learns
+  from.
+- Tags and categories are trimmed, de-duplicated, and capped at Booked's limits
+  (30 entries, 50 chars each); anything past that is dropped rather than 400ing
+  the publish.
+- Deleting a post from the repo doesn't unpublish it in Booked — removals are
+  ignored in both modes. Same for a post whose slug changes: the record under
+  the old slug stays, and the new slug registers as a new piece.
 
 ## Development
 

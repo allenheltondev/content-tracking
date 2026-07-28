@@ -3,6 +3,13 @@ description: 'Register a changed Hugo blog post in Booked, run the multi-lens re
 author: 'readysetcloud'
 
 inputs:
+  mode:
+    description: >-
+      "review" (default) runs on a pull_request: register the changed posts, review them,
+      and comment back. "publish" runs on the merge: sync body + metadata and mark the
+      posts published, which is what starts voice learning.
+    required: false
+    default: 'review'
   api-url:
     description: 'Base URL of the Booked API (e.g. https://api.example.com/v1).'
     required: true
@@ -17,10 +24,26 @@ inputs:
     description: 'Optional platform for the on-voice (brand) lens grounding (e.g. blog).'
     required: false
     default: ''
+  site-url:
+    description: >-
+      Publish mode: base URL of the published site (e.g. https://example.com), stored as an
+      absolute canonical URL per post. Omit to store the canonical as a path and let Booked's
+      own canonical base URL (Settings → Publishing) resolve it — preferred, since the domain
+      then lives in one place.
+    required: false
+    default: ''
   github-token:
     description: 'Token used to post PR comments. Defaults to the workflow GITHUB_TOKEN.'
     required: false
     default: ${{ github.token }}
+
+outputs:
+  published:
+    description: 'Publish mode: JSON array of { path, content_id, created } for the posts published.'
+    value: ${{ steps.content-review.outputs.published }}
+  published-count:
+    description: 'Publish mode: how many posts were published.'
+    value: ${{ steps.content-review.outputs.published-count }}
 
 runs:
   using: 'composite'
@@ -29,11 +52,14 @@ runs:
       shell: bash
       run: npm ci --omit=dev --prefix "$GITHUB_ACTION_PATH"
     - name: Run content review
+      id: content-review
       shell: bash
       run: node "$GITHUB_ACTION_PATH/src/index.mjs"
       env:
+        INPUT_MODE: ${{ inputs.mode }}
         INPUT_API-URL: ${{ inputs.api-url }}
         INPUT_API-KEY: ${{ inputs.api-key }}
         INPUT_POSTS-DIR: ${{ inputs.posts-dir }}
         INPUT_PLATFORM: ${{ inputs.platform }}
+        INPUT_SITE-URL: ${{ inputs.site-url }}
         INPUT_GITHUB-TOKEN: ${{ inputs.github-token }}

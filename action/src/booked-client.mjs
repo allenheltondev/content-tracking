@@ -41,6 +41,22 @@ export function createClient({ apiUrl, apiKey, fetchImpl = fetch }) {
         throw err;
       }
     },
+    // Where this tenant's content lives, so publish mode can tell whether a
+    // stored canonical path will resolve to a real URL.
+    //
+    // A 404 means the deployment predates this endpoint, which is the same
+    // deployment that rejects a site-relative canonical_url outright — so it is
+    // reported as `supported: false` rather than folded in with "configured
+    // nothing". Sending a path to that API would 400 every post.
+    async publishingSettings() {
+      try {
+        const settings = await call('GET', '/settings/publishing');
+        return { supported: true, canonicalBaseUrl: settings?.canonical_base_url ?? null };
+      } catch (err) {
+        if (err.status === 404) return { supported: false, canonicalBaseUrl: null };
+        throw err;
+      }
+    },
     createContent(fields) { return call('POST', '/content', fields); },
     updateContent(id, fields) { return call('PATCH', `/content/${id}`, fields); },
     startReview(id, platform) { return call('POST', `/content/${id}/reviews`, platform ? { platform } : undefined); },

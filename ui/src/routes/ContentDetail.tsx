@@ -194,7 +194,10 @@ function EditContentForm({
   const [type, setType] = useState<ContentType>((content.type ?? 'blog') as ContentType);
   const [source, setSource] = useState<ContentSource>((content.source ?? 'owned') as ContentSource);
   const [description, setDescription] = useState(content.description ?? '');
-  const [canonicalUrl, setCanonicalUrl] = useState(content.canonical_url ?? '');
+  // Edit what is STORED, not what was resolved for display: a record holding a
+  // path ("/blog/my-post/") must save back as that path, or the first edit
+  // would freeze today's domain into the row.
+  const [canonicalUrl, setCanonicalUrl] = useState(content.canonical_path ?? content.canonical_url ?? '');
   const [tags, setTags] = useState(content.tags.join(', '));
   const [categories, setCategories] = useState(content.categories.join(', '));
   const [publishDate, setPublishDate] = useState(content.publish_date ?? '');
@@ -276,7 +279,7 @@ function EditContentForm({
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block">
           <span className="field-label">Canonical URL</span>
-          <input className="input" value={canonicalUrl} onChange={(e) => setCanonicalUrl(e.target.value)} placeholder="https://…" disabled={busy} />
+          <input className="input" value={canonicalUrl} onChange={(e) => setCanonicalUrl(e.target.value)} placeholder="/blog/my-post/ or https://…" disabled={busy} />
         </label>
         <label className="block">
           <span className="field-label">Publish date</span>

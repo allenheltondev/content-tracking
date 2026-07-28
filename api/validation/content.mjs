@@ -1,4 +1,5 @@
-import { BadRequestError } from "../services/errors.mjs";
+import { BadRequestError } from "../services/errors.mjs";
+import { absolutizeCanonical, isRelativeCanonical } from "../services/canonical-url.mjs";
 import { CAMPAIGN_ID_RE, ISO_DATE_RE } from "./common.mjs";
 
 // Validation + formatting for the Content entity. Request/response bodies are
@@ -79,14 +80,19 @@ function validateStatus(value) {
   return value;
 }
 
-function validateUrl(value, label) {
+// canonical_url takes either form: an absolute URL for a piece that lives on
+// another domain, or a path on the tenant's own site ("/blog/my-post/"), which
+// is stored as written and joined with the tenant's canonical base at read
+// time. See services/canonical-url.mjs.
+function validateCanonicalUrl(value) {
   if (typeof value !== "string" || value.length > URL_MAX) {
-    throw new BadRequestError(`${label} must be a string up to ${URL_MAX} chars`);
+    throw new BadRequestError(`canonical_url must be a string up to ${URL_MAX} chars`);
   }
-  if (!/^https?:\/\//i.test(value)) {
-    throw new BadRequestError(`${label} must start with http:// or https://`);
-  }
-  return value;
+  if (isRelativeCanonical(value)) return value;
+  if (/^https?:\/\//i.test(value)) return value;
+  throw new BadRequestError(
+    "canonical_url must start with http:// or https://, or be a site-relative path starting with /",
+  );
 }
 
 function validateTagArray(value, label) {
@@ -132,7 +138,7 @@ function applyOptionalFields(out, body, { update }) {
     }
     return v;
   });
-  clearable("canonical_url", "canonicalUrl", (v) => validateUrl(v, "canonical_url"));
+  clearable("canonical_url", "canonicalUrl", validateCanonicalUrl);
   clearable("tags", "tags", (v) => validateTagArray(v, "tags"));
   clearable("categories", "categories", (v) => validateTagArray(v, "categories"));
   clearable("campaign_id", "campaignId", validateCampaignId);
@@ -183,7 +189,7 @@ export function validateContentUpdate(body) {
 
 // Full representation (single-content reads). links carries the canonical URL
 // and per-platform copy URLs; ids (per-platform post ids) stay internal.
-export function formatContent(row) {
+export function formatContent(row, { canonicalBaseUrl = null } = {}) {
   return {
     content_id: row.contentId,
     type: row.type ?? null,
@@ -194,7 +200,11 @@ export function formatContent(row) {
     status: row.status ?? null,
     tags: row.tags ?? [],
     categories: row.categories ?? [],
-    canonical_url: row.canonicalUrl ?? null,
+    // Always an absolute, usable URL (or null): a stored path is joined with
+    // the tenant's canonical base. `canonical_path` carries the stored form so
+    // an edit round-trip doesn't silently rewrite a path into a URL.
+    canonical_url: absolutizeCanonical(row.canonicalUrl, canonicalBaseUrl),
+    canonical_path: isRelativeCanonical(row.canonicalUrl) ? row.canonicalUrl : null,
     content_markdown: row.contentMarkdown ?? null,
     campaign_id: row.campaignId ?? null,
     publish_date: row.publishDate ?? null,
@@ -206,8 +216,8 @@ export function formatContent(row) {
 
 // List representation: omits content_markdown so a content list doesn't ship
 // every item's full body.
-export function formatContentSummary(row) {
-  const { content_markdown, ...summary } = formatContent(row);
+export function formatContentSummary(row, options) {
+  const { content_markdown, ...summary } = formatContent(row, options);
   return summary;
 }
 

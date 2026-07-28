@@ -102,6 +102,21 @@ describe("validation/content", () => {
     test("rejects an invalid enum on update", () => {
       expect(() => validateContentUpdate({ type: "podcast" })).toThrow(/type must be one of/);
     });
+
+    test("canonical_url takes an absolute URL or a path on this site", () => {
+      expect(validateContentUpdate({ canonical_url: "https://example.com/blog/x/" }).canonicalUrl)
+        .toBe("https://example.com/blog/x/");
+      // Storing the path keeps the domain in one place (Settings), so moving
+      // sites doesn't mean rewriting every row.
+      expect(validateContentUpdate({ canonical_url: "/blog/x/" }).canonicalUrl).toBe("/blog/x/");
+    });
+
+    test("rejects a canonical that is neither", () => {
+      expect(() => validateContentUpdate({ canonical_url: "blog/x/" })).toThrow(/canonical_url must start with/);
+      // Protocol-relative: looks like a path but leaves the site.
+      expect(() => validateContentUpdate({ canonical_url: "//evil.com/x" })).toThrow(/canonical_url must start with/);
+      expect(() => validateContentUpdate({ canonical_url: "ftp://example.com/x" })).toThrow(/canonical_url must start with/);
+    });
   });
 
   describe("formatters map camel→snake", () => {
@@ -135,12 +150,31 @@ describe("validation/content", () => {
         tags: ["a"],
         categories: ["b"],
         canonical_url: "https://x/y",
+        canonical_path: null,
         content_markdown: "# body",
         campaign_id: "camp-1",
         publish_date: null,
         links: { url: "https://x/y" },
         created_at: "t0",
         updated_at: "t1",
+      });
+    });
+
+    test("resolves a stored canonical path against the tenant's base URL", () => {
+      const relative = { ...row, canonicalUrl: "/blog/hi/" };
+      expect(formatContent(relative, { canonicalBaseUrl: "https://example.com" })).toMatchObject({
+        canonical_url: "https://example.com/blog/hi/",
+        // The stored form is echoed back so an edit round-trip through the
+        // dashboard doesn't silently rewrite the path into a URL.
+        canonical_path: "/blog/hi/",
+      });
+    });
+
+    test("a path with no configured base is not passed off as a URL", () => {
+      const relative = { ...row, canonicalUrl: "/blog/hi/" };
+      expect(formatContent(relative)).toMatchObject({
+        canonical_url: null,
+        canonical_path: "/blog/hi/",
       });
     });
 

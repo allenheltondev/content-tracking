@@ -56,6 +56,7 @@ function buildRouteTable() {
 }
 
 const put = buildRouteTable()["PUT /profile"];
+const getPublishing = buildRouteTable()["GET /settings/publishing"];
 
 function event(body) {
   return { event: { body: JSON.stringify(body) } };
@@ -178,5 +179,38 @@ describe("blog settings via /profile", () => {
     const noAuth = { event: { body: JSON.stringify({ blog: { admin_email: "a@b.co" } }) } };
     await expect(putProfile(noAuth)).rejects.toThrow(/dashboard sign-in/);
     expect(upsertTenant).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /settings/publishing", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  // The CI action reads this with an API key to resolve stored canonical
+  // paths; it must carry the base URL and nothing else from the profile.
+  test("returns just the tenant's canonical base URL", async () => {
+    getTenant.mockResolvedValue({ canonicalBaseUrl: "https://example.com", adminEmail: "me@example.com" });
+
+    const res = await getPublishing({
+      event: { requestContext: { authorizer: { sub: "u1", authSource: "apikey" } } },
+    });
+
+    expect(getTenant).toHaveBeenCalledWith("u1");
+    expect(JSON.parse(res.body)).toEqual({ canonical_base_url: "https://example.com" });
+  });
+
+  test("nulls the base URL when the tenant has not configured one", async () => {
+    getTenant.mockResolvedValue(null);
+    const res = await getPublishing({
+      event: { requestContext: { authorizer: { sub: "u1", authSource: "cognito" } } },
+    });
+    expect(JSON.parse(res.body)).toEqual({ canonical_base_url: null });
+  });
+
+  test("rejects a caller that is neither the dashboard nor an API key", async () => {
+    await expect(
+      getPublishing({ event: { requestContext: { authorizer: { sub: "u1", authSource: "extension" } } } }),
+    ).rejects.toMatchObject({ statusCode: 401 });
   });
 });
