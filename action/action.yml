@@ -26,8 +26,10 @@ inputs:
     default: ''
   site-url:
     description: >-
-      Base URL of the published site (e.g. https://example.com). Publish mode uses it to
-      derive each post's canonical URL from its permalink. Omit to leave canonical_url unset.
+      Publish mode: base URL of the published site (e.g. https://example.com), stored as an
+      absolute canonical URL per post. Omit to store the canonical as a path and let Booked's
+      own canonical base URL (Settings → Publishing) resolve it — preferred, since the domain
+      then lives in one place.
     required: false
     default: ''
   github-token:

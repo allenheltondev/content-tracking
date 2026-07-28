@@ -107,7 +107,7 @@ optional.
 | `api-key` | yes | — | Booked API key (mint via `/api-keys`, store as a secret). Sent as the `Authorization` header. |
 | `posts-dir` | no | `content/` | Only changed markdown files under this prefix are reviewed. |
 | `platform` | no | `''` | Platform for the on-voice (brand) lens grounding (e.g. `blog`). |
-| `site-url` | no | `''` | Publish mode: base URL of the live site, used to derive each post's canonical URL. |
+| `site-url` | no | `''` | Publish mode: overrides Booked's canonical base URL, storing absolute canonical URLs against it. Leave unset to store paths (recommended). |
 | `github-token` | no | `${{ github.token }}` | Token used to post PR comments. |
 
 ### Outputs (publish mode)
@@ -119,21 +119,34 @@ optional.
 
 ### Canonical URLs
 
-With `site-url` set, publish mode records each post's canonical URL. It takes an
-absolute `canonicalURL` / `canonical_url` / `url` from front matter as written;
-otherwise it joins `site-url` with a relative front-matter `url`, or with
-Hugo's default permalink (the post's section path plus its slug —
+Publish mode records each post's canonical as a **path** — `/blog/my-post/` —
+not a full URL. Booked resolves it with the canonical base URL from
+**Settings → Publishing**, so the domain lives in one place: move sites and it's
+a settings change, not a rewrite of every record.
+
+The path is Hugo's default permalink (the post's section path plus its slug —
 `content/blog/my-post.md` → `/blog/my-post/`). If your site overrides
 `permalinks` in config, set `url` in the post's front matter and that wins.
-Without `site-url` and without an absolute URL in front matter, `canonical_url`
-is left untouched.
+
+Two things override the path:
+
+- An **absolute** `canonicalURL` / `canonical_url` / `url` in front matter is
+  stored as written — that's a post whose canonical lives on another domain.
+- The **`site-url` input** makes the action store absolute URLs against that
+  base. Use it only when this repo publishes somewhere other than the site
+  configured in Booked; otherwise leave it unset and let Settings own the base.
+
+If neither Booked nor `site-url` has a base, the job warns: the path is still
+stored and still right, but nothing can turn it into a URL, so cross-posts go
+out without a canonical.
 
 ### The API key
 
 Mint a Booked API key from the dashboard (`/api-keys`) and store it as the
 `BOOKED_API_KEY` secret in the Hugo repo. It's scoped to publisher endpoints:
-create/update content, start a review, and read suggestions — it can't resolve
-suggestions (accept/reject stays a human action in the app).
+create/update content, start a review, read suggestions, and read the publishing
+settings (the canonical base URL) — it can't resolve suggestions (accept/reject
+stays a human action in the app) and can't read the rest of your profile.
 
 ## Notes / limits
 

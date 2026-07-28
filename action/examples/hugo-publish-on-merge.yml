@@ -37,5 +37,7 @@ jobs:
           api-url: ${{ vars.BOOKED_API_URL }}
           api-key: ${{ secrets.BOOKED_API_KEY }}
           posts-dir: content/
-          # Optional: lets the action record each post's canonical URL.
-          site-url: https://example.com
+          # Optional. Leave it out unless this repo publishes somewhere other
+          # than the site configured in Booked (Settings → Publishing): posts
+          # store their canonical as a path, and Booked resolves it.
+          # site-url: https://example.com

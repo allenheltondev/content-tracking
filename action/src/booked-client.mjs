@@ -41,6 +41,17 @@ export function createClient({ apiUrl, apiKey, fetchImpl = fetch }) {
         throw err;
       }
     },
+    // Where this tenant's content lives, so publish mode can tell whether a
+    // stored canonical path will resolve to a real URL. Absent on an older
+    // deployment (404) — treated as "not configured" rather than fatal.
+    async publishingSettings() {
+      try {
+        return await call('GET', '/settings/publishing');
+      } catch (err) {
+        if (err.status === 404) return null;
+        throw err;
+      }
+    },
     createContent(fields) { return call('POST', '/content', fields); },
     updateContent(id, fields) { return call('PATCH', `/content/${id}`, fields); },
     startReview(id, platform) { return call('POST', `/content/${id}/reviews`, platform ? { platform } : undefined); },

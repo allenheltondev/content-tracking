@@ -138,6 +138,20 @@ async function publishMergedPosts({ octokit, client, owner, repo, postsDir, site
     return;
   }
 
+  // Without `site-url` each post records a site-relative canonical path, which
+  // Booked resolves with the canonical base URL from Settings. If neither is
+  // configured, the path is still stored and still correct — but nothing can
+  // turn it into a URL, so cross-posts go out without a canonical. Say so once.
+  if (!siteUrl) {
+    const settings = await client.publishingSettings().catch(() => null);
+    if (!settings?.canonical_base_url) {
+      core.warning(
+        'No canonical base URL configured in Booked (Settings → publishing) and no site-url input; ' +
+        'canonical links will be stored as paths but cannot be resolved to URLs.',
+      );
+    }
+  }
+
   const published = [];
   const failures = [];
 

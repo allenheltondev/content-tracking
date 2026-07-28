@@ -492,6 +492,15 @@ export interface ProfileResponse {
     name: string | null;
     website_url: string | null;
   };
+  // Per-tenant publishing config. canonical_base_url is where this tenant's
+  // content lives: content rows may store a site-relative canonical path, and
+  // this is what resolves it into a URL (for the dashboard link, and for the
+  // canonical sent to dev.to / Medium / Hashnode when cross-posting).
+  blog: {
+    configured: boolean;
+    canonical_base_url: string | null;
+    admin_email: string | null;
+  };
   identity: {
     display_name: string | null;
     tagline: string | null;
@@ -541,6 +550,8 @@ export interface ProfileUpdateRequest {
   youtube_api_key?: string;
   brand_name?: string;
   website_url?: string;
+  // null on canonical_base_url clears it.
+  blog?: { canonical_base_url?: string | null };
   display_name?: string | null;
   tagline?: string | null;
   bio?: string | null;
@@ -957,7 +968,11 @@ export interface ContentSummary {
   status: ContentStatus | null;
   tags: string[];
   categories: string[];
+  // Always absolute (or null): a stored path is resolved with the canonical
+  // base URL from Settings. canonical_path carries the stored form when the
+  // record holds a path, so editing doesn't rewrite it into a URL.
   canonical_url: string | null;
+  canonical_path: string | null;
   campaign_id: string | null;
   publish_date: string | null;
   links: Record<string, string>;

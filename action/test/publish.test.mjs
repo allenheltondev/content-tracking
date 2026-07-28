@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { contentPayload, permalinkPath, canonicalUrlFor, publishPost } from '../src/publish.mjs';
+import { contentPayload, permalinkPath, canonicalFor, publishPost } from '../src/publish.mjs';
 import { postFields } from '../src/frontmatter.mjs';
 
 const POST = {
@@ -77,22 +77,22 @@ test('permalinkPath maps a post to its section path plus slug', () => {
   );
 });
 
-test('canonicalUrlFor prefers the front matter, then the site URL', () => {
+test('canonicalFor stores a path by default, so the base URL stays in Settings', () => {
+  assert.equal(canonicalFor(POST, { postsDir: 'content/' }), '/blog/my-post/');
+  // A front-matter `url` is a permalink override.
+  assert.equal(canonicalFor({ ...POST, urlPath: '/2026/my-post/' }, { postsDir: 'content/' }), '/2026/my-post/');
+});
+
+test('canonicalFor goes absolute for an explicit front-matter URL or site-url', () => {
+  // The piece's canonical lives elsewhere: taken as written, site-url or not.
   assert.equal(
-    canonicalUrlFor({ ...POST, canonicalUrl: 'https://elsewhere.dev/canonical/' }, { siteUrl: 'https://example.com' }),
+    canonicalFor({ ...POST, canonicalUrl: 'https://elsewhere.dev/canonical/' }, { siteUrl: 'https://example.com' }),
     'https://elsewhere.dev/canonical/',
   );
   assert.equal(
-    canonicalUrlFor(POST, { siteUrl: 'https://example.com/', postsDir: 'content/' }),
+    canonicalFor(POST, { siteUrl: 'https://example.com/', postsDir: 'content/' }),
     'https://example.com/blog/my-post/',
   );
-  // A relative front-matter `url` is a permalink override the base URL completes.
-  assert.equal(
-    canonicalUrlFor({ ...POST, urlPath: '/2026/my-post/' }, { siteUrl: 'https://example.com', postsDir: 'content/' }),
-    'https://example.com/2026/my-post/',
-  );
-  // Nothing to build one from.
-  assert.equal(canonicalUrlFor(POST, {}), undefined);
 });
 
 test('publishPost updates the record a review PR already created', async () => {
@@ -109,13 +109,15 @@ test('publishPost updates the record a review PR already created', async () => {
 
 test('publishPost creates a post that never went through a review PR', async () => {
   const { client, calls } = fakeClient();
-  const res = await publishPost(client, POST, {});
+  const res = await publishPost(client, POST, { postsDir: 'content/' });
 
   assert.equal(res.created, true);
   assert.equal(res.contentId, 'C1');
   assert.equal(calls[0][0], 'create');
   assert.equal(calls[0][1].status, 'published');
   assert.equal(calls[0][1].type, 'blog');
+  // No site-url: the canonical goes in as a path for Booked to resolve.
+  assert.equal(calls[0][1].canonical_url, '/blog/my-post/');
 });
 
 test('a real Hugo post publishes with its date as the voice anchor', async () => {

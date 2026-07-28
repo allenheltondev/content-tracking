@@ -1,6 +1,7 @@
 import { getTenant } from "../domain/tenant.mjs";
 import { listContentByTenant, listPublishVariants, putPublishVariant } from "../domain/content.mjs";
 import { getBlogCredentials } from "./blog-credentials.mjs";
+import { absolutizeCanonical } from "./canonical-url.mjs";
 import { transformBlogForPlatform } from "./parse-blog.mjs";
 import { getAdapter } from "./blog-platforms/index.mjs";
 
@@ -20,6 +21,13 @@ export async function crosspostContent({ tenantId, content, platforms }) {
     listPublishVariants(tenantId, contentId),
   ]);
   const baseUrl = tenant?.canonicalBaseUrl;
+  // The adapters put canonicalUrl straight into the platform's payload (dev.to
+  // canonical_url, Medium canonicalUrl, Hashnode originalArticleURL), so a
+  // stored path has to become a real URL before it leaves the building — a
+  // relative one would be recorded by the platform as its own domain. Null when
+  // there's no base configured, which the adapters treat as "no canonical".
+  const canonical = absolutizeCanonical(content.canonicalUrl, baseUrl);
+  const publishable = { ...content, canonicalUrl: canonical ?? undefined };
   const catalog = catalogPage.items ?? [];
   const alreadyPublished = new Map(
     existingVariants.filter((v) => v.url).map((v) => [v.platform, v.url]),
@@ -32,10 +40,10 @@ export async function crosspostContent({ tenantId, content, platforms }) {
       continue;
     }
     try {
-      const transformed = transformBlogForPlatform({ blog: content, catalog, platform, baseUrl });
+      const transformed = transformBlogForPlatform({ blog: publishable, catalog, platform, baseUrl });
       const config = tenant?.platforms?.[platform] ?? {};
       const published = await getAdapter(platform).publish({
-        blog: content,
+        blog: publishable,
         content: transformed.body,
         tags: transformed.tags,
         config,

@@ -21,6 +21,7 @@ import { withIdempotency } from "../services/idempotency.mjs";
 import { decodeCursor, encodeCursor, parseLimit } from "../services/pagination.mjs";
 import { emptyResponse, jsonResponse, parseBody } from "../services/http-handler.mjs";
 import { BadRequestError, ConflictError, NotFoundError } from "../services/errors.mjs";
+import { canonicalBaseFor } from "../services/canonical-url.mjs";
 import { embedText } from "../services/embeddings.mjs";
 import { queryContentChunks } from "../services/content-vectors.mjs";
 import { answerContentQuestion } from "../services/bedrock/qa.mjs";
@@ -45,13 +46,21 @@ import {
 // sub (requireTenantId) and passes it as the first argument to the domain,
 // so reads/writes are confined to the caller's TENANT#{sub} partition.
 
+// A content row may store its canonical as a site-relative path; the tenant's
+// canonical base (profile → blog.canonical_base_url) turns it back into a
+// usable URL on the way out. The lookup only happens for rows that actually
+// store a path, so absolute canonicals cost nothing.
+async function contentView(tenantId, row) {
+  return formatContent(row, { canonicalBaseUrl: await canonicalBaseFor(tenantId, row) });
+}
+
 export function registerContentRoutes(app) {
   app.post("/content", withIdempotency(async ({ event }) => {
     // Publish endpoint — dashboard or API key (see requirePublisherTenantId).
     const tenantId = requirePublisherTenantId(event);
     const fields = validateContentCreate(parseBody(event));
     const item = await createContent(tenantId, fields);
-    return jsonResponse(201, formatContent(item));
+    return jsonResponse(201, await contentView(tenantId, item));
   }));
 
   // POST /content/ask — RAG Q&A over the tenant's content catalog. Embeds the
@@ -100,8 +109,9 @@ export function registerContentRoutes(app) {
       status: qs.status,
       slug: qs.slug,
     });
+    const canonicalBaseUrl = await canonicalBaseFor(tenantId, items);
     return jsonResponse(200, {
-      content: items.map(formatContentSummary),
+      content: items.map((row) => formatContentSummary(row, { canonicalBaseUrl })),
       nextStartKey: encodeCursor(lastEvaluatedKey),
     });
   });
@@ -116,13 +126,13 @@ export function registerContentRoutes(app) {
     if (!item) {
       throw new NotFoundError("Content", `slug ${params.slug}`);
     }
-    return jsonResponse(200, formatContent(item));
+    return jsonResponse(200, await contentView(tenantId, item));
   });
 
   app.get("/content/:contentId", async ({ event, params }) => {
     const tenantId = requireTenantId(event);
     const content = await getContent(tenantId, params.contentId);
-    return jsonResponse(200, formatContent(content));
+    return jsonResponse(200, await contentView(tenantId, content));
   });
 
   app.patch("/content/:contentId", async ({ event, params }) => {
@@ -146,11 +156,11 @@ export function registerContentRoutes(app) {
       if (Object.keys(rest).length > 0) {
         current = await updateContent(tenantId, contentId, rest);
       }
-      return jsonResponse(200, formatContent(current));
+      return jsonResponse(200, await contentView(tenantId, current));
     }
 
     const updated = await updateContent(tenantId, contentId, fields);
-    return jsonResponse(200, formatContent(updated));
+    return jsonResponse(200, await contentView(tenantId, updated));
   });
 
   app.delete("/content/:contentId", async ({ event, params }) => {
@@ -180,7 +190,7 @@ export function registerContentRoutes(app) {
     const tenantId = requireTenantId(event);
     const campaignId = requireCampaignId(parseBody(event).campaign_id);
     const content = await attachCampaign(tenantId, params.contentId, campaignId);
-    return jsonResponse(200, formatContent(content));
+    return jsonResponse(200, await contentView(tenantId, content));
   });
 
   // Create a campaign and attach it in one step (create content → sponsor it).

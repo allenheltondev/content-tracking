@@ -298,7 +298,7 @@ function AddContentForm({
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block">
           <span className="field-label">Canonical URL (optional)</span>
-          <input className="input" value={canonicalUrl} onChange={(e) => setCanonicalUrl(e.target.value)} placeholder="https://…" disabled={busy} />
+          <input className="input" value={canonicalUrl} onChange={(e) => setCanonicalUrl(e.target.value)} placeholder="/blog/my-post/ or https://…" disabled={busy} />
         </label>
         <label className="block">
           <span className="field-label">Publish date (optional)</span>

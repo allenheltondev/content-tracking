@@ -57,25 +57,32 @@ export function permalinkPath(post, postsDir = '') {
   return [...segments, post.slug].filter(Boolean).join('/');
 }
 
-// The post's canonical URL, or undefined when there isn't enough to build one.
-// An absolute front-matter URL is taken as written; otherwise the site's base
-// URL is joined with the post's permalink.
-export function canonicalUrlFor(post, { siteUrl, postsDir } = {}) {
+// What to store as the post's canonical. Booked takes either an absolute URL or
+// a site-relative path, and prefers the path: it keeps the base URL in one
+// place (Settings → canonical base URL) so moving domains is a settings change
+// rather than a rewrite of every record.
+//
+//   1. An absolute URL in front matter — the piece's canonical lives elsewhere,
+//      so it is taken exactly as written.
+//   2. `site-url` set on the action — an explicit override for a repo that
+//      publishes somewhere other than the tenant's configured site; absolute.
+//   3. Otherwise the path ("/blog/my-post/"), resolved by Booked.
+export function canonicalFor(post, { siteUrl, postsDir } = {}) {
   if (post.canonicalUrl) return post.canonicalUrl;
-  if (!siteUrl) return undefined;
-
-  const base = String(siteUrl).trim().replace(/\/+$/, '');
-  if (!/^https?:\/\//i.test(base)) return undefined;
 
   const path = (post.urlPath ?? permalinkPath(post, postsDir)).replace(/^\/+|\/+$/g, '');
-  return path ? `${base}/${path}/` : undefined;
+  if (!path) return undefined;
+
+  const base = String(siteUrl ?? '').trim().replace(/\/+$/, '');
+  if (base && /^https?:\/\//i.test(base)) return `${base}/${path}/`;
+  return `/${path}/`;
 }
 
 // Brings a merged post's Booked record to its published state, creating it if
 // the post never went through a review PR. Returns what happened so the caller
 // can report it.
 export async function publishPost(client, post, { siteUrl, postsDir } = {}) {
-  const canonicalUrl = canonicalUrlFor(post, { siteUrl, postsDir });
+  const canonicalUrl = canonicalFor(post, { siteUrl, postsDir });
   const existing = await client.findBySlug(post.slug);
 
   if (existing) {

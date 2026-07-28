@@ -857,7 +857,7 @@ Create a piece of content.
 | `status` | enum | no | `draft` \| `scheduled` \| `published` \| `archived` (default `draft`) |
 | `description` | string | no | <=1000 chars |
 | `tags`, `categories` | string[] | no | <=30 entries |
-| `canonical_url` | string | no | http(s) |
+| `canonical_url` | string | no | An absolute http(s) URL, **or** a site-relative path (`/blog/my-post/`) resolved against the tenant's [canonical base URL](#get-settingspublishing). Prefer the path: it keeps the domain in settings instead of on every record |
 | `publish_date` | string | no | `YYYY-MM-DD`; the calendar anchor |
 | `campaign_id` | string | no | attach a sponsorship at creation (must exist, 1:1) |
 
@@ -1358,6 +1358,7 @@ echoes the secrets back.
 | `rate_card` | array \| null | <=30 items. Each `{ deliverable, description?, price?, currency? }` (currency defaults `USD`) |
 | `testimonials` | array \| null | <=20 items. Each `{ quote, author?, role?, company? }` |
 | `featured_collaborations` | array \| null | <=20 items. Each `{ brand, description?, url?, year? }` |
+| `blog` | object | Per-tenant publishing config: `{ canonical_base_url?, admin_email?, platforms? }`. `canonical_base_url` is where this tenant's content lives — see [`GET /settings/publishing`](#get-settingspublishing). `null` clears a field |
 
 Example request:
 
@@ -1380,6 +1381,31 @@ Example request:
 - `200 OK` - updated [Profile](#profile-object).
 - `400 Bad Request` - validation failure (non-numeric property id, malformed service account JSON, bad email/color/url, over-limit field, unknown image key).
 - `500 Internal Server Error`.
+
+### GET /settings/publishing
+
+The sliver of the profile a publishing client needs: where this tenant's content
+lives. Deliberately narrow — `GET /profile` answers with the whole dashboard
+payload (media kit, social accounts, audience, the GA4 service-account email),
+none of which a CI job has any business reading.
+
+`canonical_base_url` is what resolves a content record's stored canonical
+**path** into a URL. Content rows may store `canonical_url` as a site-relative
+path (`/blog/my-post/`) rather than an absolute URL, so moving domains is a
+change here rather than a rewrite of every record. `null` when it hasn't been
+configured, in which case a stored path can't be resolved — `canonical_url`
+reads back as `null` (the path is still available as `canonical_path`), and
+cross-posts go out without a canonical.
+
+**Authentication:** Cognito **or** API key.
+
+**Response** `200 OK`:
+
+```json
+{ "canonical_base_url": "https://readysetcloud.io" }
+```
+
+Set it with [`PUT /profile`](#put-profile): `{ "blog": { "canonical_base_url": "https://readysetcloud.io" } }`.
 
 ### POST /profile/images/upload-url
 

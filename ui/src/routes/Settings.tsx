@@ -119,6 +119,7 @@ function IntegrationsTab(): ReactElement {
 
   const [brandName, setBrandName] = useState('');
   const [websiteUrl, setWebsiteUrl] = useState('');
+  const [canonicalBaseUrl, setCanonicalBaseUrl] = useState('');
   const [propertyId, setPropertyId] = useState('');
   const [serviceAccount, setServiceAccount] = useState('');
   const [cruxKey, setCruxKey] = useState('');
@@ -134,6 +135,7 @@ function IntegrationsTab(): ReactElement {
     if (!profileQuery.data) return;
     setBrandName(profileQuery.data.brand.name ?? '');
     setWebsiteUrl(profileQuery.data.brand.website_url ?? '');
+    setCanonicalBaseUrl(profileQuery.data.blog?.canonical_base_url ?? '');
     setPropertyId(profileQuery.data.ga4.property_id ?? '');
   }, [profileQuery.data]);
 
@@ -144,6 +146,12 @@ function IntegrationsTab(): ReactElement {
     const payload: ProfileUpdateRequest = {};
     if (brandName.trim()) payload.brand_name = brandName.trim();
     if (websiteUrl.trim()) payload.website_url = websiteUrl.trim();
+    // Sent whenever it differs from what loaded, so clearing the field clears
+    // the setting rather than silently leaving the old base in place.
+    const storedBase = profile?.blog?.canonical_base_url ?? '';
+    if (canonicalBaseUrl.trim() !== storedBase) {
+      payload.blog = { canonical_base_url: canonicalBaseUrl.trim() || null };
+    }
     if (propertyId.trim()) payload.ga4_property_id = propertyId.trim();
     if (serviceAccount.trim()) payload.ga4_service_account = serviceAccount.trim();
     if (cruxKey.trim()) payload.crux_api_key = cruxKey.trim();
@@ -202,6 +210,30 @@ function IntegrationsTab(): ReactElement {
             placeholder="readysetcloud.io"
             value={websiteUrl}
             onChange={(e) => setWebsiteUrl(e.target.value)}
+            disabled={busy}
+          />
+        </label>
+      </div>
+
+      <div className="card card-body space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">Publishing</h2>
+          <p className="text-sm text-muted-foreground">
+            Where your content lives. Posts store their canonical link as a path
+            (<code>/blog/my-post/</code>), so this is what turns it into a full URL — on the
+            content page, and on the canonical sent to dev.to, Medium, and Hashnode when you
+            cross-post. Change it here if you move domains; nothing else needs updating.
+          </p>
+        </div>
+
+        <label className="block">
+          <span className="field-label">Canonical base URL</span>
+          <input
+            type="text"
+            className="input"
+            placeholder="https://readysetcloud.io"
+            value={canonicalBaseUrl}
+            onChange={(e) => setCanonicalBaseUrl(e.target.value)}
             disabled={busy}
           />
         </label>

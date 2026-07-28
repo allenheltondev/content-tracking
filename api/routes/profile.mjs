@@ -28,7 +28,7 @@ import {
   writeYoutubeApiKey,
 } from "../services/ga-secrets.mjs";
 import { getTenant, upsertTenant } from "../domain/tenant.mjs";
-import { requireTenantId } from "../services/identity.mjs";
+import { requirePublisherTenantId, requireTenantId } from "../services/identity.mjs";
 import {
   validateTenantConfig as validateBlogSettings,
   formatTenant as formatBlogSettings,
@@ -47,6 +47,18 @@ const ASSET_PREVIEW_TTL_SECONDS = 7 * 24 * 60 * 60;
 export function registerProfileRoutes(app) {
   app.get("/profile", async ({ event }) => {
     return jsonResponse(200, await buildProfileView({ event }));
+  });
+
+  // GET /settings/publishing — the sliver of the profile a publishing client
+  // needs: where this tenant's content lives. Publisher-scoped (dashboard OR
+  // API key) so the CI action can read it, and deliberately narrow — GET
+  // /profile answers with the whole dashboard payload (media kit, socials,
+  // audience, the GA4 service-account email), none of which a build job has
+  // any business reading.
+  app.get("/settings/publishing", async ({ event }) => {
+    const tenantId = requirePublisherTenantId(event);
+    const tenant = await getTenant(tenantId);
+    return jsonResponse(200, { canonical_base_url: tenant?.canonicalBaseUrl ?? null });
   });
 
   app.put("/profile", async ({ event }) => {

@@ -117,6 +117,16 @@ cleared front matter clears the field in Booked. `canonical_url` is set but
 never cleared (it may be filled in from the app), and `campaign_id` is never
 touched by CI.
 
+**Canonical as a path.** The action stores each post's canonical as
+`/blog/my-post/` rather than an absolute URL, and Booked resolves it with the
+tenant's canonical base URL (Settings → Publishing, read by CI through the
+publisher-scoped `GET /settings/publishing`). The domain lives in one place, so
+moving sites is a settings change instead of a rewrite of every record —
+`formatContent` joins the two on read, and anything handing the URL outward
+(the cross-post adapters' `canonical_url` / `originalArticleURL`) absolutizes
+first. An absolute URL in front matter still wins: that's a post whose canonical
+genuinely lives on another domain.
+
 Still out: removing a post from the repo doesn't unpublish it, and a changed
 slug registers as a new piece rather than renaming the old one.
 
