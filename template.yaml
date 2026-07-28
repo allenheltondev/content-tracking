@@ -1088,9 +1088,8 @@ Resources:
   # from POST /content/{id}/reviews, it fans out the review lenses over the
   # draft on the rsc-core @readysetcloud/agent runtime (runAgent — stateless
   # server-side runs with schema-forced structured output), records the anchored
-  # suggestions, and closes the review with a summary. Retries are disabled so a
-  # failed run can't double-write suggestions; failures land in the DLQ. Model /
-  # embedding / vector env is inherited from Globals.
+  # suggestions, and closes the review with a summary. Failures land in the DLQ.
+  # Model / embedding / vector env is inherited from Globals.
   ReviewOrchestratorFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -1119,14 +1118,13 @@ Resources:
                 - booked
               detail-type:
                 - Start Content Review
-      EventInvokeConfig:
-        # No automatic retries: a re-run would re-record the suggestion set. A
-        # failed review is marked failed and DLQ'd; the user re-triggers.
-        MaximumRetryAttempts: 0
-        DestinationConfig:
-          OnFailure:
-            Type: SQS
-            Destination: !GetAtt ReviewOrchestratorDLQ.Arn
+      # Failed async invocations land in the DLQ for inspection. A retry can't
+      # double-write the suggestion set: runReview claims the review with a
+      # conditional update on status = pending, so a second attempt loses the
+      # claim and returns.
+      DeadLetterQueue:
+        Type: SQS
+        TargetArn: !GetAtt ReviewOrchestratorDLQ.Arn
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: 2012-10-17
