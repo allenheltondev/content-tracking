@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { splitFrontMatter, postFields, toBookedSlug } from '../src/frontmatter.mjs';
+import { splitFrontMatter, postFields, toBookedSlug, toIsoDate, normalizeTags } from '../src/frontmatter.mjs';
 
 test('splits YAML front matter and returns the body offset', () => {
   const file = '---\ntitle: Hi\nslug: my-post\n---\nThe body.\n';
@@ -60,4 +60,65 @@ test('postFields flags drafts', () => {
   assert.equal(postFields('---\ndraft: true\n---\nx', 'p/a.md').draft, true);
   assert.equal(postFields('---\ndraft: false\n---\nx', 'p/a.md').draft, false);
   assert.equal(postFields('no fm', 'p/a.md').draft, false);
+});
+
+test('toIsoDate normalizes the shapes Hugo front matter carries', () => {
+  // Unquoted YAML dates reach us already parsed into a Date.
+  assert.equal(toIsoDate(new Date('2026-07-18T14:00:00Z')), '2026-07-18');
+  assert.equal(toIsoDate('2026-07-18'), '2026-07-18');
+  assert.equal(toIsoDate('2026-07-18T09:00:00-05:00'), '2026-07-18');
+  assert.equal(toIsoDate('July 18, 2026'), '2026-07-18');
+  assert.equal(toIsoDate(undefined), undefined);
+  assert.equal(toIsoDate('not a date'), undefined);
+});
+
+test('normalizeTags trims, de-dupes, and drops what Booked would reject', () => {
+  assert.deepEqual(normalizeTags([' aws ', 'aws', 'serverless']), ['aws', 'serverless']);
+  assert.deepEqual(normalizeTags('single'), ['single']);
+  assert.deepEqual(normalizeTags(undefined), []);
+  assert.deepEqual(normalizeTags(['ok', 'x'.repeat(51)]), ['ok']); // 50-char cap
+  assert.equal(normalizeTags(Array.from({ length: 40 }, (_, i) => `t${i}`)).length, 30);
+});
+
+test('postFields carries the metadata a merge publishes', () => {
+  const file = [
+    '---',
+    'title: Shipping Fast',
+    'date: 2026-07-18',
+    'summary: How we ship.',
+    'tags: [serverless, aws]',
+    'categories: [engineering]',
+    '---',
+    'body',
+  ].join('\n');
+  const post = postFields(file, 'content/blog/shipping-fast.md');
+
+  assert.equal(post.publishDate, '2026-07-18');
+  assert.equal(post.description, 'How we ship.');
+  assert.deepEqual(post.tags, ['serverless', 'aws']);
+  assert.deepEqual(post.categories, ['engineering']);
+  assert.equal(post.path, 'content/blog/shipping-fast.md');
+});
+
+test('postFields splits an absolute canonical URL from a relative permalink', () => {
+  const abs = postFields('---\ncanonicalURL: https://elsewhere.dev/p/\n---\nx', 'p/a.md');
+  assert.equal(abs.canonicalUrl, 'https://elsewhere.dev/p/');
+  assert.equal(abs.urlPath, undefined);
+
+  const rel = postFields('---\nurl: /2026/my-post/\n---\nx', 'p/a.md');
+  assert.equal(rel.canonicalUrl, undefined);
+  assert.equal(rel.urlPath, '/2026/my-post/');
+});
+
+test('postFields names a page bundle after its directory, not index.md', () => {
+  const post = postFields('---\ntitle: Bundled\n---\nx', 'content/blog/my-post/index.md');
+  assert.equal(post.slug, 'my-post');
+  assert.equal(postFields('---\ntitle: T\n---\nx', 'content/blog/other/_index.md').slug, 'other');
+});
+
+test('TOML front matter reads single-line tag arrays', () => {
+  const file = '+++\ntitle = "Hi"\ndate = 2026-07-18\ntags = ["aws", "serverless"]\n+++\nbody';
+  const post = postFields(file, 'content/blog/hi.md');
+  assert.deepEqual(post.tags, ['aws', 'serverless']);
+  assert.equal(post.publishDate, '2026-07-18');
 });

@@ -6,8 +6,8 @@ the suggestions back onto the PR — as one-click GitHub *suggested changes* whe
 the diff allows, plus a summary comment. So the copyedit team runs inside your
 normal git workflow, before you merge.
 
-Status: **Phase A landed** (backend enablers). The Action itself (Phase B) is
-planned.
+Status: **Phases A and B landed** — the backend enablers and the Action itself
+(`action/`), plus publish-on-merge from Phase C. Two-way sync is still open.
 
 ## Decisions
 
@@ -95,10 +95,35 @@ A reusable action referenced from the Hugo repo's PR workflow, holding
 - **Whole-line suggestions:** `replace_with` is a substring; a ```suggestion
   replaces whole lines, so the block reconstructs the full line(s).
 
-## Phase C — later (out of first cut)
+## Phase C
 
-- **Publish-on-merge:** on push to main, mark the post `published` (which feeds
-  Voice auto-capture via the content stream).
-- **Two-way sync:** a committed GitHub suggestion (or a resolved thread) flowing
-  back to mark the Booked suggestion accepted/rejected — needs a webhook into the
-  app.
+### Publish-on-merge ✅ (landed)
+
+A second mode of the same Action (`mode: publish`), run from a merge workflow.
+On the default branch the post stops being a draft under review, so its record
+is squared with the merged file: final body, the full metadata set (title,
+description, tags, categories, publish date, canonical URL), and status
+`published`.
+
+Marking a blog piece `published` is the Voice trigger — the content stream
+auto-captures it as a voice sample (see the README's Voice section), so no
+voice-specific call is needed here. The front-matter date is carried through as
+`publish_date` because that is the sample's anchor on the recency-decay curve;
+without it the sample falls back to the row's creation time and a backfilled
+archive would all weigh in as "today".
+
+The merged file is treated as the source of truth for the metadata it owns, so
+cleared front matter clears the field in Booked. `canonical_url` is set but
+never cleared (it may be filled in from the app), and `campaign_id` is never
+touched by CI.
+
+Still out: removing a post from the repo doesn't unpublish it, and a changed
+slug registers as a new piece rather than renaming the old one.
+
+### Two-way sync (open)
+
+A committed GitHub suggestion (or a resolved thread) flowing back to mark the
+Booked suggestion accepted/rejected — needs a webhook into the app. Today a
+committed suggestion is picked up indirectly: the push re-runs the review, the
+edit's revalidation marks the applied suggestion `skipped`, and the new review
+supersedes what's left. Accurate as a *state*, but it never records the accept.
