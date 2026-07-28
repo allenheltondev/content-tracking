@@ -95,9 +95,8 @@ has a colocated `*.test.mjs`. Async event sources get a DLQ in the template.
   the `esbuild-properties` YAML anchor; override per function only with a
   comment explaining why.
 - IAM is least-privilege per function, scoped to specific resources.
-- Every new function gets a CloudFormation-managed log group
-  (`/booked/<env>/<name>`, retention from `LogRetentionInDays`) referenced by
-  its `LoggingConfig` — never rely on the Lambda-created default group.
+- Functions use the default Lambda-created log group; the template does not
+  declare `AWS::Logs::LogGroup` resources or set `LoggingConfig`.
 - Env var names are SCREAMING_SNAKE; CFN parameters are PascalCase.
 
 ## Dashboard (ui/)
