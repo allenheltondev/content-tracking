@@ -6,6 +6,7 @@ import {
   getReview,
   listSuggestions,
   recordSuggestions,
+  supersedePriorSuggestions,
 } from "../domain/content-review.mjs";
 import { formatReview, formatSuggestion } from "../validation/content-review.mjs";
 import { getVoiceProfile } from "../domain/voice.mjs";
@@ -117,6 +118,18 @@ export async function runReview({ tenantId, contentId, reviewId, contentVersion,
 
     const suggestions = lensResults.flatMap((r) => r.suggestions);
     const recorded = await recordSuggestions(tenantId, contentId, { reviewId, contentVersion, body, suggestions });
+
+    // This run's findings replace the last run's: retire whatever an earlier
+    // review left pending so a re-review (the CI loop: edit, PATCH, review
+    // again) doesn't stack two sets of near-identical advice. Skipped when
+    // every lens failed — that run has nothing to say and shouldn't clear what
+    // the previous one found. Non-fatal: the new suggestions are already
+    // recorded, and the leftovers age out on their own TTL.
+    if (lensResults.some((r) => r.ok)) {
+      await supersedePriorSuggestions(tenantId, contentId, { reviewId })
+        .catch((err) => logger.warn("Could not supersede prior suggestions", { error: err?.message }));
+    }
+
     await send({ type: "suggestions", suggestions: recorded.map(formatSuggestion) });
 
     let summary = null;

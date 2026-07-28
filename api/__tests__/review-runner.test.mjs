@@ -10,6 +10,7 @@ jest.unstable_mockModule("../domain/content-review.mjs", () => ({
   getReview: jest.fn(),
   listSuggestions: jest.fn(),
   recordSuggestions: jest.fn(),
+  supersedePriorSuggestions: jest.fn(),
 }));
 jest.unstable_mockModule("../domain/voice.mjs", () => ({ getVoiceProfile: jest.fn() }));
 jest.unstable_mockModule("../services/embeddings.mjs", () => ({ embedText: jest.fn() }));
@@ -32,7 +33,7 @@ jest.unstable_mockModule("../services/review-lenses.mjs", () => ({
 }));
 
 const { getContent } = await import("../domain/content.mjs");
-const { claimReview, completeReview, getReview, listSuggestions, recordSuggestions } = await import("../domain/content-review.mjs");
+const { claimReview, completeReview, getReview, listSuggestions, recordSuggestions, supersedePriorSuggestions } = await import("../domain/content-review.mjs");
 const { getVoiceProfile } = await import("../domain/voice.mjs");
 const { embedText } = await import("../services/embeddings.mjs");
 const { queryVoiceSamples } = await import("../services/voice-vectors.mjs");
@@ -61,6 +62,7 @@ beforeEach(() => {
   runBrandLens.mockResolvedValue([{ type: "brand" }]);
   runSummaryLens.mockResolvedValue({ verdict: "minor_revisions", summary: "Good." });
   recordSuggestions.mockResolvedValue([recordedRow("s1", "grammar"), recordedRow("s2", "llm"), recordedRow("s3", "brand")]);
+  supersedePriorSuggestions.mockResolvedValue({ superseded: 0 });
   completeReview.mockResolvedValue({});
 });
 
@@ -107,6 +109,32 @@ test("a lens failure degrades but still completes the review", async () => {
   runLlmLens.mockRejectedValue(new Error("throttled"));
   await runReview({ ...BASE });
   expect(completeReview.mock.calls[0][3].lenses.failed).toContain("llm");
+  expect(completeReview.mock.calls[0][3].status).toBe("succeeded");
+});
+
+test("retires the previous review's leftovers once this run has recorded its own", async () => {
+  await runReview({ ...BASE });
+  expect(supersedePriorSuggestions).toHaveBeenCalledWith("T1", "C1", { reviewId: "R1" });
+  // Only after the new set is safely written.
+  expect(recordSuggestions.mock.invocationCallOrder[0])
+    .toBeLessThan(supersedePriorSuggestions.mock.invocationCallOrder[0]);
+});
+
+test("keeps the previous review's suggestions when every lens failed", async () => {
+  runReadabilityLens.mockRejectedValue(new Error("throttled"));
+  runLlmLens.mockRejectedValue(new Error("throttled"));
+  runBrandLens.mockRejectedValue(new Error("throttled"));
+  recordSuggestions.mockResolvedValue([]);
+
+  await runReview({ ...BASE });
+
+  expect(supersedePriorSuggestions).not.toHaveBeenCalled();
+  expect(completeReview.mock.calls[0][3].status).toBe("succeeded");
+});
+
+test("a failure to retire the old set doesn't fail the review", async () => {
+  supersedePriorSuggestions.mockRejectedValue(new Error("throttled"));
+  await expect(runReview({ ...BASE })).resolves.toBeUndefined();
   expect(completeReview.mock.calls[0][3].status).toBe("succeeded");
 });
 
