@@ -8,6 +8,7 @@ const {
   listSuggestions,
   updateSuggestionStatus,
   revalidateSuggestions,
+  supersedePriorSuggestions,
   createReview,
   claimReview,
 } = await import("../domain/content-review.mjs");
@@ -125,6 +126,46 @@ describe("domain/content-review", () => {
       await expect(updateSuggestionStatus(TENANT, CONTENT_ID, "missing", "rejected")).rejects.toMatchObject({
         statusCode: 404,
       });
+    });
+  });
+
+  describe("supersedePriorSuggestions", () => {
+    test("retires older reviews' pending rows and leaves this review's (and newer) alone", async () => {
+      const pending = [
+        { suggestionId: "old", status: "pending", reviewId: "01AAA" },
+        { suggestionId: "unstamped", status: "pending" },
+        { suggestionId: "mine", status: "pending", reviewId: "01BBB" },
+        // A concurrent review that started after this one; its output must survive.
+        { suggestionId: "newer", status: "pending", reviewId: "01CCC" },
+      ];
+      mockSend.mockImplementation((cmd) => {
+        if (cmd.input.KeyConditionExpression) return Promise.resolve({ Items: pending });
+        return Promise.resolve({});
+      });
+
+      const res = await supersedePriorSuggestions(TENANT, CONTENT_ID, { reviewId: "01BBB" });
+
+      expect(res).toEqual({ superseded: 2 });
+      const updated = mockSend.mock.calls
+        .filter((c) => c[0].input.UpdateExpression)
+        .map((c) => c[0].input.Key.sk.split("#").pop());
+      expect(updated.sort()).toEqual(["old", "unstamped"]);
+
+      const update = mockSend.mock.calls.find((c) => c[0].input.UpdateExpression)[0].input;
+      expect(update.ExpressionAttributeValues[":superseded"]).toBe("superseded");
+      expect(update.ConditionExpression).toContain("#status = :pending");
+    });
+
+    test("leaves a row resolved mid-flight alone rather than failing the run", async () => {
+      mockSend.mockImplementation((cmd) => {
+        if (cmd.input.KeyConditionExpression) {
+          return Promise.resolve({ Items: [{ suggestionId: "raced", status: "pending", reviewId: "01AAA" }] });
+        }
+        return Promise.reject(Object.assign(new Error("nope"), { name: "ConditionalCheckFailedException" }));
+      });
+
+      await expect(supersedePriorSuggestions(TENANT, CONTENT_ID, { reviewId: "01BBB" }))
+        .resolves.toEqual({ superseded: 0 });
     });
   });
 

@@ -30,6 +30,16 @@ export async function reviewPost(client, post, opts = {}) {
     review = await client.getReview(contentId, started.id);
   }
 
+  // Still running when the budget ran out. The suggestions endpoint would
+  // happily return a partial (or empty) set, and posting that as if it were the
+  // finished review is worse than saying nothing — the reader can't tell an
+  // all-clear from a review that never landed. Fail this post instead; the run
+  // is idempotent, so a re-run picks up the completed review.
+  if (review.status === 'pending' || review.status === 'running') {
+    const waited = Math.round((attempts * pollMs) / 1000);
+    throw new Error(`review ${started.id} still ${review.status} after ${waited}s; not posting a partial result`);
+  }
+
   // The suggestions endpoint returns ALL of the content's pending suggestions,
   // so filter to just this run's (by review_id) — otherwise a rerun, or a post
   // that already had unresolved suggestions, would repost stale/duplicate
@@ -85,8 +95,11 @@ export const SUMMARY_MARKER = '<!-- booked-content-review -->';
 
 // Renders the summary comment: the review verdict + summary, then any
 // suggestions that couldn't be posted inline (edits to unchanged lines),
-// grouped by file, so nothing is silently dropped.
-export function renderSummary(perFile) {
+// grouped by file, so nothing is silently dropped. `failures` lists posts the
+// run couldn't review (a timed-out or erroring review) — they belong in the
+// comment too, since re-runs overwrite it and a post missing from an updated
+// summary otherwise reads as "reviewed, nothing to say".
+export function renderSummary(perFile, failures = []) {
   const lines = [SUMMARY_MARKER, '## Content review'];
 
   for (const { path, review, summary } of perFile) {
@@ -99,6 +112,13 @@ export function renderSummary(perFile) {
         const where = s.startLine === s.endLine ? `L${s.startLine}` : `L${s.startLine}–${s.endLine}`;
         lines.push(`- **${s.type}** (${where}): ${s.reason} — \`${s.text_to_replace}\` → \`${s.replace_with || '(delete)'}\``);
       }
+    }
+  }
+
+  if (failures.length > 0) {
+    lines.push('', '### Not reviewed');
+    for (const f of failures) {
+      lines.push(`- \`${f.path}\` — ${f.message}`);
     }
   }
 

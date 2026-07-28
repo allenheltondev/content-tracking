@@ -87,6 +87,13 @@ suggestions (accept/reject stays a human action in the app).
   suggestions on changed lines and the rest in the summary comment.
 - Accepting a suggestion here (GitHub "Commit suggestion") does not yet mark it
   accepted in Booked — one-directional for now (see the design doc's Phase C).
+- Committing a suggestion pushes, which re-runs this action: the post is
+  PATCHed with the new body and reviewed again. Each review supersedes the
+  previous one's leftover suggestions in Booked, so the app shows the latest
+  round's advice rather than accumulating a set per push.
+- If a review doesn't finish inside the poll window (~3 min), that post is
+  reported under **Not reviewed** in the summary comment rather than posted as
+  a partial result. Re-run the job once it lands.
 
 ## Development
 

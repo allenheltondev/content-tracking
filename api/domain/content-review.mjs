@@ -212,6 +212,51 @@ export async function recordSuggestions(tenantId, contentId, { reviewId, content
   return items;
 }
 
+// Retires the pending suggestions left over from EARLIER reviews of this
+// content, once a newer review has recorded its own set. Without this a
+// re-review stacks: the suggestions the author skipped last round stay
+// `pending`, and the new run flags most of the same spans again, so the editor
+// shows two near-identical sets of the same advice. `superseded` is
+// system-only (never client-settable) and drops the row out of the pending
+// list without counting as a rejection.
+//
+// Only rows from an OLDER review are touched: reviewIds are ULIDs, so a
+// lexicographic compare is a chronological one, and a review that finishes out
+// of order (a slow run landing after a fast one) can't retire the newer run's
+// output. Rows written before the reviewId stamp existed have no reviewId and
+// count as older. Best-effort per row — a suggestion resolved concurrently
+// fails its condition and is left as the author left it.
+export async function supersedePriorSuggestions(tenantId, contentId, { reviewId }) {
+  const pending = await listSuggestions(tenantId, contentId, { status: "pending" });
+  const stale = pending.filter((s) => !s.reviewId || s.reviewId < reviewId);
+  let superseded = 0;
+
+  for (const s of stale) {
+    try {
+      await ddb.send(new UpdateCommand({
+        TableName: TABLE_NAME,
+        Key: suggestionKey(tenantId, contentId, s.suggestionId),
+        UpdateExpression: "SET #status = :superseded, #resolvedAt = :now",
+        ExpressionAttributeNames: { "#status": "status", "#resolvedAt": "resolvedAt" },
+        ExpressionAttributeValues: {
+          ":superseded": "superseded",
+          ":now": new Date().toISOString(),
+          ":pending": "pending",
+        },
+        ConditionExpression: "attribute_exists(sk) AND #status = :pending",
+      }));
+      superseded += 1;
+    } catch (err) {
+      if (isConditionalCheckFailed(err)) {
+        continue; // resolved by the author (or revalidation) mid-flight
+      }
+      throw err;
+    }
+  }
+
+  return { superseded };
+}
+
 // Lists a content piece's suggestions, pending by default. Ordered by the ULID
 // suggestionId (creation order) so the editor walks them front-to-back.
 export async function listSuggestions(tenantId, contentId, { status = "pending" } = {}) {

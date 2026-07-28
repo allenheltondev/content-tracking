@@ -53,11 +53,21 @@ test('reviewPost returns only this run’s suggestions (by review_id)', async ()
   assert.deepEqual(res.suggestions.map((s) => s.id), ['s1']);
 });
 
-test('reviewPost stops polling after attempts even if never terminal', async () => {
+test('reviewPost stops polling after attempts and fails rather than posting a partial review', async () => {
   let polls = 0;
-  const { client } = fakeClient({ getReview: async () => { polls += 1; return { id: 'R1', status: 'running' }; } });
-  await reviewPost(client, { slug: 'x', title: 'X', body: 'b' }, { sleep: async () => {}, attempts: 3 });
+  let read = false;
+  const { client } = fakeClient({
+    getReview: async () => { polls += 1; return { id: 'R1', status: 'running' }; },
+    getSuggestions: async () => { read = true; return { suggestions: [], review: null }; },
+  });
+
+  await assert.rejects(
+    reviewPost(client, { slug: 'x', title: 'X', body: 'b' }, { sleep: async () => {}, attempts: 3 }),
+    /still running after/,
+  );
   assert.equal(polls, 3);
+  // The half-finished review is never read, so nothing partial can be posted.
+  assert.equal(read, false);
 });
 
 test('buildComments splits inline (diffed lines) from summary (off-diff)', () => {
@@ -91,4 +101,10 @@ test('renderSummary carries the marker, verdict, and off-diff suggestions', () =
   assert.match(md, /minor revisions/);
   assert.match(md, /Looks solid\./);
   assert.match(md, /leverage.*→.*use/);
+});
+
+test('renderSummary lists posts that could not be reviewed', () => {
+  const md = renderSummary([], [{ path: 'p/b.md', message: 'review R1 still running after 180s' }]);
+  assert.match(md, /Not reviewed/);
+  assert.match(md, /p\/b\.md.*still running after 180s/);
 });

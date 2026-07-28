@@ -39,6 +39,10 @@ async function run() {
 
   const inlineComments = [];
   const perFile = [];
+  // Posts we couldn't review (timed-out or erroring review). Carried into the
+  // summary comment so an updated comment never implies a post was reviewed
+  // clean when it wasn't.
+  const failures = [];
 
   for (const file of posts) {
     try {
@@ -64,10 +68,11 @@ async function run() {
       core.info(`  ${suggestions.length} suggestion(s): ${inline.length} inline, ${summary.length} in summary`);
     } catch (err) {
       core.warning(`Failed to review ${file.filename}: ${err.message}`);
+      failures.push({ path: file.filename, message: err.message });
     }
   }
 
-  if (perFile.length === 0) return;
+  if (perFile.length === 0 && failures.length === 0) return;
 
   // One review carrying every inline suggested change. GitHub rejects a review
   // whose comments fall outside the diff; we only add inlineable ones, but if
@@ -93,7 +98,7 @@ async function run() {
     review: f.review,
     summary: inlinePosted ? f.summary : [...f.summary, ...f.inlineSummary],
   }));
-  await upsertSummary(octokit, owner, repo, pr.number, renderSummary(summaryPerFile));
+  await upsertSummary(octokit, owner, repo, pr.number, renderSummary(summaryPerFile, failures));
 }
 
 // Creates the summary comment, or updates the prior one (found by its marker) so

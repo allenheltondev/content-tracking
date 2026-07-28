@@ -11,9 +11,10 @@ import { BadRequestError } from "../services/errors.mjs";
 export const SUGGESTION_TYPES = ["llm", "brand", "fact", "grammar", "spelling"];
 export const SUGGESTION_PRIORITIES = ["low", "medium", "high"];
 
-// Statuses a client may set on a suggestion. `skipped` is system-only (set by
-// cross-edit revalidation when the underlying text is gone), so it is not an
-// accepted input here.
+// Statuses a client may set on a suggestion. Two more are system-only and so
+// not accepted here: `skipped` (cross-edit revalidation, when the underlying
+// text is gone) and `superseded` (a newer review of the same content recorded
+// its own set).
 const CLIENT_SETTABLE_STATUSES = ["accepted", "rejected", "dismissed"];
 
 function requireObject(body) {

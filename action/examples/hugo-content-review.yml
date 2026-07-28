@@ -20,10 +20,14 @@ permissions:
   contents: read
   pull-requests: write   # post the review + summary comment
 
-# One review run per PR at a time; a new push cancels the in-flight one.
+# One review run per PR at a time. Deliberately NOT cancel-in-progress:
+# cancelling the job doesn't cancel the review running server-side, so a rapid
+# second push would leave two reviews of the same post in flight and the
+# comments landing out of order. Queueing costs a little wall-clock and keeps
+# each push's review ordered behind the last one's.
 concurrency:
   group: content-review-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   review:
