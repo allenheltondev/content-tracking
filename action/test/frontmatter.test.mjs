@@ -122,3 +122,25 @@ test('TOML front matter reads single-line tag arrays', () => {
   assert.deepEqual(post.tags, ['aws', 'serverless']);
   assert.equal(post.publishDate, '2026-07-18');
 });
+
+test('publishDate wins over date when a post carries both', () => {
+  // Hugo's `date` is the page date; `publishDate` is when it actually ships.
+  // The voice anchors on the latter.
+  const file = '---\ntitle: T\ndate: 2026-01-05\npublishDate: 2026-07-18\n---\nbody';
+  assert.equal(postFields(file, 'p/a.md').publishDate, '2026-07-18');
+  // Still falls back to `date` when that's all there is.
+  assert.equal(postFields('---\ntitle: T\ndate: 2026-01-05\n---\nx', 'p/a.md').publishDate, '2026-01-05');
+});
+
+test('a path-style slug is kept as the post URL path', () => {
+  const post = postFields('---\ntitle: A\nslug: /allen.helton/my-post\n---\nx', 'content/blog/original.md');
+  assert.equal(post.slug, 'my-post');
+  assert.equal(post.urlPath, '/allen.helton/my-post');
+  // A plain slug carries no path of its own.
+  assert.equal(postFields('---\nslug: my-post\n---\nx', 'content/blog/a.md').urlPath, undefined);
+  // An explicit `url` still wins over the slug.
+  assert.equal(
+    postFields('---\nslug: /a/b\nurl: /2026/b/\n---\nx', 'content/blog/a.md').urlPath,
+    '/2026/b/',
+  );
+});

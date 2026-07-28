@@ -219,10 +219,10 @@ function IntegrationsTab(): ReactElement {
         <div>
           <h2 className="text-lg font-semibold text-foreground">Publishing</h2>
           <p className="text-sm text-muted-foreground">
-            Where your content lives. Posts store their canonical link as a path
-            (<code>/blog/my-post/</code>), so this is what turns it into a full URL — on the
-            content page, and on the canonical sent to dev.to, Medium, and Hashnode when you
-            cross-post. Change it here if you move domains; nothing else needs updating.
+            Where your content lives. Posts store their canonical link as a path, like{' '}
+            <code>/blog/my-post/</code>. This turns that path into a full URL on the content
+            page, and in the canonical sent to dev.to, Medium, and Hashnode when you cross-post.
+            If you move domains, change it here. Nothing else needs updating.
           </p>
         </div>
 

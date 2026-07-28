@@ -67,7 +67,11 @@ export function permalinkPath(post, postsDir = '') {
 //   2. `site-url` set on the action — an explicit override for a repo that
 //      publishes somewhere other than the tenant's configured site; absolute.
 //   3. Otherwise the path ("/blog/my-post/"), resolved by Booked.
-export function canonicalFor(post, { siteUrl, postsDir } = {}) {
+//
+// `paths: false` says the API can't take one (a deployment predating relative
+// canonicals). Then case 3 has nothing valid to send, so no canonical is
+// recorded rather than one the API would reject.
+export function canonicalFor(post, { siteUrl, postsDir, paths = true } = {}) {
   if (post.canonicalUrl) return post.canonicalUrl;
 
   const path = (post.urlPath ?? permalinkPath(post, postsDir)).replace(/^\/+|\/+$/g, '');
@@ -75,14 +79,14 @@ export function canonicalFor(post, { siteUrl, postsDir } = {}) {
 
   const base = String(siteUrl ?? '').trim().replace(/\/+$/, '');
   if (base && /^https?:\/\//i.test(base)) return `${base}/${path}/`;
-  return `/${path}/`;
+  return paths ? `/${path}/` : undefined;
 }
 
 // Brings a merged post's Booked record to its published state, creating it if
 // the post never went through a review PR. Returns what happened so the caller
 // can report it.
-export async function publishPost(client, post, { siteUrl, postsDir } = {}) {
-  const canonicalUrl = canonicalFor(post, { siteUrl, postsDir });
+export async function publishPost(client, post, { siteUrl, postsDir, paths } = {}) {
+  const canonicalUrl = canonicalFor(post, { siteUrl, postsDir, paths });
   const existing = await client.findBySlug(post.slug);
 
   if (existing) {

@@ -83,6 +83,33 @@ test('canonicalFor stores a path by default, so the base URL stays in Settings',
   assert.equal(canonicalFor({ ...POST, urlPath: '/2026/my-post/' }, { postsDir: 'content/' }), '/2026/my-post/');
 });
 
+test('canonicalFor keeps a path-style front-matter slug as the post path', () => {
+  // Booked stores the flattened slug (design-to-delight-a1eec234), but the post
+  // is served at the path the front matter declares.
+  const post = postFields(
+    '---\ntitle: A\nslug: /allen.helton/design-to-delight-a1eec234\n---\nbody',
+    'content/blog/2019-05-24_Design-to-Delight.md',
+  );
+  assert.equal(post.slug, 'design-to-delight-a1eec234');
+  assert.equal(canonicalFor(post, { postsDir: 'content/' }), '/allen.helton/design-to-delight-a1eec234/');
+});
+
+test('canonicalFor records nothing when the API cannot take a path', () => {
+  // A deployment predating relative canonicals rejects "/blog/my-post/", so
+  // sending one would 400 the publish.
+  assert.equal(canonicalFor(POST, { postsDir: 'content/', paths: false }), undefined);
+  // site-url still gives it something absolute to store.
+  assert.equal(
+    canonicalFor(POST, { postsDir: 'content/', paths: false, siteUrl: 'https://example.com' }),
+    'https://example.com/blog/my-post/',
+  );
+  // As does an absolute canonical in front matter.
+  assert.equal(
+    canonicalFor({ ...POST, canonicalUrl: 'https://elsewhere.dev/p/' }, { paths: false }),
+    'https://elsewhere.dev/p/',
+  );
+});
+
 test('canonicalFor goes absolute for an explicit front-matter URL or site-url', () => {
   // The piece's canonical lives elsewhere: taken as written, site-url or not.
   assert.equal(

@@ -138,7 +138,10 @@ Two things override the path:
 
 If neither Booked nor `site-url` has a base, the job warns: the path is still
 stored and still right, but nothing can turn it into a URL, so cross-posts go
-out without a canonical.
+out without a canonical. Against a Booked deployment that predates relative
+canonicals the job warns and records no canonical at all, since sending a path
+to that API would reject the post; set `site-url` (or upgrade the stack) to
+record canonicals there.
 
 ### The API key
 

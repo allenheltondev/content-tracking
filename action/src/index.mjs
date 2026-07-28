@@ -139,14 +139,24 @@ async function publishMergedPosts({ octokit, client, owner, repo, postsDir, site
   }
 
   // Without `site-url` each post records a site-relative canonical path, which
-  // Booked resolves with the canonical base URL from Settings. If neither is
-  // configured, the path is still stored and still correct — but nothing can
-  // turn it into a URL, so cross-posts go out without a canonical. Say so once.
+  // Booked resolves with the canonical base URL from Settings. Two cases are
+  // worth a word before publishing anything:
+  //   - the API is too old to accept a path, so no canonical is recorded at all
+  //     (sending one would 400 every post);
+  //   - it accepts paths but no base URL is configured, so the stored path is
+  //     right yet nothing can turn it into a URL.
+  let paths = true;
   if (!siteUrl) {
-    const settings = await client.publishingSettings().catch(() => null);
-    if (!settings?.canonical_base_url) {
+    const settings = await client.publishingSettings().catch(() => ({ supported: true, canonicalBaseUrl: null }));
+    paths = settings.supported;
+    if (!settings.supported) {
       core.warning(
-        'No canonical base URL configured in Booked (Settings → publishing) and no site-url input; ' +
+        'This Booked deployment predates site-relative canonical URLs, so posts will be published ' +
+        'without one. Upgrade the stack, or set the site-url input to record absolute URLs.',
+      );
+    } else if (!settings.canonicalBaseUrl) {
+      core.warning(
+        'No canonical base URL configured in Booked (Settings → Publishing) and no site-url input; ' +
         'canonical links will be stored as paths but cannot be resolved to URLs.',
       );
     }
@@ -165,7 +175,7 @@ async function publishMergedPosts({ octokit, client, owner, repo, postsDir, site
         continue;
       }
 
-      const { contentId, created, canonicalUrl } = await publishPost(client, post, { siteUrl, postsDir });
+      const { contentId, created, canonicalUrl } = await publishPost(client, post, { siteUrl, postsDir, paths });
       core.info(
         `Published ${file.filename} → ${contentId} (${created ? 'created' : 'updated'}` +
         `${post.publishDate ? `, ${post.publishDate}` : ', no publish date'}` +

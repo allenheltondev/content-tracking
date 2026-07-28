@@ -126,6 +126,12 @@ export function postFields(fileText, filePath) {
   const fileSlug = fileSlugFor(filePath);
   const rawSlug = typeof data.slug === 'string' && data.slug ? data.slug : fileSlug;
   const rawUrl = firstString(data.canonicalURL, data.canonical_url, data.canonicalUrl, data.url);
+  // A front-matter slug carrying path segments ("/allen.helton/my-post") is the
+  // post's whole URL path on the site, not just its last segment. Booked stores
+  // the flattened kebab slug, so keep the raw value to build the canonical
+  // from: rebuilding it from the file's directory instead would point readers
+  // at a path the post isn't served on.
+  const slugPath = typeof data.slug === "string" && data.slug.includes('/') ? data.slug : undefined;
   return {
     // Fall back to the (normalized) filename if the front-matter slug reduces to
     // nothing — e.g. `slug: /`.
@@ -134,16 +140,18 @@ export function postFields(fileText, filePath) {
     draft: data.draft === true,
     date: typeof data.date === 'string' ? data.date : undefined,
     // Metadata mirrored onto the Booked record when a merge publishes the post.
-    // Hugo has no single convention for the publish date, so take the first of
-    // the usual spellings; `publishDate` anchors the voice recency curve.
-    publishDate: toIsoDate(data.date ?? data.publishDate ?? data.publishdate ?? data.pubdate),
+    // `publishDate` anchors the voice recency curve, so prefer Hugo's explicit
+    // publication date over the page's `date` when a post carries both — for a
+    // scheduled or backfilled piece they differ, and it's the publication date
+    // that says when the writing shipped.
+    publishDate: toIsoDate(data.publishDate ?? data.publishdate ?? data.pubdate ?? data.date),
     description: firstString(data.description, data.summary),
     tags: normalizeTags(data.tags),
     categories: normalizeTags(data.categories),
     // An absolute front-matter URL is the canonical one as written; a relative
-    // `url` is a permalink override the site's base URL completes.
+    // `url` (or a path-style slug) is the post's own path on the site.
     canonicalUrl: isAbsoluteUrl(rawUrl) ? rawUrl : undefined,
-    urlPath: rawUrl && !isAbsoluteUrl(rawUrl) ? rawUrl : undefined,
+    urlPath: (rawUrl && !isAbsoluteUrl(rawUrl) ? rawUrl : undefined) ?? slugPath,
     path: filePath,
     body,
     bodyOffset,
