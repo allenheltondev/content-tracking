@@ -165,17 +165,6 @@ Parameters:
       Route53 hosted zone id for BaseCustomDomain. The stack creates the
       ACM certificates and validates them via DNS records in this zone,
       and creates the A records for booked.* and api.booked.* here.
-  LogRetentionInDays:
-    Type: Number
-    Default: 30
-    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
-    Description: |
-      Retention for every Lambda log group in the stack. Each function
-      writes to a CloudFormation-managed log group (see the Log groups
-      block at the top of Resources) instead of the Lambda-created
-      default, which never expires. The custom names also avoid the
-      "log group already exists" clash CloudFormation would hit trying
-      to adopt the /aws/lambda/* groups on an already-deployed stack.
 
 # Combined condition so partial-set (one param without the other) is a
 # no-op rather than a deploy error. Mirrors newsletter-service's
@@ -325,61 +314,6 @@ Globals:
           - !Sub "https://${DashboardDistribution.DomainName}"
 
 Resources:
-  # Log groups — one per function, retention capped by LogRetentionInDays.
-  # Each function's LoggingConfig points here; the old Lambda-created
-  # /aws/lambda/* groups stop receiving logs after this deploys and can be
-  # deleted manually.
-  ApiFunctionLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/booked/${Environment}/api"
-      RetentionInDays: !Ref LogRetentionInDays
-  ApiAuthorizerFunctionLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/booked/${Environment}/api-authorizer"
-      RetentionInDays: !Ref LogRetentionInDays
-  VectorizeContentFunctionLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/booked/${Environment}/vectorize-content"
-      RetentionInDays: !Ref LogRetentionInDays
-  RevalidateSuggestionsFunctionLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/booked/${Environment}/revalidate-suggestions"
-      RetentionInDays: !Ref LogRetentionInDays
-  VoiceMemoryFunctionLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/booked/${Environment}/voice-memory"
-      RetentionInDays: !Ref LogRetentionInDays
-  ReviewOrchestratorFunctionLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/booked/${Environment}/review-orchestrator"
-      RetentionInDays: !Ref LogRetentionInDays
-  StreamGenerateFunctionLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/booked/${Environment}/stream-generate"
-      RetentionInDays: !Ref LogRetentionInDays
-  StreamReviewFunctionLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/booked/${Environment}/stream-review"
-      RetentionInDays: !Ref LogRetentionInDays
-  BlogSearchToolFunctionLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/booked/${Environment}/blog-search-tool"
-      RetentionInDays: !Ref LogRetentionInDays
-  BlogGatewayInterceptorFunctionLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/booked/${Environment}/blog-gateway-interceptor"
-      RetentionInDays: !Ref LogRetentionInDays
-
   # Booked's own app client on the shared rsc-core Cognito user pool. Every
   # Ready, Set, Cloud surface signs into the same pool (RSCUserPool) but
   # brings its own public web client, so tokens carry a Booked-specific
@@ -595,8 +529,6 @@ Resources:
     Properties:
       CodeUri: api
       Handler: index.handler
-      LoggingConfig:
-        LogGroup: !Ref ApiFunctionLogGroup
       # Bigger memory and longer timeout than the per-route functions because
       # this single Lambda serves every route. Revenue rollups and Bedrock
       # calls are the heaviest paths.
@@ -762,8 +694,6 @@ Resources:
     Properties:
       CodeUri: api
       Handler: authorizer.handler
-      LoggingConfig:
-        LogGroup: !Ref ApiAuthorizerFunctionLogGroup
       MemorySize: 512
       Timeout: 10
       Environment:
@@ -870,8 +800,6 @@ Resources:
     Properties:
       CodeUri: functions/vectorize-content
       Handler: index.handler
-      LoggingConfig:
-        LogGroup: !Ref VectorizeContentFunctionLogGroup
       MemorySize: 512
       Timeout: 300
       # EMBEDDING_MODEL_ID / VECTOR_BUCKET_NAME / CONTENT_VECTOR_INDEX_NAME are
@@ -970,8 +898,6 @@ Resources:
     Properties:
       CodeUri: functions/revalidate-suggestions
       Handler: index.handler
-      LoggingConfig:
-        LogGroup: !Ref RevalidateSuggestionsFunctionLogGroup
       MemorySize: 256
       Timeout: 60
       # TABLE_NAME is inherited from Globals (shared with the API Lambda).
@@ -1056,8 +982,6 @@ Resources:
     Properties:
       CodeUri: functions/voice-memory
       Handler: index.handler
-      LoggingConfig:
-        LogGroup: !Ref VoiceMemoryFunctionLogGroup
       MemorySize: 512
       Timeout: 300
       # EMBEDDING_MODEL_ID / BEDROCK_MODEL_ID / VECTOR_BUCKET_NAME /
@@ -1178,8 +1102,6 @@ Resources:
     Properties:
       CodeUri: functions/review-orchestrator
       Handler: index.handler
-      LoggingConfig:
-        LogGroup: !Ref ReviewOrchestratorFunctionLogGroup
       MemorySize: 1024
       Timeout: 300
       Environment:
@@ -1262,8 +1184,6 @@ Resources:
     Properties:
       CodeUri: functions/stream-generate
       Handler: index.handler
-      LoggingConfig:
-        LogGroup: !Ref StreamGenerateFunctionLogGroup
       MemorySize: 512
       Timeout: 120
       Environment:
@@ -1334,8 +1254,6 @@ Resources:
     Properties:
       CodeUri: functions/stream-review
       Handler: index.handler
-      LoggingConfig:
-        LogGroup: !Ref StreamReviewFunctionLogGroup
       MemorySize: 1024
       Timeout: 300
       Environment:
@@ -1425,8 +1343,6 @@ Resources:
     Properties:
       CodeUri: functions/blog-search-tool
       Handler: index.handler
-      LoggingConfig:
-        LogGroup: !Ref BlogSearchToolFunctionLogGroup
       MemorySize: 512
       Timeout: 30
       Policies:
@@ -1464,8 +1380,6 @@ Resources:
     Properties:
       CodeUri: functions/blog-gateway-interceptor
       Handler: index.handler
-      LoggingConfig:
-        LogGroup: !Ref BlogGatewayInterceptorFunctionLogGroup
       MemorySize: 256
       Timeout: 10
 
