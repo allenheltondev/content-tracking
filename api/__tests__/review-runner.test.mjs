@@ -171,6 +171,29 @@ describe("voice grounding", () => {
     expect(runLlmLens).toHaveBeenCalledWith(expect.objectContaining({ voice }));
   });
 
+  test("prefers the signature measured off the full corpus at reflection time", async () => {
+    const measured = { sampleCount: 40, wordCount: 90000, avgSentenceWords: 19, habits: [{ key: "emDash", label: "Em dashes", rate: 4.2, prevalence: 1, postsWith: 38, occurrences: 380 }] };
+    getVoiceProfile.mockResolvedValue({ profile: { portrait: "plain" }, signature: measured });
+
+    await runReview({ ...BASE });
+
+    expect(runReadabilityLens).toHaveBeenCalledWith(expect.objectContaining({ voice: expect.objectContaining({ signature: measured }) }));
+  });
+
+  test("measures the retrieved samples when the profile has no cached signature", async () => {
+    // A voice that has not reflected since the field was added still gets a
+    // signature, just a thinner one.
+    getVoiceProfile.mockResolvedValue({ profile: { portrait: "plain" } });
+    queryVoiceSamples.mockResolvedValue(Array.from({ length: 4 }, () => ({
+      text: "Why does this matter? Because you'll hit it — probably today. I've shipped it (twice) and you won't love it.",
+    })));
+
+    await runReview({ ...BASE });
+
+    const { voice } = runReadabilityLens.mock.calls[0][0];
+    expect(voice.signature.sampleCount).toBe(4);
+  });
+
   test("records whether the run had a voice to judge against", async () => {
     await runReview({ ...BASE });
     expect(completeReview.mock.calls[0][3].lenses.voiceGrounded).toBe(true);

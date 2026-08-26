@@ -75,11 +75,14 @@ async function loadVoiceGrounding(tenantId, body, platformArg) {
     ]);
     const samples = rankVoiceSamples(candidates, { topK: COMPOSE_EXAMPLE_COUNT });
     if (!profileRow?.profile && samples.length === 0) return null;
-    // Measured from the retrieved samples, so the habits describe the same
-    // corpus the brand lens is reading. Null when the corpus is too small to
-    // claim a habit from; the lenses handle that by falling back to the
-    // profile's prose description alone.
-    const signature = analyzeVoiceSignature(samples);
+    // Prefer the signature measured at reflection time: that one is counted off
+    // the tenant's full published bodies, where this fallback can only see the
+    // five truncated excerpts retrieval happened to return. The fallback still
+    // matters for a voice that hasn't reflected since the field was added, and
+    // for a platform with no content catalog behind it. Null from both means
+    // the corpus is too small to claim a habit from, and the lenses fall back to
+    // the profile's prose description alone.
+    const signature = profileRow?.signature ?? analyzeVoiceSignature(samples);
     return { platform, profile: profileRow?.profile ?? null, samples, signature };
   } catch (err) {
     logger.warn("Could not load Voice grounding; the review will run voice-blind", { error: err?.message });

@@ -274,7 +274,7 @@ export async function listProfiles(tenantId) {
 // present so the profile keeps its original birth time. steering (the user's
 // intent note) is preserved too — this Put overwrites the whole row, so the
 // caller passes the current note back in or it would be lost.
-export async function putVoiceProfile(tenantId, platform, { profile, version, createdAt, steering }) {
+export async function putVoiceProfile(tenantId, platform, { profile, version, createdAt, steering, signature }) {
   const nowIso = new Date().toISOString();
   const nowMs = Date.now();
   const item = {
@@ -283,6 +283,11 @@ export async function putVoiceProfile(tenantId, platform, { profile, version, cr
     tenantId,
     platform,
     profile,
+    // The measured style signature for this voice (see voice-signature.mjs),
+    // cached here because computing it reads the full published corpus. Always
+    // written, so clearing a voice clears its habits too rather than leaving
+    // the last reflection's measurements behind.
+    signature: signature ?? null,
     samplesSinceReflection: 0,
     version,
     createdAt: createdAt ?? nowIso,

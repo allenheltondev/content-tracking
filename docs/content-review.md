@@ -306,8 +306,45 @@ What landed:
   The stream emits `{ type: 'guard', dropped, kept }` and the UI shows it as
   progress.
 - Tests: `voice-signature` (11), extended `review-lenses` (16) and
-  `review-runner` (15), extended `action/test/review` (47 total). Full backend
-  suite green (1239).
+  `review-runner` (15), extended `action/test/review` (47 total).
+
+**Follow-up: what the voice is measured from.** The first cut measured habits
+off whatever the brand lens happened to retrieve, which is five voice samples,
+each of which was `title + description + the first 4000 characters of the body`.
+Two problems: an excerpt taken from the front of a post is its most performative
+writing and never shows how the author explains, transitions, or closes; and
+five truncated excerpts is a thin corpus to call anything a habit from. Both are
+now fixed, and neither needed randomness (a random chunk would have broken the
+determinism the capture path depends on, degraded the embedding's value as a
+topical anchor, and regularly landed in a code listing):
+
+- `sampleProse` (`voice-memory.mjs`) — the excerpt is now **stratified**: the
+  same 4000-char budget spent across three regions of the post (50% opening, 25%
+  middle, 25% close), filled with whole paragraphs so it never ends mid-sentence,
+  taking the closing region from the END so the sample includes how the post
+  actually finishes. Fenced and indented code, tables, images, and raw HTML are
+  excluded. Still weighted toward the front, because the same text is what the
+  vector embeds and the opening is the better topical anchor. Deterministic by
+  construction: the same body always yields the same excerpt, so re-capturing
+  after an unrelated edit cannot quietly shift the corpus.
+- `computeVoiceSignature` (`voice-memory.mjs`) — the signature no longer reads
+  samples at all for the blog voice. It is deterministic counting rather than
+  model work, so it reads the **full published bodies** from the content catalog
+  (bounded: 60-post pool, 40-post corpus, 10-page walk), recency-selected through
+  the existing `selectRecencyWeighted`. It runs at reflection time, which is
+  already debounced and coalesced, and the result is cached on the VoiceProfile
+  row (`signature`). `loadVoiceGrounding` prefers the cached one and falls back
+  to measuring the retrieved samples, so a voice that hasn't reflected since this
+  landed still gets a signature, just a thinner one. For non-blog platforms the
+  samples ARE the whole post, so they stay the input. Never throws: a catalog
+  read that fails falls back to the samples.
+- `template.yaml` — `VoiceMemoryFunction` gained
+  `${ContentTrackingTable.Arn}/index/*` on its DynamoDB statement. The published-
+  blog walk queries GSI1, and the existing grant covered only the table, so
+  without this the signature would have silently fallen back to samples on every
+  reflection.
+
+Full backend suite green (1254).
 
 ### Phase 4a — The editor + suggestion UX ✅ (landed)
 

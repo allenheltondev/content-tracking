@@ -12,6 +12,7 @@ jest.unstable_mockModule("../services/voice-vectors.mjs", () => ({
 }));
 jest.unstable_mockModule("../services/bedrock/voice.mjs", () => ({ reflectVoiceProfile: jest.fn() }));
 jest.unstable_mockModule("../services/reflection-queue.mjs", () => ({ enqueueReflectionCatchup: jest.fn() }));
+jest.unstable_mockModule("../domain/content.mjs", () => ({ listContentByTenant: jest.fn() }));
 jest.unstable_mockModule("../domain/voice.mjs", () => ({
   claimReflectionSlot: jest.fn(),
   countSampleOnce: jest.fn(),
@@ -29,6 +30,7 @@ const { embedText } = await import("../services/embeddings.mjs");
 const { putVoiceSample, deleteVoiceSample } = await import("../services/voice-vectors.mjs");
 const { reflectVoiceProfile } = await import("../services/bedrock/voice.mjs");
 const { enqueueReflectionCatchup } = await import("../services/reflection-queue.mjs");
+const { listContentByTenant } = await import("../domain/content.mjs");
 const { NotFoundError } = await import("../services/errors.mjs");
 const {
   claimReflectionSlot, countSampleOnce, createVoiceSample, deleteVoiceSampleRow, listRecentSamples,
@@ -39,6 +41,7 @@ const {
   captureContentVoiceSample, removeContentVoiceSample,
   buildContentSampleText, contentVoiceSampleId, isVoiceEligibleContent,
   reflectAfterCuration, removeSampleAndSync, setSampleMutedAndSync,
+  computeVoiceSignature, sampleProse,
 } = await import("../services/voice-memory.mjs");
 
 const sample = {
@@ -140,6 +143,7 @@ describe("runReflection", () => {
     }));
     expect(putVoiceProfile).toHaveBeenCalledWith("T1", "x", {
       profile: { tone: "wry", portrait: "You write plainly." }, version: 5, createdAt: "t0", steering: "be concise",
+      signature: null, // two short samples is not enough corpus to measure
     });
     expect(createReflection).toHaveBeenCalledWith("T1", "x", expect.objectContaining({
       sampleWindow: 2, halfLifeDays: 90, version: 5, portrait: "You write plainly.",
@@ -179,7 +183,7 @@ describe("runReflection", () => {
     const res = await runReflection("T1", "x");
     expect(reflectVoiceProfile).not.toHaveBeenCalled(); // no Bedrock — nothing to learn
     expect(putVoiceProfile).toHaveBeenCalledWith("T1", "x", {
-      profile: null, version: 5, createdAt: "t0", steering: "be bold",
+      profile: null, version: 5, createdAt: "t0", steering: "be bold", signature: null,
     });
     expect(createReflection).toHaveBeenCalledWith("T1", "x", expect.objectContaining({
       sampleWindow: 0, version: 5, portrait: null,
@@ -376,5 +380,124 @@ describe("curation sync", () => {
   test("a reflection failure is swallowed so the curation action succeeds", async () => {
     listRecentSamples.mockRejectedValue(new Error("dynamo down"));
     await expect(reflectAfterCuration("T1", "x")).resolves.toBeNull();
+  });
+});
+
+// --- the representative excerpt -------------------------------------------
+
+const para = (label, words) => `${label} ${Array.from({ length: words }, () => "word").join(" ")}`;
+
+describe("sampleProse", () => {
+  const body = [
+    para("OPEN", 60),
+    "```js\nconst a = 1;\n\nconst b = 2;\n```",
+    para("SECOND", 60),
+    "| col | col |",
+    para("THIRD", 60),
+    para("FOURTH", 60),
+    para("FIFTH", 60),
+    para("SIXTH", 60),
+    para("CLOSE", 60),
+  ].join("\n\n");
+
+  test("spends the budget across the post instead of on its opening", () => {
+    const excerpt = sampleProse(body, 1200);
+
+    expect(excerpt).toContain("OPEN");
+    expect(excerpt).toContain("CLOSE"); // the old leading slice never reached this
+    expect(excerpt.length).toBeLessThanOrEqual(1200);
+  });
+
+  test("leaves out code blocks and tables", () => {
+    const excerpt = sampleProse(body, 4000);
+    expect(excerpt).not.toContain("const a = 1");
+    expect(excerpt).not.toContain("| col |");
+  });
+
+  test("is deterministic, so re-capturing a post can't shift the corpus", () => {
+    expect(sampleProse(body, 1200)).toBe(sampleProse(body, 1200));
+  });
+
+  test("returns a short post whole", () => {
+    const short = `${para("ONE", 10)}\n\n${para("TWO", 10)}`;
+    expect(sampleProse(short, 4000)).toBe(short);
+  });
+
+  test("never ends mid-sentence", () => {
+    const excerpt = sampleProse(body, 1200);
+    for (const block of excerpt.split("\n\n")) {
+      expect(body).toContain(block); // every block survives whole
+    }
+  });
+
+  test("falls back to a hard slice when one block is bigger than its budget", () => {
+    const wall = para("WALL", 400);
+    expect(sampleProse(wall, 200)).toBe(wall.slice(0, 200));
+  });
+
+  test("handles a post with no prose at all", () => {
+    expect(sampleProse("```js\nconst a = 1;\n```", 4000)).toBe("");
+    expect(sampleProse(undefined, 4000)).toBe("");
+  });
+
+  test("buildContentSampleText keeps the title and description in front", () => {
+    const text = buildContentSampleText({ title: "T", description: "D", contentMarkdown: body }, 1200);
+    expect(text.startsWith("T\n\nD\n\n")).toBe(true);
+    expect(text).toContain("CLOSE");
+  });
+});
+
+// --- the measured signature ------------------------------------------------
+
+describe("computeVoiceSignature", () => {
+  // Prose with habits a generic editor would strip: dashes, direct address,
+  // rhetorical questions, punchy one-line paragraphs.
+  const voicey = (n) => [
+    `Why does this matter? Because you'll hit it — probably today.`,
+    ``,
+    `Trust me.`,
+    ``,
+    `I've shipped it ${n} times (it still surprises me) and you won't love it.`,
+  ].join("\n");
+
+  const posts = (count) => Array.from({ length: count }, (_, i) => ({
+    contentMarkdown: voicey(i),
+    publishDate: `2026-0${(i % 9) + 1}-01T00:00:00Z`,
+  }));
+
+  test("measures the full published bodies for a blog voice", async () => {
+    listContentByTenant.mockResolvedValue({ items: posts(6), lastEvaluatedKey: undefined });
+
+    const signature = await computeVoiceSignature("T1", "blog", []);
+
+    expect(listContentByTenant).toHaveBeenCalledWith("T1", expect.objectContaining({ type: "blog", status: "published" }));
+    expect(signature.sampleCount).toBe(6);
+    expect(signature.habits.map((h) => h.key)).toEqual(expect.arrayContaining(["emDash", "secondPerson", "questions"]));
+  });
+
+  test("stops walking the catalog once it has enough posts", async () => {
+    listContentByTenant.mockResolvedValue({ items: posts(60), lastEvaluatedKey: { sk: "next" } });
+    await computeVoiceSignature("T1", "blog", []);
+    expect(listContentByTenant).toHaveBeenCalledTimes(1);
+  });
+
+  test("falls back to the samples when the catalog has too little to measure", async () => {
+    listContentByTenant.mockResolvedValue({ items: posts(1), lastEvaluatedKey: undefined });
+
+    const signature = await computeVoiceSignature("T1", "blog", posts(5).map((p) => ({ text: p.contentMarkdown })));
+    expect(signature.sampleCount).toBe(5);
+  });
+
+  test("falls back to the samples when the catalog read fails", async () => {
+    listContentByTenant.mockRejectedValue(new Error("throttled"));
+
+    const signature = await computeVoiceSignature("T1", "blog", posts(5).map((p) => ({ text: p.contentMarkdown })));
+    expect(signature.sampleCount).toBe(5);
+  });
+
+  test("measures the samples directly for a platform with no content catalog", async () => {
+    const signature = await computeVoiceSignature("T1", "linkedin", posts(4).map((p) => ({ text: p.contentMarkdown })));
+    expect(listContentByTenant).not.toHaveBeenCalled();
+    expect(signature.sampleCount).toBe(4);
   });
 });

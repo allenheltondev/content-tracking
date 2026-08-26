@@ -1042,7 +1042,9 @@ Resources:
             # Sentinel mark on the sample, counter bump + profile + reflection
             # rows, the recent-samples Query that feeds the reflection, the
             # auto-captured VoiceSample rows derived from blog Content, and
-            # their cleanup when the content is deleted/unpublished.
+            # their cleanup when the content is deleted/unpublished. The index
+            # grant is for the published-blog walk that measures the voice's
+            # style signature (GSI1 is the tenant's content list).
             - Effect: Allow
               Action:
                 - dynamodb:GetItem
@@ -1052,6 +1054,7 @@ Resources:
                 - dynamodb:Query
               Resource:
                 - !GetAtt ContentTrackingTable.Arn
+                - !Sub "${ContentTrackingTable.Arn}/index/*"
             # Embed samples (Titan) and reflect the profile (Converse).
             - Effect: Allow
               Action:
