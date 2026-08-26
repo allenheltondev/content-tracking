@@ -128,27 +128,49 @@ function isPunchyParagraph(paragraph) {
   return sentences(paragraph).length === 1 && words(paragraph) <= 12;
 }
 
-// Measures the corpus and returns the habits that clear both bars, plus the
-// stats the prompts quote. `samples` are voice samples ([{ text }]) — the same
-// rows the brand lens gets. Returns null when there isn't enough corpus to say
-// anything, so callers can treat "no signature" as a first-class state instead
-// of rendering an empty section.
-export function analyzeVoiceSignature(samples, { minSamples = MIN_SAMPLES } = {}) {
-  const texts = (samples ?? [])
-    .map((s) => stripMarkdownNoise(s?.text))
-    .filter((t) => t.trim().length > 0);
+// Measures ONE piece of writing. Returns the per-post counts a signature is
+// built from, or null when the text carries no prose.
+//
+// This is split out from the aggregate on purpose: every quantity here is
+// additive across posts, so a corpus can be measured once per post, at the
+// moment the post is captured and its full body is in hand, and aggregated
+// later from the stored counts. That is what lets the signature describe whole
+// published posts without any consumer ever re-reading them.
+export function measureText(text) {
+  const prose = stripMarkdownNoise(text);
+  const wordCount = words(prose);
+  if (wordCount === 0) return null;
 
-  if (texts.length < minSamples) return null;
+  const sentenceList = sentences(prose);
+  const markers = {};
+  for (const marker of MARKERS) {
+    markers[marker.key] = marker.match(prose);
+  }
 
-  const totalWords = texts.reduce((acc, t) => acc + words(t), 0);
+  return {
+    words: wordCount,
+    sentences: sentenceList.length,
+    sentenceWords: sentenceList.reduce((acc, sentence) => acc + words(sentence), 0),
+    markers,
+  };
+}
+
+// Folds per-post measurements into the signature: the habits that clear both
+// bars, plus the stats the prompts quote. Returns null when there isn't enough
+// corpus to say anything, so callers can treat "no signature" as a first-class
+// state instead of rendering an empty section.
+export function aggregateSignature(measurements, { minSamples = MIN_SAMPLES } = {}) {
+  const list = (measurements ?? []).filter((m) => m && m.words > 0);
+  if (list.length < minSamples) return null;
+
+  const totalWords = list.reduce((acc, m) => acc + m.words, 0);
   if (totalWords === 0) return null;
 
   const habits = [];
   for (const marker of MARKERS) {
-    const perSample = texts.map((t) => marker.match(t));
-    const occurrences = perSample.reduce((acc, n) => acc + n, 0);
-    const postsWith = perSample.filter((n) => n > 0).length;
-    const prevalence = postsWith / texts.length;
+    const occurrences = list.reduce((acc, m) => acc + (m.markers?.[marker.key] ?? 0), 0);
+    const postsWith = list.filter((m) => (m.markers?.[marker.key] ?? 0) > 0).length;
+    const prevalence = postsWith / list.length;
     const rate = (occurrences / totalWords) * RATE_UNIT;
 
     if (prevalence >= MIN_PREVALENCE && rate >= marker.minRate) {
@@ -163,17 +185,22 @@ export function analyzeVoiceSignature(samples, { minSamples = MIN_SAMPLES } = {}
     }
   }
 
-  const allSentences = texts.flatMap((t) => sentences(t));
-  const avgSentenceWords = allSentences.length > 0
-    ? round(allSentences.reduce((acc, s) => acc + words(s), 0) / allSentences.length, 0)
-    : 0;
+  const totalSentences = list.reduce((acc, m) => acc + (m.sentences ?? 0), 0);
+  const totalSentenceWords = list.reduce((acc, m) => acc + (m.sentenceWords ?? 0), 0);
 
   return {
-    sampleCount: texts.length,
+    sampleCount: list.length,
     wordCount: totalWords,
-    avgSentenceWords,
+    avgSentenceWords: totalSentences > 0 ? round(totalSentenceWords / totalSentences, 0) : 0,
     habits: habits.sort((a, b) => b.rate - a.rate),
   };
+}
+
+// Measures a set of texts and folds them in one step. The path for callers that
+// hold text and nothing else — the review's fallback, where samples come back
+// from the vector index carrying no stored measurements.
+export function analyzeVoiceSignature(samples, options = {}) {
+  return aggregateSignature((samples ?? []).map((s) => measureText(s?.text)), options);
 }
 
 function round(value, places) {

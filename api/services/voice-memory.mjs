@@ -5,8 +5,7 @@ import { logger } from "./logger.mjs";
 import { NotFoundError } from "./errors.mjs";
 import { isEligibleSample, selectRecencyWeighted, voiceHalfLifeDays } from "./voice-recency.mjs";
 import { enqueueReflectionCatchup } from "./reflection-queue.mjs";
-import { analyzeVoiceSignature } from "./voice-signature.mjs";
-import { listContentByTenant } from "../domain/content.mjs";
+import { aggregateSignature, measureText } from "./voice-signature.mjs";
 import {
   claimReflectionSlot,
   countSampleOnce,
@@ -50,20 +49,6 @@ const REFLECTION_COOLDOWN_MS = REFLECTION_COOLDOWN_SECONDS * 1000;
 const REFLECTION_LEASE_MS = Number(process.env.VOICE_REFLECTION_LEASE_SECONDS ?? 300) * 1000;
 // Fire the catch-up just after the cooldown expires (SQS delay caps at 900s).
 const REFLECTION_CATCHUP_DELAY_SECONDS = Math.min(900, REFLECTION_COOLDOWN_SECONDS + 15);
-
-// The measured-signature corpus. Unlike the learned profile, the signature is
-// deterministic counting rather than model work, so it doesn't have to settle
-// for the truncated excerpt a voice sample stores — it reads the FULL published
-// bodies straight from the content catalog. That is a bigger read than a
-// review can afford per run, which is why it is computed here (reflection is
-// already debounced and coalesced) and cached on the profile row.
-//
-// POOL bounds how far back the catalog walk goes; CORPUS is how many of those
-// posts, newest-published first, actually feed the measurement. MAX_PAGES is
-// the backstop for a large catalog where the published filter is sparse.
-const SIGNATURE_CORPUS = 40;
-const SIGNATURE_POOL = 60;
-const SIGNATURE_MAX_PAGES = 10;
 
 // A blog "voice sample" should be representative prose, not the whole (up to
 // 300KB) body — title + description + an excerpt captures the voice without
@@ -163,53 +148,24 @@ export async function maybeReflect(tenantId, platform) {
   }
 }
 
-// Walks the tenant's content index for published blog posts, newest-created
-// first, bounded on both item count and page count so a large catalog can't
-// turn one reflection into an unbounded read.
-async function listPublishedBlogPosts(tenantId) {
-  const items = [];
-  let exclusiveStartKey;
-  let pages = 0;
-
-  do {
-    const result = await listContentByTenant(tenantId, { type: "blog", status: "published", exclusiveStartKey });
-    items.push(...result.items);
-    exclusiveStartKey = result.lastEvaluatedKey;
-    pages += 1;
-  } while (exclusiveStartKey && items.length < SIGNATURE_POOL && pages < SIGNATURE_MAX_PAGES);
-
-  return items;
-}
-
 // Measures the countable habits of a voice: em dashes, direct address,
 // rhetorical questions, one-line paragraphs, and so on. These are what the
-// review's style lenses are told not to flag, so measuring them off five
-// truncated excerpts (what the brand lens happens to retrieve) is a real loss
-// of accuracy versus the full corpus.
+// review's style lenses are told not to flag, so it matters that they describe
+// whole posts rather than the truncated excerpt a sample row stores.
 //
-// For "blog" the corpus is whole published bodies. For every other platform the
-// samples ARE the whole post, so they're already the right input. Falls back to
-// the samples whenever the catalog can't produce enough to measure — a tenant
-// whose blog voice came from manually added samples has no Content rows to read.
-// Never throws: a signature is an enhancement to the profile, not a
-// precondition for one.
-export async function computeVoiceSignature(tenantId, platform, eligibleSamples) {
-  try {
-    if (platform !== "blog") return analyzeVoiceSignature(eligibleSamples);
-
-    const posts = await listPublishedBlogPosts(tenantId);
-    const corpus = selectRecencyWeighted(
-      posts
-        .map((post) => ({ text: post.contentMarkdown, publishedAt: post.publishDate ?? post.createdAt }))
-        .filter((sample) => typeof sample.text === "string" && sample.text.trim().length > 0),
-      { limit: SIGNATURE_CORPUS },
-    );
-
-    return analyzeVoiceSignature(corpus) ?? analyzeVoiceSignature(eligibleSamples);
-  } catch (err) {
-    logger.warn("Could not measure the voice signature; falling back to samples", { platform, error: err?.message });
-    return analyzeVoiceSignature(eligibleSamples);
-  }
+// It gets that WITHOUT reading the content catalog. Every quantity a signature
+// needs is additive across posts, so each post is measured once — at capture,
+// where its full body is already in hand — and the counts ride along on the
+// sample row as `styleStats`. Reflection then folds counts it has already
+// queried. No second access pattern, no filtered partition walk, and the
+// aggregate is identical to measuring the whole corpus in one pass.
+//
+// A sample with no stored counts (captured before this existed, or added
+// manually) is measured from its own text instead, so a corpus mid-backfill
+// still produces a signature and each post contributes the best measurement
+// available for it.
+export function measureVoiceSignature(samples) {
+  return aggregateSignature((samples ?? []).map((s) => s?.styleStats ?? measureText(s?.text)));
 }
 
 // (Re)derives the platform's style profile from its recent samples. Called
@@ -280,7 +236,7 @@ export async function runReflection(tenantId, platform) {
     version,
     createdAt: current?.createdAt,
     steering: current?.steering ?? null,
-    signature: await computeVoiceSignature(tenantId, platform, eligible),
+    signature: measureVoiceSignature(eligible),
   });
   await createReflection(tenantId, platform, {
     changeSummary: change_summary,
@@ -427,6 +383,10 @@ export async function captureContentVoiceSample(content) {
     source: "content-auto",
     sampleId,
     publishedAt: content.publishDate ?? content.createdAt,
+    // Measured from the WHOLE body, while the excerpt above is only what fits
+    // in a vector's metadata. This is the one moment the full post is in hand,
+    // so it is the one place the corpus can be measured accurately for free.
+    styleStats: measureText(content.contentMarkdown),
   });
   logger.info("Captured content voice sample", { contentId, sampleId });
   return { sampleId };

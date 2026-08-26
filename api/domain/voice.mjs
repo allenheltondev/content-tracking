@@ -53,7 +53,7 @@ const REFLECTION_PREFIX = (platform) => `VOICE#REFLECTION#${platform}#`;
 // content) so re-runs overwrite instead of duplicating. `publishedAt` anchors
 // the sample on the recency-decay curve (see services/voice-recency.mjs);
 // when absent, createdAt is the fallback anchor.
-export async function createVoiceSample(tenantId, { text, platform, format, source = "manual", sampleId, publishedAt } = {}) {
+export async function createVoiceSample(tenantId, { text, platform, format, source = "manual", sampleId, publishedAt, styleStats } = {}) {
   const id = sampleId ?? ulid();
   const now = new Date().toISOString();
   const item = {
@@ -69,6 +69,13 @@ export async function createVoiceSample(tenantId, { text, platform, format, sour
   };
   if (publishedAt) {
     item.publishedAt = publishedAt;
+  }
+  // Per-post style counts (see services/voice-signature.mjs). Stored here so the
+  // measured voice signature can be folded from rows reflection already reads,
+  // instead of re-reading the posts they came from. Auto-capture measures the
+  // full body; a sample without them is measured from its own text on the fly.
+  if (styleStats) {
+    item.styleStats = styleStats;
   }
   await ddb.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
   return item;

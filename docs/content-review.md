@@ -327,22 +327,31 @@ topical anchor, and regularly landed in a code listing):
   vector embeds and the opening is the better topical anchor. Deterministic by
   construction: the same body always yields the same excerpt, so re-capturing
   after an unrelated edit cannot quietly shift the corpus.
-- `computeVoiceSignature` (`voice-memory.mjs`) — the signature no longer reads
-  samples at all for the blog voice. It is deterministic counting rather than
-  model work, so it reads the **full published bodies** from the content catalog
-  (bounded: 60-post pool, 40-post corpus, 10-page walk), recency-selected through
-  the existing `selectRecencyWeighted`. It runs at reflection time, which is
-  already debounced and coalesced, and the result is cached on the VoiceProfile
-  row (`signature`). `loadVoiceGrounding` prefers the cached one and falls back
-  to measuring the retrieved samples, so a voice that hasn't reflected since this
-  landed still gets a signature, just a thinner one. For non-blog platforms the
-  samples ARE the whole post, so they stay the input. Never throws: a catalog
-  read that fails falls back to the samples.
-- `template.yaml` — `VoiceMemoryFunction` gained
-  `${ContentTrackingTable.Arn}/index/*` on its DynamoDB statement. The published-
-  blog walk queries GSI1, and the existing grant covered only the table, so
-  without this the signature would have silently fallen back to samples on every
-  reflection.
+- **Measure once, at capture** — the signature describes whole published posts
+  without any consumer re-reading them. Every quantity it needs (per-marker
+  occurrences, posts-containing, words, sentences, sentence words) is additive
+  across posts, so `voice-signature.mjs` splits into `measureText` (one post →
+  counts) and `aggregateSignature` (counts → the signature). `captureContentVoiceSample`
+  measures the **full body** — the one moment the whole post is in hand — and the
+  counts ride along on the VoiceSample row as `styleStats`. `measureVoiceSignature`
+  then folds counts from rows reflection has already queried, so the measurement
+  costs no reads at all. The aggregate is arithmetically identical to measuring
+  the whole corpus in one pass (asserted in the tests).
+
+  A first pass instead walked the content catalog through `listContentByTenant`
+  with `type`/`status` filters. That bounds *matches*, not read work: DynamoDB
+  still reads the tenant's whole GSI1 partition and discards non-matches, so it
+  had a Scan's inefficiency shape and put it on every reflection, including every
+  mute and unmute. Adding a dedicated index for published blog content would have
+  fixed the access pattern; measuring at capture removes the need for the read.
+- **Caching + fallback** — the result is stored on the VoiceProfile row
+  (`signature`) at reflection time. `loadVoiceGrounding` prefers it and falls back
+  to measuring the retrieved samples, which is also what happens for a sample with
+  no stored counts (captured before this existed, or added manually): the fallback
+  is per sample, not per corpus, so each post contributes the best measurement
+  available for it and a half-backfilled corpus still measures correctly. Running
+  `scripts/seed-voice-from-content.mjs --apply` re-captures the catalog and
+  backfills `styleStats` for every published post.
 
 Full backend suite green (1254).
 

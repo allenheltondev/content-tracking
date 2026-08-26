@@ -12,7 +12,6 @@ jest.unstable_mockModule("../services/voice-vectors.mjs", () => ({
 }));
 jest.unstable_mockModule("../services/bedrock/voice.mjs", () => ({ reflectVoiceProfile: jest.fn() }));
 jest.unstable_mockModule("../services/reflection-queue.mjs", () => ({ enqueueReflectionCatchup: jest.fn() }));
-jest.unstable_mockModule("../domain/content.mjs", () => ({ listContentByTenant: jest.fn() }));
 jest.unstable_mockModule("../domain/voice.mjs", () => ({
   claimReflectionSlot: jest.fn(),
   countSampleOnce: jest.fn(),
@@ -30,7 +29,7 @@ const { embedText } = await import("../services/embeddings.mjs");
 const { putVoiceSample, deleteVoiceSample } = await import("../services/voice-vectors.mjs");
 const { reflectVoiceProfile } = await import("../services/bedrock/voice.mjs");
 const { enqueueReflectionCatchup } = await import("../services/reflection-queue.mjs");
-const { listContentByTenant } = await import("../domain/content.mjs");
+const { measureText } = await import("../services/voice-signature.mjs");
 const { NotFoundError } = await import("../services/errors.mjs");
 const {
   claimReflectionSlot, countSampleOnce, createVoiceSample, deleteVoiceSampleRow, listRecentSamples,
@@ -41,7 +40,7 @@ const {
   captureContentVoiceSample, removeContentVoiceSample,
   buildContentSampleText, contentVoiceSampleId, isVoiceEligibleContent,
   reflectAfterCuration, removeSampleAndSync, setSampleMutedAndSync,
-  computeVoiceSignature, sampleProse,
+  measureVoiceSignature, sampleProse,
 } = await import("../services/voice-memory.mjs");
 
 const sample = {
@@ -280,6 +279,7 @@ describe("content auto-capture", () => {
       source: "content-auto",
       sampleId: "CONTENT-C1",
       publishedAt: "2026-07-10",
+      styleStats: measureText(content.contentMarkdown),
     });
   });
 
@@ -449,7 +449,7 @@ describe("sampleProse", () => {
 
 // --- the measured signature ------------------------------------------------
 
-describe("computeVoiceSignature", () => {
+describe("measureVoiceSignature", () => {
   // Prose with habits a generic editor would strip: dashes, direct address,
   // rhetorical questions, punchy one-line paragraphs.
   const voicey = (n) => [
@@ -460,44 +460,69 @@ describe("computeVoiceSignature", () => {
     `I've shipped it ${n} times (it still surprises me) and you won't love it.`,
   ].join("\n");
 
-  const posts = (count) => Array.from({ length: count }, (_, i) => ({
-    contentMarkdown: voicey(i),
-    publishDate: `2026-0${(i % 9) + 1}-01T00:00:00Z`,
-  }));
+  test("folds the counts stored on the sample rows", () => {
+    const samples = Array.from({ length: 6 }, (_, i) => ({
+      text: "(excerpt only)",
+      styleStats: measureText(voicey(i)),
+    }));
 
-  test("measures the full published bodies for a blog voice", async () => {
-    listContentByTenant.mockResolvedValue({ items: posts(6), lastEvaluatedKey: undefined });
+    const signature = measureVoiceSignature(samples);
 
-    const signature = await computeVoiceSignature("T1", "blog", []);
-
-    expect(listContentByTenant).toHaveBeenCalledWith("T1", expect.objectContaining({ type: "blog", status: "published" }));
     expect(signature.sampleCount).toBe(6);
     expect(signature.habits.map((h) => h.key)).toEqual(expect.arrayContaining(["emDash", "secondPerson", "questions"]));
   });
 
-  test("stops walking the catalog once it has enough posts", async () => {
-    listContentByTenant.mockResolvedValue({ items: posts(60), lastEvaluatedKey: { sk: "next" } });
-    await computeVoiceSignature("T1", "blog", []);
-    expect(listContentByTenant).toHaveBeenCalledTimes(1);
+  test("matches measuring the same corpus in one pass", () => {
+    const texts = Array.from({ length: 6 }, (_, i) => voicey(i));
+
+    expect(measureVoiceSignature(texts.map((text) => ({ text: "(excerpt)", styleStats: measureText(text) }))))
+      .toEqual(measureVoiceSignature(texts.map((text) => ({ text }))));
   });
 
-  test("falls back to the samples when the catalog has too little to measure", async () => {
-    listContentByTenant.mockResolvedValue({ items: posts(1), lastEvaluatedKey: undefined });
-
-    const signature = await computeVoiceSignature("T1", "blog", posts(5).map((p) => ({ text: p.contentMarkdown })));
-    expect(signature.sampleCount).toBe(5);
-  });
-
-  test("falls back to the samples when the catalog read fails", async () => {
-    listContentByTenant.mockRejectedValue(new Error("throttled"));
-
-    const signature = await computeVoiceSignature("T1", "blog", posts(5).map((p) => ({ text: p.contentMarkdown })));
-    expect(signature.sampleCount).toBe(5);
-  });
-
-  test("measures the samples directly for a platform with no content catalog", async () => {
-    const signature = await computeVoiceSignature("T1", "linkedin", posts(4).map((p) => ({ text: p.contentMarkdown })));
-    expect(listContentByTenant).not.toHaveBeenCalled();
+  test("measures a sample that carries no stored counts", () => {
+    // A row captured before style stats existed still contributes.
+    const signature = measureVoiceSignature(Array.from({ length: 4 }, (_, i) => ({ text: voicey(i) })));
     expect(signature.sampleCount).toBe(4);
   });
+
+  test("takes the stored counts per sample, so a half-backfilled corpus still measures whole posts", () => {
+    const samples = Array.from({ length: 6 }, (_, i) => (
+      i % 2 === 0
+        ? { text: "(excerpt only)", styleStats: measureText(voicey(i)) }
+        : { text: voicey(i) }
+    ));
+
+    expect(measureVoiceSignature(samples).sampleCount).toBe(6);
+  });
+
+  test("says nothing when there is no corpus", () => {
+    expect(measureVoiceSignature([])).toBeNull();
+    expect(measureVoiceSignature(undefined)).toBeNull();
+  });
 });
+
+describe("captureContentVoiceSample style stats", () => {
+  test("measures the full body, not the excerpt that gets embedded", async () => {
+    const body = [voiceyBody(), "```js", "const a = 1;", "```", tail()].join("\n\n");
+    getVoiceSample.mockResolvedValue(null);
+
+    await captureContentVoiceSample({
+      tenantId: "T1", contentId: "C1", type: "blog", status: "published",
+      title: "T", contentMarkdown: body, publishDate: "2026-07-01T00:00:00Z",
+    });
+
+    const written = createVoiceSample.mock.calls[0][1];
+    expect(written.styleStats).toEqual(measureText(body));
+    // The excerpt is capped; the measurement is not.
+    expect(written.styleStats.words).toBeGreaterThan(0);
+    expect(written.styleStats.markers.emDash).toBeGreaterThan(0);
+  });
+});
+
+function voiceyBody() {
+  return `You know the feeling — it bites. Why? Because you shipped it.`;
+}
+
+function tail() {
+  return `I've been there (more than once) and you will be too — soon.`;
+}
