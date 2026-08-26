@@ -28,8 +28,14 @@ export interface Suggestion {
 
 export interface ReviewLenses {
   verdict?: string | null;
+  // What each lens proposed. The voice guard runs after the fan-out, so
+  // `vetoed` and `recorded` are what actually survived to the author.
   counts?: Record<string, number>;
   failed?: string[];
+  // Whether the run had a learned voice to judge against. False means the
+  // on-voice lens sat out and nothing checked the advice against how you write.
+  voiceGrounded?: boolean;
+  vetoed?: number;
   recorded?: number;
 }
 
@@ -129,6 +135,7 @@ export type ReviewStreamEvent =
   | { type: 'review'; review: Review }
   | { type: 'status'; lens: string; state: 'running' }
   | { type: 'lens'; name: string; count: number; ok?: boolean }
+  | { type: 'guard'; dropped: number; kept: number }
   | { type: 'suggestions'; suggestions: Suggestion[] }
   | { type: 'summary'; summary: string | null; verdict: string | null }
   | { type: 'done'; status: ReviewStatus }

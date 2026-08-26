@@ -83,6 +83,10 @@ A reusable action referenced from the Hugo repo's PR workflow, holding
      replace whole lines). One-click apply.
    - Everything else → a **summary comment** grouped by lens, carrying the
      review's verdict + summary, tagged with a hidden marker so re-runs update it
+   - The summary comment also reports what each lens raised, how many
+     suggestions the voice guard held back, and a warning when the on-voice lens
+     did not run (no learned voice for the platform yet), so a voice-blind
+     review never reads like a normal one
      instead of stacking.
 
 ### Constraints (design accounts for these)

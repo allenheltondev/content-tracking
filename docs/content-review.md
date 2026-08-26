@@ -234,6 +234,127 @@ Client delivery today is polling `GET .../reviews/{reviewId}` +
 > allowlist (or a scoped web-search MCP gateway) is a reasonable hardening
 > follow-up before enabling `FACT_SEARCH_URL` in production.
 
+### Phase 3c — Voice-aware review ✅ (landed)
+
+The first real review of a real post surfaced the engine's central flaw: nearly
+every suggestion was an edit that stripped the author's voice. The Voice
+retrieval was working. The architecture was the problem, in four compounding
+ways.
+
+**1. Three of the four lenses ran voice-blind.** Only `runBrandLens` ever
+received the grounding. Readability and the AI-tell lens got the raw body and a
+bare "don't change the author's voice" instruction with no idea what that voice
+was, so they fell back to generic-editor priors: shorter sentences, active
+voice, fewer dashes, less hedging.
+
+**2. The AI-tell taxonomy was absolute.** Its red-flag list (dash overuse,
+hedging, conversational scaffolding) describes casual human prose as well as it
+describes generated text. For a writer whose voice includes those traits, the
+lens most committed to deletion was aimed straight at their style.
+
+**3. A missing voice was silent.** `loadVoiceGrounding` returns null on an
+embedding failure, a vector-query failure, or an empty corpus, and the brand
+lens simply dropped out of the fan-out. The review completed normally, verdict
+and all, with only the flattening lenses contributing, and nothing anywhere said
+so.
+
+**4. The brand lens had no veto.** Lens output was concatenated
+(`lensResults.flatMap(...)`), so the on-voice lens could only ADD suggestions,
+never remove one that flattened a signature phrase. And because it is told to
+stay quiet when a draft already sounds like its author — which a draft they wrote
+does — the healthier the voice, the more completely the review was dominated by
+lenses that didn't know it. That is the inversion that made a good draft produce
+a bad review.
+
+What landed:
+
+- `api/services/voice-signature.mjs` (new) — deterministic style-marker analysis
+  over the retrieved samples. Counts em dashes, direct address, first person,
+  contractions, rhetorical questions, exclamations, parenthetical asides,
+  ellipses, and one-line paragraphs, after stripping markdown noise (fenced and
+  inline code, link targets, heading markers) so a dev blog's code samples don't
+  skew the prose measurement. A marker becomes a **signature habit** only when it
+  clears both a prevalence bar (present in ≥60% of posts, so it is a habit and
+  not one post's quirk) and a per-1000-word rate bar. Below three samples it
+  reports nothing rather than over-claiming. `renderSignatureHabits` renders the
+  result as measured facts plus an explicit hands-off instruction.
+- **Voice constraint on the style lenses** — `runReadabilityLens` and
+  `runLlmLens` now take the grounding and append `buildVoiceConstraint`: the
+  profile's portrait, signature phrases, dos/donts, and tone, plus the measured
+  habits. Deliberately *not* the brand lens's grounding — no sample posts, since
+  these lenses need to know what not to touch, not what to imitate.
+- **Voice-relative AI tells** — the LLM lens prompt now says the generic list is
+  a starting point rather than a verdict, and that a trait running through the
+  author's published writing is their voice. The readability prompt lost its
+  house-style mandate: it corrects mistakes, and an edit justified only by "this
+  is how editors usually prefer it" is not emitted.
+- **The voice guard** (`runVoiceGuard`) — an arbitration pass after the fan-out.
+  It sees the draft, the voice, and the candidate edits together, and discards
+  the ones that cost more voice than they buy in polish. Scoped to `grammar` and
+  `llm` suggestions: factual corrections are exempt (a wrong statistic is wrong
+  regardless of how it sounds) and so is the brand lens's own output. It returns
+  1-based indexes into the numbered list it was given rather than echoing edits
+  back, so a paraphrasing model can't rewrite a suggestion in transit; the runner
+  filters out-of-range and repeated indexes, so a miscounting model can only ever
+  veto fewer suggestions than it named. Non-fatal: a guard that throws degrades
+  to publishing everything, and vetoed suggestions are dropped before
+  `recordSuggestions`, so they never reach the author at all.
+- **Visibility** — the review's `lenses` gained `voiceGrounded` (did this run have
+  a voice to judge against?) and `vetoed` (how many the guard held back).
+  `renderSummary` in the action now prints per-lens counts, failed lenses, and a
+  blockquote warning when `voiceGrounded === false`, so the silent case is loud.
+  The stream emits `{ type: 'guard', dropped, kept }` and the UI shows it as
+  progress.
+- Tests: `voice-signature` (11), extended `review-lenses` (16) and
+  `review-runner` (15), extended `action/test/review` (47 total).
+
+**Follow-up: what the voice is measured from.** The first cut measured habits
+off whatever the brand lens happened to retrieve, which is five voice samples,
+each of which was `title + description + the first 4000 characters of the body`.
+Two problems: an excerpt taken from the front of a post is its most performative
+writing and never shows how the author explains, transitions, or closes; and
+five truncated excerpts is a thin corpus to call anything a habit from. Both are
+now fixed, and neither needed randomness (a random chunk would have broken the
+determinism the capture path depends on, degraded the embedding's value as a
+topical anchor, and regularly landed in a code listing):
+
+- `sampleProse` (`voice-memory.mjs`) — the excerpt is now **stratified**: the
+  same 4000-char budget spent across three regions of the post (50% opening, 25%
+  middle, 25% close), filled with whole paragraphs so it never ends mid-sentence,
+  taking the closing region from the END so the sample includes how the post
+  actually finishes. Fenced and indented code, tables, images, and raw HTML are
+  excluded. Still weighted toward the front, because the same text is what the
+  vector embeds and the opening is the better topical anchor. Deterministic by
+  construction: the same body always yields the same excerpt, so re-capturing
+  after an unrelated edit cannot quietly shift the corpus.
+- **Measure once, at capture** — the signature describes whole published posts
+  without any consumer re-reading them. Every quantity it needs (per-marker
+  occurrences, posts-containing, words, sentences, sentence words) is additive
+  across posts, so `voice-signature.mjs` splits into `measureText` (one post →
+  counts) and `aggregateSignature` (counts → the signature). `captureContentVoiceSample`
+  measures the **full body** — the one moment the whole post is in hand — and the
+  counts ride along on the VoiceSample row as `styleStats`. `measureVoiceSignature`
+  then folds counts from rows reflection has already queried, so the measurement
+  costs no reads at all. The aggregate is arithmetically identical to measuring
+  the whole corpus in one pass (asserted in the tests).
+
+  A first pass instead walked the content catalog through `listContentByTenant`
+  with `type`/`status` filters. That bounds *matches*, not read work: DynamoDB
+  still reads the tenant's whole GSI1 partition and discards non-matches, so it
+  had a Scan's inefficiency shape and put it on every reflection, including every
+  mute and unmute. Adding a dedicated index for published blog content would have
+  fixed the access pattern; measuring at capture removes the need for the read.
+- **Caching + fallback** — the result is stored on the VoiceProfile row
+  (`signature`) at reflection time. `loadVoiceGrounding` prefers it and falls back
+  to measuring the retrieved samples, which is also what happens for a sample with
+  no stored counts (captured before this existed, or added manually): the fallback
+  is per sample, not per corpus, so each post contributes the best measurement
+  available for it and a half-backfilled corpus still measures correctly. Running
+  `scripts/seed-voice-from-content.mjs --apply` re-captures the catalog and
+  backfills `styleStats` for every published post.
+
+Full backend suite green (1254).
+
 ### Phase 4a — The editor + suggestion UX ✅ (landed)
 
 On the existing `ContentDetail` route, using the app's `useApiFetch` +

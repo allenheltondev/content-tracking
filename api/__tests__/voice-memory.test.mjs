@@ -29,6 +29,7 @@ const { embedText } = await import("../services/embeddings.mjs");
 const { putVoiceSample, deleteVoiceSample } = await import("../services/voice-vectors.mjs");
 const { reflectVoiceProfile } = await import("../services/bedrock/voice.mjs");
 const { enqueueReflectionCatchup } = await import("../services/reflection-queue.mjs");
+const { measureText } = await import("../services/voice-signature.mjs");
 const { NotFoundError } = await import("../services/errors.mjs");
 const {
   claimReflectionSlot, countSampleOnce, createVoiceSample, deleteVoiceSampleRow, listRecentSamples,
@@ -39,6 +40,7 @@ const {
   captureContentVoiceSample, removeContentVoiceSample,
   buildContentSampleText, contentVoiceSampleId, isVoiceEligibleContent,
   reflectAfterCuration, removeSampleAndSync, setSampleMutedAndSync,
+  measureVoiceSignature, sampleProse,
 } = await import("../services/voice-memory.mjs");
 
 const sample = {
@@ -140,6 +142,7 @@ describe("runReflection", () => {
     }));
     expect(putVoiceProfile).toHaveBeenCalledWith("T1", "x", {
       profile: { tone: "wry", portrait: "You write plainly." }, version: 5, createdAt: "t0", steering: "be concise",
+      signature: null, // two short samples is not enough corpus to measure
     });
     expect(createReflection).toHaveBeenCalledWith("T1", "x", expect.objectContaining({
       sampleWindow: 2, halfLifeDays: 90, version: 5, portrait: "You write plainly.",
@@ -179,7 +182,7 @@ describe("runReflection", () => {
     const res = await runReflection("T1", "x");
     expect(reflectVoiceProfile).not.toHaveBeenCalled(); // no Bedrock — nothing to learn
     expect(putVoiceProfile).toHaveBeenCalledWith("T1", "x", {
-      profile: null, version: 5, createdAt: "t0", steering: "be bold",
+      profile: null, version: 5, createdAt: "t0", steering: "be bold", signature: null,
     });
     expect(createReflection).toHaveBeenCalledWith("T1", "x", expect.objectContaining({
       sampleWindow: 0, version: 5, portrait: null,
@@ -276,6 +279,7 @@ describe("content auto-capture", () => {
       source: "content-auto",
       sampleId: "CONTENT-C1",
       publishedAt: "2026-07-10",
+      styleStats: measureText(content.contentMarkdown),
     });
   });
 
@@ -378,3 +382,147 @@ describe("curation sync", () => {
     await expect(reflectAfterCuration("T1", "x")).resolves.toBeNull();
   });
 });
+
+// --- the representative excerpt -------------------------------------------
+
+const para = (label, words) => `${label} ${Array.from({ length: words }, () => "word").join(" ")}`;
+
+describe("sampleProse", () => {
+  const body = [
+    para("OPEN", 60),
+    "```js\nconst a = 1;\n\nconst b = 2;\n```",
+    para("SECOND", 60),
+    "| col | col |",
+    para("THIRD", 60),
+    para("FOURTH", 60),
+    para("FIFTH", 60),
+    para("SIXTH", 60),
+    para("CLOSE", 60),
+  ].join("\n\n");
+
+  test("spends the budget across the post instead of on its opening", () => {
+    const excerpt = sampleProse(body, 1200);
+
+    expect(excerpt).toContain("OPEN");
+    expect(excerpt).toContain("CLOSE"); // the old leading slice never reached this
+    expect(excerpt.length).toBeLessThanOrEqual(1200);
+  });
+
+  test("leaves out code blocks and tables", () => {
+    const excerpt = sampleProse(body, 4000);
+    expect(excerpt).not.toContain("const a = 1");
+    expect(excerpt).not.toContain("| col |");
+  });
+
+  test("is deterministic, so re-capturing a post can't shift the corpus", () => {
+    expect(sampleProse(body, 1200)).toBe(sampleProse(body, 1200));
+  });
+
+  test("returns a short post whole", () => {
+    const short = `${para("ONE", 10)}\n\n${para("TWO", 10)}`;
+    expect(sampleProse(short, 4000)).toBe(short);
+  });
+
+  test("never ends mid-sentence", () => {
+    const excerpt = sampleProse(body, 1200);
+    for (const block of excerpt.split("\n\n")) {
+      expect(body).toContain(block); // every block survives whole
+    }
+  });
+
+  test("falls back to a hard slice when one block is bigger than its budget", () => {
+    const wall = para("WALL", 400);
+    expect(sampleProse(wall, 200)).toBe(wall.slice(0, 200));
+  });
+
+  test("handles a post with no prose at all", () => {
+    expect(sampleProse("```js\nconst a = 1;\n```", 4000)).toBe("");
+    expect(sampleProse(undefined, 4000)).toBe("");
+  });
+
+  test("buildContentSampleText keeps the title and description in front", () => {
+    const text = buildContentSampleText({ title: "T", description: "D", contentMarkdown: body }, 1200);
+    expect(text.startsWith("T\n\nD\n\n")).toBe(true);
+    expect(text).toContain("CLOSE");
+  });
+});
+
+// --- the measured signature ------------------------------------------------
+
+describe("measureVoiceSignature", () => {
+  // Prose with habits a generic editor would strip: dashes, direct address,
+  // rhetorical questions, punchy one-line paragraphs.
+  const voicey = (n) => [
+    `Why does this matter? Because you'll hit it — probably today.`,
+    ``,
+    `Trust me.`,
+    ``,
+    `I've shipped it ${n} times (it still surprises me) and you won't love it.`,
+  ].join("\n");
+
+  test("folds the counts stored on the sample rows", () => {
+    const samples = Array.from({ length: 6 }, (_, i) => ({
+      text: "(excerpt only)",
+      styleStats: measureText(voicey(i)),
+    }));
+
+    const signature = measureVoiceSignature(samples);
+
+    expect(signature.sampleCount).toBe(6);
+    expect(signature.habits.map((h) => h.key)).toEqual(expect.arrayContaining(["emDash", "secondPerson", "questions"]));
+  });
+
+  test("matches measuring the same corpus in one pass", () => {
+    const texts = Array.from({ length: 6 }, (_, i) => voicey(i));
+
+    expect(measureVoiceSignature(texts.map((text) => ({ text: "(excerpt)", styleStats: measureText(text) }))))
+      .toEqual(measureVoiceSignature(texts.map((text) => ({ text }))));
+  });
+
+  test("measures a sample that carries no stored counts", () => {
+    // A row captured before style stats existed still contributes.
+    const signature = measureVoiceSignature(Array.from({ length: 4 }, (_, i) => ({ text: voicey(i) })));
+    expect(signature.sampleCount).toBe(4);
+  });
+
+  test("takes the stored counts per sample, so a half-backfilled corpus still measures whole posts", () => {
+    const samples = Array.from({ length: 6 }, (_, i) => (
+      i % 2 === 0
+        ? { text: "(excerpt only)", styleStats: measureText(voicey(i)) }
+        : { text: voicey(i) }
+    ));
+
+    expect(measureVoiceSignature(samples).sampleCount).toBe(6);
+  });
+
+  test("says nothing when there is no corpus", () => {
+    expect(measureVoiceSignature([])).toBeNull();
+    expect(measureVoiceSignature(undefined)).toBeNull();
+  });
+});
+
+describe("captureContentVoiceSample style stats", () => {
+  test("measures the full body, not the excerpt that gets embedded", async () => {
+    const body = [voiceyBody(), "```js", "const a = 1;", "```", tail()].join("\n\n");
+    getVoiceSample.mockResolvedValue(null);
+
+    await captureContentVoiceSample({
+      tenantId: "T1", contentId: "C1", type: "blog", status: "published",
+      title: "T", contentMarkdown: body, publishDate: "2026-07-01T00:00:00Z",
+    });
+
+    const written = createVoiceSample.mock.calls[0][1];
+    expect(written.styleStats).toEqual(measureText(body));
+    // The excerpt is capped; the measurement is not.
+    expect(written.styleStats.words).toBeGreaterThan(0);
+    expect(written.styleStats.markers.emDash).toBeGreaterThan(0);
+  });
+});
+
+function voiceyBody() {
+  return `You know the feeling — it bites. Why? Because you shipped it.`;
+}
+
+function tail() {
+  return `I've been there (more than once) and you will be too — soon.`;
+}

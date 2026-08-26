@@ -5,6 +5,7 @@ import { logger } from "./logger.mjs";
 import { NotFoundError } from "./errors.mjs";
 import { isEligibleSample, selectRecencyWeighted, voiceHalfLifeDays } from "./voice-recency.mjs";
 import { enqueueReflectionCatchup } from "./reflection-queue.mjs";
+import { aggregateSignature, measureText } from "./voice-signature.mjs";
 import {
   claimReflectionSlot,
   countSampleOnce,
@@ -50,9 +51,17 @@ const REFLECTION_LEASE_MS = Number(process.env.VOICE_REFLECTION_LEASE_SECONDS ??
 const REFLECTION_CATCHUP_DELAY_SECONDS = Math.min(900, REFLECTION_COOLDOWN_SECONDS + 15);
 
 // A blog "voice sample" should be representative prose, not the whole (up to
-// 300KB) body — title + description + a leading excerpt captures the voice
-// without bloating the vector/metadata.
+// 300KB) body — title + description + an excerpt captures the voice without
+// bloating the vector/metadata.
 const CONTENT_SAMPLE_MAX_CHARS = 4000;
+
+// How the excerpt's budget is split across the post. It used to be a leading
+// slice, which meant every learned voice was learned from introductions: the
+// most performative writing an author does, and the part that never shows how
+// they explain, transition, or close. The budget is now spent across three
+// regions of the post, still weighted toward the front because the same text is
+// what the vector embeds and the opening is the better topical anchor.
+const REGION_SHARES = [0.5, 0.25, 0.25];
 
 // Processes one new (or re-written) VoiceSample: embed → upsert vector → count
 // it once → reflect when the counter crosses the threshold.
@@ -139,6 +148,26 @@ export async function maybeReflect(tenantId, platform) {
   }
 }
 
+// Measures the countable habits of a voice: em dashes, direct address,
+// rhetorical questions, one-line paragraphs, and so on. These are what the
+// review's style lenses are told not to flag, so it matters that they describe
+// whole posts rather than the truncated excerpt a sample row stores.
+//
+// It gets that WITHOUT reading the content catalog. Every quantity a signature
+// needs is additive across posts, so each post is measured once — at capture,
+// where its full body is already in hand — and the counts ride along on the
+// sample row as `styleStats`. Reflection then folds counts it has already
+// queried. No second access pattern, no filtered partition walk, and the
+// aggregate is identical to measuring the whole corpus in one pass.
+//
+// A sample with no stored counts (captured before this existed, or added
+// manually) is measured from its own text instead, so a corpus mid-backfill
+// still produces a signature and each post contributes the best measurement
+// available for it.
+export function measureVoiceSignature(samples) {
+  return aggregateSignature((samples ?? []).map((s) => s?.styleStats ?? measureText(s?.text)));
+}
+
 // (Re)derives the platform's style profile from its recent samples. Called
 // automatically when the counter crosses the threshold, and on demand by
 // POST /voice/profiles/{platform}/reflect. Returns the updated profile row (or
@@ -177,6 +206,7 @@ export async function runReflection(tenantId, platform) {
       version: clearedVersion,
       createdAt: current.createdAt,
       steering: current.steering ?? null,
+      signature: null,
     });
     await createReflection(tenantId, platform, {
       changeSummary: "Voice cleared — no eligible samples remain to learn from.",
@@ -206,6 +236,7 @@ export async function runReflection(tenantId, platform) {
     version,
     createdAt: current?.createdAt,
     steering: current?.steering ?? null,
+    signature: measureVoiceSignature(eligible),
   });
   await createReflection(tenantId, platform, {
     changeSummary: change_summary,
@@ -233,9 +264,81 @@ export function contentVoiceSampleId(contentId) {
 }
 
 export function buildContentSampleText(content, maxChars = CONTENT_SAMPLE_MAX_CHARS) {
-  const parts = [content.title, content.description, (content.contentMarkdown ?? "").slice(0, maxChars)]
+  const parts = [content.title, content.description, sampleProse(content.contentMarkdown, maxChars)]
     .filter((s) => typeof s === "string" && s.trim().length > 0);
   return parts.join("\n\n").trim();
+}
+
+// Splits a post into the blocks that are actually the author's prose. Fenced
+// code comes out first because a fence can contain blank lines and would
+// otherwise fragment into several "paragraphs" of source.
+function proseBlocks(markdown) {
+  return String(markdown ?? "")
+    .replace(/^```[\s\S]*?^```/gm, "\n\n")
+    .replace(/^~~~[\s\S]*?^~~~/gm, "\n\n")
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter((block) => block.length > 0 && isProseBlock(block));
+}
+
+// Blocks that carry no voice: indented code, tables, standalone images, raw
+// HTML, and any fence that survived the strip above.
+function isProseBlock(block) {
+  if (/^ {4,}\S/.test(block)) return false;
+  if (block.startsWith("|")) return false;
+  if (block.startsWith("!")) return false;
+  if (block.startsWith("<")) return false;
+  if (block.startsWith("```") || block.startsWith("~~~")) return false;
+  return true;
+}
+
+// Fills a budget with whole blocks, so an excerpt never ends mid-sentence.
+// `fromEnd` walks backwards (used for the closing region, where the last
+// paragraphs are the point) and restores document order before returning.
+function takeBlocks(blocks, budget, fromEnd = false) {
+  const ordered = fromEnd ? [...blocks].reverse() : blocks;
+  const picked = [];
+  let used = 0;
+
+  for (const block of ordered) {
+    const cost = picked.length === 0 ? block.length : block.length + 2;
+    if (used + cost > budget) break;
+    picked.push(block);
+    used += cost;
+  }
+
+  if (fromEnd) picked.reverse();
+  return { picked, used };
+}
+
+// Picks the representative excerpt: the opening, a stretch from the middle, and
+// the close, each on paragraph boundaries. Deterministic by construction — the
+// same body always yields the same excerpt — so re-capturing a post after an
+// unrelated edit (a title fix) can't quietly shift the corpus the voice is
+// learned from, and two reviews of the same draft see the same voice.
+export function sampleProse(markdown, maxChars = CONTENT_SAMPLE_MAX_CHARS) {
+  const blocks = proseBlocks(markdown);
+  if (blocks.length === 0) return "";
+
+  const whole = blocks.join("\n\n");
+  if (whole.length <= maxChars) return whole;
+
+  const perRegion = Math.ceil(blocks.length / REGION_SHARES.length);
+  const regions = REGION_SHARES.map((_, i) => blocks.slice(i * perRegion, (i + 1) * perRegion));
+
+  const chosen = [];
+  let carry = 0;
+  regions.forEach((region, i) => {
+    const budget = Math.floor(REGION_SHARES[i] * maxChars) + carry;
+    const { picked, used } = takeBlocks(region, budget, i === regions.length - 1);
+    chosen.push(...picked);
+    carry = budget - used;
+  });
+
+  // Every block was individually bigger than its region's budget (one giant
+  // wall of text). Fall back to a hard slice rather than returning nothing.
+  const excerpt = chosen.join("\n\n");
+  return excerpt.length > 0 ? excerpt : whole.slice(0, maxChars);
 }
 
 // Only the published blog catalog feeds the voice — drafts and scheduled
@@ -280,6 +383,10 @@ export async function captureContentVoiceSample(content) {
     source: "content-auto",
     sampleId,
     publishedAt: content.publishDate ?? content.createdAt,
+    // Measured from the WHOLE body, while the excerpt above is only what fits
+    // in a vector's metadata. This is the one moment the full post is in hand,
+    // so it is the one place the corpus can be measured accurately for free.
+    styleStats: measureText(content.contentMarkdown),
   });
   logger.info("Captured content voice sample", { contentId, sampleId });
   return { sampleId };

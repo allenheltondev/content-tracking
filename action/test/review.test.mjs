@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { reviewPost, buildComments, renderSummary, SUMMARY_MARKER } from '../src/review.mjs';
+import { reviewPost, buildComments, lensNotes, renderSummary, SUMMARY_MARKER } from '../src/review.mjs';
 
 function fakeClient(overrides = {}) {
   const calls = [];
@@ -107,4 +107,47 @@ test('renderSummary lists posts that could not be reviewed', () => {
   const md = renderSummary([], [{ path: 'p/b.md', message: 'review R1 still running after 180s' }]);
   assert.match(md, /Not reviewed/);
   assert.match(md, /p\/b\.md.*still running after 180s/);
+});
+
+test('lensNotes reports what each lens raised and what the voice guard dropped', () => {
+  const notes = lensNotes({
+    lenses: { verdict: 'ready', counts: { readability: 4, llm: 6, brand: 1 }, failed: [], voiceGrounded: true, vetoed: 3 },
+  }).join('\n');
+
+  assert.match(notes, /readability 4, llm 6, brand 1/);
+  assert.match(notes, /voice guard dropped 3 of those/);
+  assert.doesNotMatch(notes, /did not run/);
+});
+
+test('lensNotes warns loudly when the review had no voice to check against', () => {
+  const notes = lensNotes({
+    lenses: { counts: { readability: 4, llm: 6 }, failed: ['fact'], voiceGrounded: false, vetoed: 0 },
+  }).join('\n');
+
+  assert.match(notes, /The on-voice lens did not run/);
+  assert.match(notes, /nothing below was checked against how you write/);
+  assert.match(notes, /These lenses failed and contributed nothing: fact/);
+  assert.doesNotMatch(notes, /voice guard dropped/);
+});
+
+test('lensNotes stays quiet about voice grounding a review never reported', () => {
+  // Reviews recorded before the field existed must not be called voice-blind.
+  const notes = lensNotes({ lenses: { verdict: 'ready', counts: { readability: 1 } } }).join('\n');
+  assert.doesNotMatch(notes, /did not run/);
+
+  assert.deepEqual(lensNotes({}), []);
+  assert.deepEqual(lensNotes(null), []);
+});
+
+test('renderSummary surfaces the lens notes alongside the verdict', () => {
+  const md = renderSummary([
+    {
+      path: 'p/a.md',
+      review: { summary: 'Looks solid.', lenses: { verdict: 'ready', counts: { readability: 2 }, voiceGrounded: false } },
+      summary: [],
+    },
+  ]);
+
+  assert.match(md, /Suggestions raised per lens: readability 2/);
+  assert.match(md, /The on-voice lens did not run/);
 });

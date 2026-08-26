@@ -20,7 +20,9 @@ import {
   runLlmLens,
   runReadabilityLens,
   runSummaryLens,
+  runVoiceGuard,
 } from "./review-lenses.mjs";
+import { analyzeVoiceSignature } from "./voice-signature.mjs";
 
 // The content review engine, shared by both entry points: the async
 // EventBridge orchestrator (fire-and-forget) and the streaming Function URL
@@ -32,6 +34,7 @@ import {
 // The event contract (NDJSON on the stream):
 //   { type: 'status', lens, state: 'running' }   a lens started
 //   { type: 'lens', name, count, ok }            a lens finished
+//   { type: 'guard', dropped, kept }             the voice guard's arbitration
 //   { type: 'suggestions', suggestions: [...] }  the recorded, anchored set
 //   { type: 'summary', summary, verdict }        the editorial summary
 //   { type: 'done', status }                     terminal success
@@ -51,11 +54,17 @@ export function getFactSearchConfig() {
   };
 }
 
-// Retrieves the on-voice grounding for a platform: the learned profile plus the
-// draft's nearest, recency-ranked samples. Returns { platform, profile, samples }
-// when there's anything to ground on, or null when the tenant has no voice for
-// this platform yet (so the caller skips the brand lens rather than running it
-// blind).
+// Retrieves the on-voice grounding for a platform: the learned profile, the
+// draft's nearest recency-ranked samples, and the measured signature derived
+// from those samples. Returns { platform, profile, samples, signature } when
+// there's anything to ground on, or null when the tenant has no voice for this
+// platform yet.
+//
+// The return value now feeds every style lens, not just the brand one, so null
+// is a much bigger deal than it used to be: it means the whole review runs with
+// no idea how the author writes. The caller records that fact on the review
+// (`lenses.voiceGrounded`) so a voice-blind run is visible downstream instead of
+// looking exactly like a normal one.
 async function loadVoiceGrounding(tenantId, body, platformArg) {
   const platform = platformArg || "blog";
   try {
@@ -66,10 +75,53 @@ async function loadVoiceGrounding(tenantId, body, platformArg) {
     ]);
     const samples = rankVoiceSamples(candidates, { topK: COMPOSE_EXAMPLE_COUNT });
     if (!profileRow?.profile && samples.length === 0) return null;
-    return { platform, profile: profileRow?.profile ?? null, samples };
+    // Prefer the signature measured at reflection time: that one is counted off
+    // the tenant's full published bodies, where this fallback can only see the
+    // five truncated excerpts retrieval happened to return. The fallback still
+    // matters for a voice that hasn't reflected since the field was added, and
+    // for a platform with no content catalog behind it. Null from both means
+    // the corpus is too small to claim a habit from, and the lenses fall back to
+    // the profile's prose description alone.
+    const signature = profileRow?.signature ?? analyzeVoiceSignature(samples);
+    return { platform, profile: profileRow?.profile ?? null, samples, signature };
   } catch (err) {
-    logger.warn("Could not load Voice grounding; skipping brand lens", { error: err?.message });
+    logger.warn("Could not load Voice grounding; the review will run voice-blind", { error: err?.message });
     return null;
+  }
+}
+
+// Suggestion types the voice guard arbitrates. Factual corrections are exempt:
+// a wrong statistic is wrong no matter how it sounds, and the fact lens isn't
+// the one flattening anyone. The brand lens is exempt too, since asking the
+// voice grounding to veto its own output is incoherent.
+const GUARDED_TYPES = new Set(["grammar", "llm"]);
+
+// Runs the arbitration pass over what the voice-blind lenses proposed and
+// returns the surviving set. No-ops (keeping everything) when there's no voice
+// to judge against or nothing in scope to judge. Non-fatal by design: a guard
+// that throws must not sink a review that has already done its work, so a
+// failure degrades to the old behavior of publishing every suggestion.
+async function guardVoice({ body, tenantId, voice, proposed, send }) {
+  if (!voice) return { kept: proposed, dropped: 0 };
+
+  const candidates = proposed.filter((s) => GUARDED_TYPES.has(s.type));
+  if (candidates.length === 0) return { kept: proposed, dropped: 0 };
+
+  try {
+    await send({ type: "status", lens: "voice-guard", state: "running" });
+    const dropIndexes = await runVoiceGuard({ body, tenantId, candidates, ...voice });
+    // Identity-based: the guard returns positions in `candidates`, whose entries
+    // are the same object references that sit in `proposed`. The Set collapses a
+    // repeated index, and the filter discards an out-of-range one, so a
+    // miscounting model can only ever veto fewer suggestions than it named.
+    const drop = new Set(dropIndexes.map((i) => candidates[i]).filter(Boolean));
+    const kept = proposed.filter((s) => !drop.has(s));
+    await send({ type: "guard", dropped: drop.size, kept: kept.length });
+    logger.info("Voice guard arbitrated the review", { proposed: proposed.length, dropped: drop.size });
+    return { kept, dropped: drop.size };
+  } catch (err) {
+    logger.warn("Voice guard failed (non-fatal); keeping every suggestion", { error: err?.message });
+    return { kept: proposed, dropped: 0 };
   }
 }
 
@@ -101,8 +153,8 @@ export async function runReview({ tenantId, contentId, reviewId, contentVersion,
     const search = getFactSearchConfig();
 
     const lensDefs = [
-      { name: "readability", run: () => runReadabilityLens({ body, tenantId }) },
-      { name: "llm", run: () => runLlmLens({ body, tenantId }) },
+      { name: "readability", run: () => runReadabilityLens({ body, tenantId, voice }) },
+      { name: "llm", run: () => runLlmLens({ body, tenantId, voice }) },
       ...(voice ? [{ name: "brand", run: () => runBrandLens({ body, tenantId, ...voice }) }] : []),
       ...(search ? [{ name: "fact", run: () => runFactLens({ body, tenantId, search }) }] : []),
     ];
@@ -116,7 +168,8 @@ export async function runReview({ tenantId, contentId, reviewId, contentVersion,
       }),
     );
 
-    const suggestions = lensResults.flatMap((r) => r.suggestions);
+    const proposed = lensResults.flatMap((r) => r.suggestions);
+    const { kept: suggestions, dropped } = await guardVoice({ body, tenantId, voice, proposed, send });
     const recorded = await recordSuggestions(tenantId, contentId, { reviewId, contentVersion, body, suggestions });
 
     // This run's findings replace the last run's: retire whatever an earlier
@@ -144,8 +197,13 @@ export async function runReview({ tenantId, contentId, reviewId, contentVersion,
 
     const lenses = {
       verdict,
+      // `counts` is what each lens PROPOSED. The voice guard runs after the
+      // fan-out, so `vetoed` (and `recorded`) are what actually survived to the
+      // author.
       counts: Object.fromEntries(lensResults.map((r) => [r.name, r.suggestions.length])),
       failed: lensResults.filter((r) => !r.ok).map((r) => r.name),
+      voiceGrounded: Boolean(voice),
+      vetoed: dropped,
       recorded: recorded.length,
     };
 
