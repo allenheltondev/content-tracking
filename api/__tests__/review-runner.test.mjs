@@ -26,6 +26,7 @@ jest.unstable_mockModule("../services/review-lenses.mjs", () => ({
   runBrandLens: jest.fn(),
   runFactLens: jest.fn(),
   runSummaryLens: jest.fn(),
+  runVoiceGuard: jest.fn(),
   runLensSafely: jest.fn(async (name, fn) => {
     try { return { name, suggestions: (await fn()) ?? [], ok: true }; }
     catch { return { name, suggestions: [], ok: false }; }
@@ -37,7 +38,7 @@ const { claimReview, completeReview, getReview, listSuggestions, recordSuggestio
 const { getVoiceProfile } = await import("../domain/voice.mjs");
 const { embedText } = await import("../services/embeddings.mjs");
 const { queryVoiceSamples } = await import("../services/voice-vectors.mjs");
-const { runReadabilityLens, runLlmLens, runBrandLens, runFactLens, runSummaryLens } = await import("../services/review-lenses.mjs");
+const { runReadabilityLens, runLlmLens, runBrandLens, runFactLens, runSummaryLens, runVoiceGuard } = await import("../services/review-lenses.mjs");
 const { runReview } = await import("../services/review-runner.mjs");
 
 const BASE = { tenantId: "T1", contentId: "C1", reviewId: "R1", contentVersion: "v1", platform: "blog" };
@@ -61,6 +62,7 @@ beforeEach(() => {
   runLlmLens.mockResolvedValue([{ type: "llm" }]);
   runBrandLens.mockResolvedValue([{ type: "brand" }]);
   runSummaryLens.mockResolvedValue({ verdict: "minor_revisions", summary: "Good." });
+  runVoiceGuard.mockResolvedValue([]);
   recordSuggestions.mockResolvedValue([recordedRow("s1", "grammar"), recordedRow("s2", "llm"), recordedRow("s3", "brand")]);
   supersedePriorSuggestions.mockResolvedValue({ superseded: 0 });
   completeReview.mockResolvedValue({});
@@ -158,4 +160,72 @@ test("a fatal error marks the review failed, emits error, and rethrows", async (
   await expect(runReview({ ...BASE, emit: (e) => events.push(e) })).rejects.toThrow("gone");
   expect(completeReview).toHaveBeenCalledWith("T1", "C1", "R1", expect.objectContaining({ status: "failed" }));
   expect(events.at(-1)).toEqual({ type: "error", message: "The review could not be completed." });
+});
+
+describe("voice grounding", () => {
+  test("hands the learned voice to the style lenses, not just the brand lens", async () => {
+    await runReview({ ...BASE });
+
+    const voice = expect.objectContaining({ platform: "blog", profile: { portrait: "plain" } });
+    expect(runReadabilityLens).toHaveBeenCalledWith(expect.objectContaining({ voice }));
+    expect(runLlmLens).toHaveBeenCalledWith(expect.objectContaining({ voice }));
+  });
+
+  test("records whether the run had a voice to judge against", async () => {
+    await runReview({ ...BASE });
+    expect(completeReview.mock.calls[0][3].lenses.voiceGrounded).toBe(true);
+
+    jest.clearAllMocks();
+    claimReview.mockResolvedValue(true);
+    getVoiceProfile.mockResolvedValue(null);
+    queryVoiceSamples.mockResolvedValue([]);
+    runReadabilityLens.mockResolvedValue([{ type: "grammar" }]);
+    runLlmLens.mockResolvedValue([{ type: "llm" }]);
+    recordSuggestions.mockResolvedValue([recordedRow("s1", "grammar")]);
+    runSummaryLens.mockResolvedValue({ verdict: "ready", summary: "Fine." });
+
+    await runReview({ ...BASE });
+    expect(runReadabilityLens).toHaveBeenCalledWith(expect.objectContaining({ voice: null }));
+    expect(completeReview.mock.calls[0][3].lenses.voiceGrounded).toBe(false);
+  });
+});
+
+describe("voice guard", () => {
+  test("drops the suggestions it vetoes before they are ever recorded", async () => {
+    runVoiceGuard.mockResolvedValue([0]); // the grammar suggestion
+
+    const events = [];
+    await runReview({ ...BASE, emit: (e) => events.push(e) });
+
+    // It judges only the voice-blind lenses' output; brand and fact are exempt.
+    expect(runVoiceGuard.mock.calls[0][0].candidates).toEqual([{ type: "grammar" }, { type: "llm" }]);
+
+    const recordedSet = recordSuggestions.mock.calls[0][2].suggestions;
+    expect(recordedSet).toEqual([{ type: "llm" }, { type: "brand" }]);
+    expect(completeReview.mock.calls[0][3].lenses.vetoed).toBe(1);
+    expect(events).toContainEqual({ type: "guard", dropped: 1, kept: 2 });
+  });
+
+  test("ignores indexes the model made up", async () => {
+    runVoiceGuard.mockResolvedValue([0, 0, 99]);
+    await runReview({ ...BASE });
+    expect(recordSuggestions.mock.calls[0][2].suggestions).toHaveLength(2);
+    expect(completeReview.mock.calls[0][3].lenses.vetoed).toBe(1);
+  });
+
+  test("does not run without a voice to judge against", async () => {
+    getVoiceProfile.mockResolvedValue(null);
+    queryVoiceSamples.mockResolvedValue([]);
+    await runReview({ ...BASE });
+    expect(runVoiceGuard).not.toHaveBeenCalled();
+    expect(completeReview.mock.calls[0][3].lenses.vetoed).toBe(0);
+  });
+
+  test("keeps every suggestion when the guard itself fails", async () => {
+    runVoiceGuard.mockRejectedValue(new Error("throttled"));
+    await runReview({ ...BASE });
+    expect(recordSuggestions.mock.calls[0][2].suggestions).toHaveLength(3);
+    expect(completeReview.mock.calls[0][3].status).toBe("succeeded");
+    expect(completeReview.mock.calls[0][3].lenses.vetoed).toBe(0);
+  });
 });

@@ -89,6 +89,41 @@ export function buildComments({ fileText, bodyOffset, suggestions, commentable, 
   return { inline, summary, inlineSummary };
 }
 
+// Renders what the review engine actually did, as lines for the summary comment.
+// Without this the comment shows a verdict and a list of edits, which reads the
+// same whether every lens ran or the on-voice one silently sat the round out.
+// The engine skips that lens when the tenant has no learned voice for the
+// platform, and that is exactly the case where the remaining lenses give the
+// most voice-flattening advice, so a reader needs to be told.
+export function lensNotes(review) {
+  const lenses = review?.lenses;
+  if (!lenses) return [];
+
+  const lines = [];
+  const raised = Object.entries(lenses.counts ?? {}).map(([name, count]) => `${name} ${count}`);
+  if (raised.length > 0) {
+    const vetoed = typeof lenses.vetoed === 'number' && lenses.vetoed > 0
+      ? ` The voice guard dropped ${lenses.vetoed} of those for flattening your voice.`
+      : '';
+    lines.push('', `Suggestions raised per lens: ${raised.join(', ')}.${vetoed}`);
+  }
+
+  if (Array.isArray(lenses.failed) && lenses.failed.length > 0) {
+    lines.push('', `These lenses failed and contributed nothing: ${lenses.failed.join(', ')}.`);
+  }
+
+  // Only for an explicit false. An older review predates the field and should
+  // not be reported as voice-blind on a guess.
+  if (lenses.voiceGrounded === false) {
+    lines.push(
+      '',
+      '> **The on-voice lens did not run.** There is no learned writing voice for this platform yet, so nothing below was checked against how you write.',
+    );
+  }
+
+  return lines;
+}
+
 // Hidden marker so re-runs find and update the prior summary comment instead of
 // stacking new ones.
 export const SUMMARY_MARKER = '<!-- booked-content-review -->';
@@ -106,6 +141,7 @@ export function renderSummary(perFile, failures = []) {
     const verdict = review?.lenses?.verdict ? ` — **${String(review.lenses.verdict).replace(/_/g, ' ')}**` : '';
     lines.push('', `### \`${path}\`${verdict}`);
     if (review?.summary) lines.push('', review.summary);
+    lines.push(...lensNotes(review));
     if (summary.length > 0) {
       lines.push('', 'Suggestions not on changed lines (apply in the app or edit by hand):');
       for (const s of summary) {

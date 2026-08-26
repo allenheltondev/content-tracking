@@ -234,6 +234,81 @@ Client delivery today is polling `GET .../reviews/{reviewId}` +
 > allowlist (or a scoped web-search MCP gateway) is a reasonable hardening
 > follow-up before enabling `FACT_SEARCH_URL` in production.
 
+### Phase 3c — Voice-aware review ✅ (landed)
+
+The first real review of a real post surfaced the engine's central flaw: nearly
+every suggestion was an edit that stripped the author's voice. The Voice
+retrieval was working. The architecture was the problem, in four compounding
+ways.
+
+**1. Three of the four lenses ran voice-blind.** Only `runBrandLens` ever
+received the grounding. Readability and the AI-tell lens got the raw body and a
+bare "don't change the author's voice" instruction with no idea what that voice
+was, so they fell back to generic-editor priors: shorter sentences, active
+voice, fewer dashes, less hedging.
+
+**2. The AI-tell taxonomy was absolute.** Its red-flag list (dash overuse,
+hedging, conversational scaffolding) describes casual human prose as well as it
+describes generated text. For a writer whose voice includes those traits, the
+lens most committed to deletion was aimed straight at their style.
+
+**3. A missing voice was silent.** `loadVoiceGrounding` returns null on an
+embedding failure, a vector-query failure, or an empty corpus, and the brand
+lens simply dropped out of the fan-out. The review completed normally, verdict
+and all, with only the flattening lenses contributing, and nothing anywhere said
+so.
+
+**4. The brand lens had no veto.** Lens output was concatenated
+(`lensResults.flatMap(...)`), so the on-voice lens could only ADD suggestions,
+never remove one that flattened a signature phrase. And because it is told to
+stay quiet when a draft already sounds like its author — which a draft they wrote
+does — the healthier the voice, the more completely the review was dominated by
+lenses that didn't know it. That is the inversion that made a good draft produce
+a bad review.
+
+What landed:
+
+- `api/services/voice-signature.mjs` (new) — deterministic style-marker analysis
+  over the retrieved samples. Counts em dashes, direct address, first person,
+  contractions, rhetorical questions, exclamations, parenthetical asides,
+  ellipses, and one-line paragraphs, after stripping markdown noise (fenced and
+  inline code, link targets, heading markers) so a dev blog's code samples don't
+  skew the prose measurement. A marker becomes a **signature habit** only when it
+  clears both a prevalence bar (present in ≥60% of posts, so it is a habit and
+  not one post's quirk) and a per-1000-word rate bar. Below three samples it
+  reports nothing rather than over-claiming. `renderSignatureHabits` renders the
+  result as measured facts plus an explicit hands-off instruction.
+- **Voice constraint on the style lenses** — `runReadabilityLens` and
+  `runLlmLens` now take the grounding and append `buildVoiceConstraint`: the
+  profile's portrait, signature phrases, dos/donts, and tone, plus the measured
+  habits. Deliberately *not* the brand lens's grounding — no sample posts, since
+  these lenses need to know what not to touch, not what to imitate.
+- **Voice-relative AI tells** — the LLM lens prompt now says the generic list is
+  a starting point rather than a verdict, and that a trait running through the
+  author's published writing is their voice. The readability prompt lost its
+  house-style mandate: it corrects mistakes, and an edit justified only by "this
+  is how editors usually prefer it" is not emitted.
+- **The voice guard** (`runVoiceGuard`) — an arbitration pass after the fan-out.
+  It sees the draft, the voice, and the candidate edits together, and discards
+  the ones that cost more voice than they buy in polish. Scoped to `grammar` and
+  `llm` suggestions: factual corrections are exempt (a wrong statistic is wrong
+  regardless of how it sounds) and so is the brand lens's own output. It returns
+  1-based indexes into the numbered list it was given rather than echoing edits
+  back, so a paraphrasing model can't rewrite a suggestion in transit; the runner
+  filters out-of-range and repeated indexes, so a miscounting model can only ever
+  veto fewer suggestions than it named. Non-fatal: a guard that throws degrades
+  to publishing everything, and vetoed suggestions are dropped before
+  `recordSuggestions`, so they never reach the author at all.
+- **Visibility** — the review's `lenses` gained `voiceGrounded` (did this run have
+  a voice to judge against?) and `vetoed` (how many the guard held back).
+  `renderSummary` in the action now prints per-lens counts, failed lenses, and a
+  blockquote warning when `voiceGrounded === false`, so the silent case is loud.
+  The stream emits `{ type: 'guard', dropped, kept }` and the UI shows it as
+  progress.
+- Tests: `voice-signature` (11), extended `review-lenses` (16) and
+  `review-runner` (15), extended `action/test/review` (47 total). Full backend
+  suite green (1239).
+
 ### Phase 4a — The editor + suggestion UX ✅ (landed)
 
 On the existing `ContentDetail` route, using the app's `useApiFetch` +

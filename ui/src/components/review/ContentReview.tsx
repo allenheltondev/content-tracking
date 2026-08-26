@@ -127,6 +127,10 @@ export default function ContentReview({ contentId, body, platform, onBodyChange 
             done.push(ev.name);
             setProgress(`Reviewed ${done.join(', ')}…`);
             break;
+          case 'guard':
+            // Only worth saying when it actually held something back.
+            if (ev.dropped > 0) setProgress(`Held back ${ev.dropped} off-voice suggestion${ev.dropped === 1 ? '' : 's'}…`);
+            break;
           case 'suggestions':
             setSuggestions(ev.suggestions);
             setActiveIndex(0);

@@ -12,6 +12,7 @@ const {
   runBrandLens,
   runFactLens,
   runSummaryLens,
+  runVoiceGuard,
   runLensSafely,
 } = await import("../services/review-lenses.mjs");
 
@@ -112,5 +113,101 @@ describe("runLensSafely", () => {
   test("isolates a lens failure to an empty, ok:false result", async () => {
     const res = await runLensSafely("llm", async () => { throw new Error("bedrock down"); });
     expect(res).toEqual({ name: "llm", suggestions: [], ok: false });
+  });
+});
+
+// The grounding bundle the runner assembles: the learned profile plus the
+// habits measured off the retrieved samples.
+const VOICE = {
+  platform: "blog",
+  profile: {
+    portrait: "You write like you are talking to one person over coffee.",
+    tone: "wry",
+    signature_phrases: ["here's the thing"],
+    dos: ["open with a story"],
+    donts: ["open with a definition"],
+  },
+  samples: [{ text: "A real past post.", publishedAt: "2026-06-01T00:00:00Z" }],
+  signature: {
+    sampleCount: 8,
+    wordCount: 9000,
+    avgSentenceWords: 19,
+    habits: [{ key: "emDash", label: "Em dashes and parenthetical dashes", rate: 4.2, prevalence: 1, postsWith: 8, occurrences: 38 }],
+  },
+};
+
+describe("voice constraint on the voice-blind lenses", () => {
+  test("readability is told what it must not edit away", async () => {
+    runAgent.mockResolvedValue(okRun([]));
+    await runReadabilityLens({ body: BODY, tenantId: TENANT, voice: VOICE });
+
+    const prompt = runAgent.mock.calls[0][0].systemPrompt;
+    expect(prompt).toContain("You write like you are talking to one person over coffee.");
+    expect(prompt).toContain("here's the thing");
+    expect(prompt).toContain("Em dashes and parenthetical dashes");
+    expect(prompt).toContain("present in 8 of 8 posts");
+    expect(prompt).toContain("Treat every trait above as deliberate");
+  });
+
+  test("the AI-tell lens is told to check candidates against the author's habits first", async () => {
+    runAgent.mockResolvedValue(okRun([]));
+    await runLlmLens({ body: BODY, tenantId: TENANT, voice: VOICE });
+
+    const prompt = runAgent.mock.calls[0][0].systemPrompt;
+    expect(prompt).toContain("a trait that runs through their published writing is their voice");
+    expect(prompt).toContain("Em dashes and parenthetical dashes");
+  });
+
+  test("runs unchanged when the tenant has no voice yet", async () => {
+    runAgent.mockResolvedValue(okRun([]));
+    await runReadabilityLens({ body: BODY, tenantId: TENANT });
+    expect(runAgent.mock.calls[0][0].systemPrompt).not.toContain("ESTABLISHED VOICE");
+    expect(runAgent.mock.calls[0][0].systemPrompt).not.toContain("MEASURED HABITS");
+  });
+
+  test("falls back to the profile alone when the corpus is too small to measure", async () => {
+    runAgent.mockResolvedValue(okRun([]));
+    await runReadabilityLens({ body: BODY, tenantId: TENANT, voice: { ...VOICE, signature: null } });
+
+    const prompt = runAgent.mock.calls[0][0].systemPrompt;
+    expect(prompt).toContain("ESTABLISHED VOICE");
+    expect(prompt).not.toContain("MEASURED HABITS");
+  });
+});
+
+describe("voice guard", () => {
+  const CANDIDATES = [
+    { type: "grammar", textToReplace: "here's the thing", replaceWith: "notably", reason: "more formal", priority: "low" },
+    { type: "llm", textToReplace: "recieve", replaceWith: "receive", reason: "typo", priority: "high" },
+  ];
+
+  test("grounds the arbitration in the voice and returns the vetoed positions", async () => {
+    runAgent.mockResolvedValue({ output: { drop: [{ index: 1, reason: "that phrase is theirs" }] } });
+
+    const dropped = await runVoiceGuard({ body: BODY, tenantId: TENANT, candidates: CANDIDATES, ...VOICE });
+
+    expect(dropped).toEqual([0]); // 1-based in, 0-based out
+    const call = runAgent.mock.calls[0][0];
+    expect(call.invocationState).toEqual({ tenantId: TENANT });
+    expect(call.systemPrompt).toContain("voice guard");
+    expect(call.systemPrompt).toContain("A real past post.");
+    expect(call.systemPrompt).toContain("Em dashes and parenthetical dashes");
+    expect(call.input).toContain('[1] (grammar) replace "here\'s the thing" with "notably"');
+    expect(call.input).toContain("stated reason: more formal");
+  });
+
+  test("discards out-of-range and repeated indexes", async () => {
+    runAgent.mockResolvedValue({ output: { drop: [{ index: 2, reason: "a" }, { index: 2, reason: "b" }, { index: 9, reason: "c" }, { index: 0, reason: "d" }] } });
+    expect(await runVoiceGuard({ body: BODY, tenantId: TENANT, candidates: CANDIDATES, ...VOICE })).toEqual([1]);
+  });
+
+  test("keeps everything when the model vetoes nothing", async () => {
+    runAgent.mockResolvedValue({ output: { drop: [] } });
+    expect(await runVoiceGuard({ body: BODY, tenantId: TENANT, candidates: CANDIDATES, ...VOICE })).toEqual([]);
+  });
+
+  test("short-circuits without a model call when there is nothing to judge", async () => {
+    expect(await runVoiceGuard({ body: BODY, tenantId: TENANT, candidates: [], ...VOICE })).toEqual([]);
+    expect(runAgent).not.toHaveBeenCalled();
   });
 });
