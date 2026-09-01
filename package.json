@@ -33,7 +33,7 @@
     "remark": "^15.0.1",
     "ulid": "^3.0.2",
     "unist-util-visit": "^5.1.0",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@babel/core": "^8.0.1",
