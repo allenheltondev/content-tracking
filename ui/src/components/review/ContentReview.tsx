@@ -29,6 +29,15 @@ interface Props {
 
 const POLL_MS = 3000;
 
+// Reader-facing names for the review passes, so a failure notice says which
+// kind of feedback is missing rather than naming an internal lens.
+const LENS_LABELS: Record<string, string> = {
+  readability: 'grammar and readability',
+  llm: 'AI-tell detection',
+  brand: 'sounds-like-you',
+  fact: 'fact-checking',
+};
+
 // The review experience for a single piece of content: kick off a "digital
 // copyedit team" review, then walk its offset-anchored suggestions — accept
 // (applies the edit + persists), reject, or dismiss. Accepting recomputes the
@@ -126,6 +135,15 @@ export default function ContentReview({ contentId, body, platform, onBodyChange 
           case 'lens':
             done.push(ev.name);
             setProgress(`Reviewed ${done.join(', ')}…`);
+            // A lens that threw contributes nothing. Carry that onto the review
+            // so a run that lost a pass doesn't render as a clean one.
+            if (ev.ok === false) {
+              setReview((r) =>
+                r
+                  ? { ...r, lenses: { ...(r.lenses ?? {}), failed: [...(r.lenses?.failed ?? []), ev.name] } }
+                  : r,
+              );
+            }
             break;
           case 'guard':
             // Only worth saying when it actually held something back.
@@ -254,6 +272,9 @@ export default function ContentReview({ contentId, body, platform, onBodyChange 
   );
 
   const active = suggestions[activeIndex] ?? null;
+  // Deduped because the streaming path appends as each lens reports and a
+  // later poll can hand back the same names from the completed review row.
+  const failedLenses = [...new Set(review?.lenses?.failed ?? [])];
 
   return (
     <section className="border border-border rounded-lg px-4 py-3 space-y-3 mt-4">
@@ -281,6 +302,14 @@ export default function ContentReview({ contentId, body, platform, onBodyChange 
 
       {review?.status === 'failed' && !inFlight && (
         <p className="text-sm text-error-600">The review couldn’t be completed. Try running it again.</p>
+      )}
+
+      {!inFlight && failedLenses.length > 0 && (
+        <p className="text-sm text-warning-600">
+          {failedLenses.length === 1 ? 'One pass' : `${failedLenses.length} passes`} didn’t finish (
+          {failedLenses.map((l) => LENS_LABELS[l] ?? l).join(', ')}), so this review is incomplete. Re-run it to get
+          the rest.
+        </p>
       )}
 
       {review?.summary && (

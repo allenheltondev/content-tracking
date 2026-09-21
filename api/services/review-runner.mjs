@@ -90,11 +90,18 @@ async function loadVoiceGrounding(tenantId, body, platformArg) {
   }
 }
 
-// Suggestion types the voice guard arbitrates. Factual corrections are exempt:
-// a wrong statistic is wrong no matter how it sounds, and the fact lens isn't
-// the one flattening anyone. The brand lens is exempt too, since asking the
-// voice grounding to veto its own output is incoherent.
-const GUARDED_TYPES = new Set(["grammar", "llm"]);
+// Suggestion types the voice guard arbitrates. Only factual corrections are
+// exempt: a wrong statistic is wrong no matter how it sounds, and the fact lens
+// isn't the one flattening anyone.
+//
+// The brand lens used to be exempt on the theory that asking the voice
+// grounding to veto its own output is incoherent. In practice it was the worst
+// offender — grounded in a profile that described the author as "authoritative"
+// and "concise", it proposed rewriting "I have bad news." into "Here's a
+// critical insight:" and marked it high priority, and being exempt meant that
+// went straight to the author. Citing the voice as your reason is not proof you
+// served it, so the brand lens now defends its edits like every other pass.
+const GUARDED_TYPES = new Set(["grammar", "llm", "brand"]);
 
 // Runs the arbitration pass over what the voice-blind lenses proposed and
 // returns the surviving set. No-ops (keeping everything) when there's no voice

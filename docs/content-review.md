@@ -355,6 +355,88 @@ topical anchor, and regularly landed in a code listing):
 
 Full backend suite green (1254).
 
+### Phase 3d — The profile was the thing flattening the voice ✅ (landed)
+
+Phase 3c gave every lens the voice and added a guard, and the reviews were still
+generic and dry. The measurements said why. A review of a real 956-word draft
+proposed 24 edits, the guard dropped **0** of them, and 21 reached the author —
+"Removing 'actually' for conciseness", "Removing 'way' makes the sentence more
+concise". The brand lens, the one whose whole job is *sounds like you*, wanted
+"I have bad news." → "Here's a critical insight:" and "walk into the other room
+and yell into a pillow" → "the cognitive overload may lead to suboptimal
+decision-making", both marked high priority. On a second post, 10 of 16 AI-tell
+suggestions carried the reason **"to avoid overly casual language"** — a phrase
+that appears in no lens prompt.
+
+It appears in the *learned profile*:
+
+```
+donts:              ["Avoid overly casual language.", ...]
+tone:               "Informative, enthusiastic, and authoritative"
+sentence_structure: "Clear and concise sentences ... delivering information efficiently"
+```
+
+Asked to describe a writer, the reflection model had produced a generic
+tech-blogger archetype and filled `donts` with editing advice instead of facts
+about the person. Phase 3c then piped that into every lens as ground truth for
+how the author sounds — so the grounding built to *protect* the voice was
+issuing the order to flatten it, and the guard, holding the same profile,
+agreed that "more concise" was on-voice. The lens that removes AI tells was
+adding them.
+
+Two other problems fell out of the same investigation. Lenses were **failing
+about half the time on longer posts** (a stored review recorded
+`failed: ["readability","brand"]`): Nova Pro dropped out of the forced
+structured-output format and answered in prose, and at `maxTokens: 2048` a
+structured response over ~2000 words ran out mid-tool-call. `runLensSafely`
+swallowed both as "this lens found nothing" and the UI said nothing either.
+
+What landed:
+
+- **The profile is projected before a lens sees it** (`describedVoiceOnly`).
+  `donts`, `tone`, and `sentence_structure` are dropped from both
+  `buildVoiceConstraint` and `buildVoiceGrounding`. Compose still gets the whole
+  profile — it is writing new prose, where a target tone is useful. Review is the
+  opposite job, deciding what to leave alone, so it sees only what describes what
+  the author actually does.
+- **Reflection was taught to describe, not prescribe** (`bedrock/voice.mjs`).
+  The system prompt now states that the profile is read back by tools deciding
+  what to leave alone, that every field must distinguish this person from another
+  competent writer in the same genre, and that a field phrased as writing advice
+  is a defect. `donts` explicitly rejects general writing rules and prefers an
+  empty list to an invented one. **Existing profiles keep their old text until
+  re-reflected** — the projection is what protects a review in the meantime.
+- **Reviews pin their own model** (`ReviewModelId` → `REVIEW_MODEL_ID`,
+  defaulting to `us.anthropic.claude-sonnet-4-5-20250929-v1:0`). Editorial
+  judgment is the hardest call in the stack and the /briefs chat model was not
+  up to it. Measured over 18 lens invocations on two real posts: **0 failures**
+  (was ~50% on the long one) and no suggestion justified by formality or
+  concision. Note the Claude 5 family rejects the `temperature` parameter that
+  `@readysetcloud/agent` always sends, so moving to it needs an agent-package
+  change first.
+- **`maxTokens` 2048 → 8192** per lens, and the per-lens cap **20 → 8**. At 20
+  the lenses reliably returned 20, which is only reachable by padding with
+  style nits. The `reason` field now rejects "more concise", "more professional"
+  and "improves clarity" as justifications. Suppression language lives in the
+  prompts only — an early cut repeated it in the schema too and every lens went
+  silent on drafts that did have real problems.
+- **The brand lens is guarded** — `GUARDED_TYPES` is now `grammar`, `llm`,
+  `brand`; only factual corrections stay exempt. Its exemption was justified as
+  "asking the voice grounding to veto its own output is incoherent", but citing
+  the voice as your reason is not proof you served it, and it was the pass doing
+  the most damage. Its prompt also gained a direction rule: the author wrote this
+  draft, so an edit making it more formal, more authoritative or less personal is
+  drift, not a correction.
+- **Failed lenses are visible** — `ContentReview` reads `ok: false` off the
+  stream (and `lenses.failed` off a polled review) and says which passes didn't
+  finish, so a partial review stops looking like a clean one.
+
+After: the brand lens flags *"'People have been saying for years' is an
+appeal-to-authority hedge that sounds like generic thought-leader writing rather
+than the author's direct voice"* and leaves "I have bad news." alone, while
+readability catches a real missing preposition and the guard drops the three
+stylistic edits around it.
+
 ### Phase 4a — The editor + suggestion UX ✅ (landed)
 
 On the existing `ContentDetail` route, using the app's `useApiFetch` +

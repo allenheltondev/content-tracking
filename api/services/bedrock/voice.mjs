@@ -14,9 +14,19 @@ const VOICE_PROFILE_SCHEMA = z
       .describe(
         "A plain-English portrait (2-4 sentences) of how this person writes on this platform, written in the second person ('You write...'). Describe their voice the way you'd explain it to a ghostwriter: the overall feel, what makes it recognizably theirs, and how it has been trending in the most recent posts. This is the human-readable summary of everything learned — make it vivid and specific, not a list of the fields below.",
       ),
-    tone: z.string().optional().describe("Overall voice and attitude (e.g. wry, earnest, blunt, warm)."),
+    tone: z
+      .string()
+      .optional()
+      .describe(
+        "Overall voice and attitude as it actually reads (e.g. wry, earnest, blunt, warm, self-deprecating). Describe this person, not the genre they write in — 'authoritative and informative' is true of every tech blog and tells a reader nothing about them.",
+      ),
     audience: z.string().optional().describe("Who they write for."),
-    sentence_structure: z.string().optional().describe("Typical sentence length, rhythm, and complexity."),
+    sentence_structure: z
+      .string()
+      .optional()
+      .describe(
+        "Typical sentence length, rhythm, and complexity, reported from the samples. Say what they do (e.g. 'long winding sentences broken by three-word fragments'), not what good prose should do — do not write 'clear and concise' unless the samples are genuinely clipped.",
+      ),
     vocabulary: z.string().optional().describe("Characteristic word choices, jargon level, formality."),
     signature_phrases: z
       .array(z.string())
@@ -26,8 +36,18 @@ const VOICE_PROFILE_SCHEMA = z
       .string()
       .optional()
       .describe("Use of emoji, lists, headings, line breaks, length, hashtags, links, CTAs."),
-    dos: z.array(z.string()).optional().describe("Concrete things to do to sound like them."),
-    donts: z.array(z.string()).optional().describe("Concrete things to avoid that would sound off-voice."),
+    dos: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Concrete things to do to sound like them, each one a habit you can point to in the samples (e.g. 'open with a story from your own week', 'end sections on a one-line verdict').",
+      ),
+    donts: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Concrete things that would make a draft stop sounding like THIS person — each must be something the samples show they never do. This is not a place for general writing advice: 'avoid overly casual language', 'avoid jargon without explanation' and 'avoid long sentences' are rules about good prose, not facts about them, and an entry like that is worse than no entry because it gets read back as an instruction to flatten their voice. If the samples ARE casual, then being stiff and formal is the dont. Return an empty list rather than inventing one.",
+      ),
   })
   .describe("Structured description of how this person writes on this platform.");
 
@@ -110,7 +130,9 @@ const REFLECT_SYSTEM_PROMPT = `You maintain a structured profile of how a specif
 
 Update the profile to reflect how they actually write NOW: infer tone, audience, sentence structure, vocabulary, signature phrases, formatting preferences, and concrete dos/donts directly from the samples, letting each sample's influence match its stated weight. When samples disagree — tone shifted, formatting habits changed, vocabulary moved on — the higher-weighted recent posts WIN; keep traits from older or lower-weighted posts only where nothing newer contradicts them. The profile should track the voice's evolution, not average over its whole history. Also write a vivid plain-English 'portrait' (2-4 sentences, second person) summarizing how they write now — this is the human-readable description a person reads to understand their own voice. Emit the FULL updated profile (a replacement, not a diff) plus a short change_summary describing what you changed versus the prior profile and any drift you observed toward the recent posts.
 
-Be specific and grounded in the samples — do not invent traits the samples don't demonstrate. Output only the structured result.`;
+Be specific and grounded in the samples — do not invent traits the samples don't demonstrate.
+
+You are describing one person, not prescribing how they should write. This profile is read back by tools that decide which parts of a draft to leave alone, so a generic trait becomes a standing order to edit this person into the average writer. Two rules follow from that. First, every field must distinguish them from another competent writer in the same genre: if a sentence you wrote would be equally true of any blog in this space ("informative and authoritative", "clear and concise", "delivers information efficiently"), it is describing the genre, not them, and you must replace it with what is actually on the page. Second, never phrase a field as writing advice — "avoid overly casual language" is advice, while "writes the way he talks, contractions and asides throughout" is a description. Their quirks, jokes, digressions, and rough edges are the most valuable thing in this profile; record them as traits, never as things to fix. Output only the structured result.`;
 
 // Re-derives the style profile from recent samples. `currentProfile` is the
 // prior VoiceProfile.profile JSON (or null); `samples` are recency-weighted

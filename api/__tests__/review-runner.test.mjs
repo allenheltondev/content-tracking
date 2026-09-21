@@ -220,8 +220,14 @@ describe("voice guard", () => {
     const events = [];
     await runReview({ ...BASE, emit: (e) => events.push(e) });
 
-    // It judges only the voice-blind lenses' output; brand and fact are exempt.
-    expect(runVoiceGuard.mock.calls[0][0].candidates).toEqual([{ type: "grammar" }, { type: "llm" }]);
+    // Every style lens defends its edits, brand included — it was the pass
+    // most likely to formalize the author while citing their voice. Only
+    // factual corrections are exempt.
+    expect(runVoiceGuard.mock.calls[0][0].candidates).toEqual([
+      { type: "grammar" },
+      { type: "llm" },
+      { type: "brand" },
+    ]);
 
     const recordedSet = recordSuggestions.mock.calls[0][2].suggestions;
     expect(recordedSet).toEqual([{ type: "llm" }, { type: "brand" }]);

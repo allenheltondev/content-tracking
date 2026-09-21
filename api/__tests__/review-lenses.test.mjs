@@ -158,6 +158,53 @@ describe("voice constraint on the voice-blind lenses", () => {
     expect(prompt).toContain("Em dashes and parenthetical dashes");
   });
 
+  // The regression this projection exists for: a real learned profile came
+  // back with donts: ["Avoid overly casual language."] and sentence_structure:
+  // "Clear and concise...", and the lenses read those as instructions, citing
+  // the profile's own words as the reason to flatten the author.
+  test("prescriptive profile fields never reach a style lens", async () => {
+    runAgent.mockResolvedValue(okRun([]));
+    await runReadabilityLens({
+      body: BODY,
+      tenantId: TENANT,
+      voice: {
+        ...VOICE,
+        profile: {
+          ...VOICE.profile,
+          donts: ["Avoid overly casual language."],
+          tone: "authoritative",
+          sentence_structure: "Clear and concise sentences.",
+        },
+      },
+    });
+
+    const prompt = runAgent.mock.calls[0][0].systemPrompt;
+    expect(prompt).not.toContain("Avoid overly casual language");
+    expect(prompt).not.toContain("authoritative");
+    expect(prompt).not.toContain("Clear and concise");
+    // What actually describes the author still gets through.
+    expect(prompt).toContain("You write like you are talking to one person over coffee.");
+    expect(prompt).toContain("open with a story");
+  });
+
+  test("the brand lens's grounding is projected the same way", async () => {
+    runAgent.mockResolvedValue(okRun([]));
+    await runBrandLens({
+      body: BODY,
+      tenantId: TENANT,
+      ...VOICE,
+      profile: { ...VOICE.profile, donts: ["Avoid overly casual language."], tone: "authoritative" },
+    });
+
+    // Assert against the rendered profile JSON, not the whole prompt — the
+    // brand prompt's own text names the registers it must not drift toward.
+    const prompt = runAgent.mock.calls[0][0].systemPrompt;
+    const profileBlock = prompt.slice(prompt.indexOf("LEARNED VOICE"), prompt.indexOf("THEIR PAST POSTS"));
+    expect(profileBlock).not.toContain("donts");
+    expect(profileBlock).not.toContain("tone");
+    expect(profileBlock).toContain("here's the thing");
+  });
+
   test("runs unchanged when the tenant has no voice yet", async () => {
     runAgent.mockResolvedValue(okRun([]));
     await runReadabilityLens({ body: BODY, tenantId: TENANT });
