@@ -130,6 +130,19 @@ test('lensNotes warns loudly when the review had no voice to check against', () 
   assert.doesNotMatch(notes, /voice guard dropped/);
 });
 
+test('lensNotes reports a failed voice guard as unarbitrated, not as a silent lens', () => {
+  // A lens that throws contributes nothing; a guard that throws lets everything
+  // through. Lumping them into one sentence describes the worse case backwards.
+  const notes = lensNotes({
+    lenses: { counts: { readability: 4, brand: 2 }, failed: ['fact', 'voice-guard'], voiceGrounded: true, vetoed: 0 },
+  }).join('\n');
+
+  assert.match(notes, /The voice guard did not run/);
+  assert.match(notes, /reached you unarbitrated/);
+  // The real lens failure is still reported, and the guard is not in that list.
+  assert.match(notes, /These lenses failed and contributed nothing: fact\./);
+});
+
 test('lensNotes stays quiet about voice grounding a review never reported', () => {
   // Reviews recorded before the field existed must not be called voice-blind.
   const notes = lensNotes({ lenses: { verdict: 'ready', counts: { readability: 1 } } }).join('\n');

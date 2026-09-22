@@ -427,9 +427,23 @@ What landed:
   the most damage. Its prompt also gained a direction rule: the author wrote this
   draft, so an edit making it more formal, more authoritative or less personal is
   drift, not a correction.
-- **Failed lenses are visible** — `ContentReview` reads `ok: false` off the
-  stream (and `lenses.failed` off a polled review) and says which passes didn't
-  finish, so a partial review stops looking like a clean one.
+- **An incomplete review says so, everywhere it is read.** `ContentReview` takes
+  `ok: false` off the stream (and `lenses.failed` off a polled review) and names
+  the passes that didn't finish. With a failed pass it also suppresses the
+  `No suggestions — this draft looks good.` line and the verdict badge: zero
+  surviving suggestions there means nobody checked, not that nothing was found.
+  The summary lens is handed the same list and told it is summarizing an
+  incomplete review and may not return `ready` — a pass that didn't run cannot
+  have found nothing.
+- **A failed voice guard is one of those passes.** `guardVoice` still degrades to
+  publishing every suggestion, but it now returns `ok: false`, emits a failed
+  `lens` event, and lands in `lenses.failed` as `voice-guard`. Now that the guard
+  arbitrates the brand lens, it is the only thing between the author and a set of
+  voice-flattening edits, so silently skipping it was the one degradation most
+  worth surfacing. It fails the opposite way round from a lens — a lens that
+  throws contributes nothing, a guard that throws lets everything through — so
+  the action reports it separately rather than under "these lenses failed and
+  contributed nothing".
 
 After: the brand lens flags *"'People have been saying for years' is an
 appeal-to-authority hedge that sounds like generic thought-leader writing rather

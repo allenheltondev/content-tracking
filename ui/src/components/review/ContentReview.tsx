@@ -36,6 +36,9 @@ const LENS_LABELS: Record<string, string> = {
   llm: 'AI-tell detection',
   brand: 'sounds-like-you',
   fact: 'fact-checking',
+  // Not a lens, but it fails the same way and matters more: when the guard
+  // doesn't run, every suggestion below reached the author unarbitrated.
+  'voice-guard': 'the voice guard, so these suggestions are unarbitrated',
 };
 
 // The review experience for a single piece of content: kick off a "digital
@@ -314,14 +317,17 @@ export default function ContentReview({ contentId, body, platform, onBodyChange 
 
       {review?.summary && (
         <div className="bg-muted rounded-md p-3 text-sm">
-          {review.lenses?.verdict && (
+          {review.lenses?.verdict && failedLenses.length === 0 && (
             <span className="mr-1 font-medium capitalize">{review.lenses.verdict.replace(/_/g, ' ')}:</span>
           )}
           {review.summary}
         </div>
       )}
 
-      {!loading && !inFlight && suggestions.length === 0 && review?.status === 'succeeded' && (
+      {/* Only a complete run can say the draft looks good. With a failed pass,
+          zero surviving suggestions means nobody checked, not that nothing was
+          found — the warning above is the whole message. */}
+      {!loading && !inFlight && suggestions.length === 0 && review?.status === 'succeeded' && failedLenses.length === 0 && (
         <p className="text-sm text-muted-foreground">No suggestions — this draft looks good.</p>
       )}
 

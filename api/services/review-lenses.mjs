@@ -132,7 +132,11 @@ Keep an edit when it fixes something genuinely wrong no matter whose writing it 
 
 When an edit is defensible on its own terms but you would not miss it, discard it. Suggestions are cheap to lose and voice is expensive to get back. Do not discard the whole list reflexively either: an empty result is correct when the edits are all fair. Judge each one against the voice you were given, not against your own taste. Return the structured result.`;
 
-const SUMMARY_PROMPT = `You are the editor-in-chief summarizing a multi-lens review of a draft for its author. You are given the draft and the concrete suggestions the review lenses produced. Write a short, honest editorial summary (2-3 sentences): what the draft does well, what most needs attention, and what to prioritize — then choose a verdict. Be specific and encouraging without inflating: 'ready' only if you'd publish as-is, 'minor_revisions' for small polish, 'major_revisions' when it needs real work. Return the structured result.`;
+const SUMMARY_PROMPT = `You are the editor-in-chief summarizing a multi-lens review of a draft for its author. You are given the draft and the concrete suggestions the review lenses produced. Write a short, honest editorial summary (2-3 sentences): what the draft does well, what most needs attention, and what to prioritize — then choose a verdict. Be specific and encouraging without inflating: 'ready' only if you'd publish as-is, 'minor_revisions' for small polish, 'major_revisions' when it needs real work.
+
+You may be told that some passes of the review did not finish. If so, you are summarizing an INCOMPLETE review and you must not present it as a clean bill of health: say plainly in the summary which kind of feedback is missing and that the draft has not been fully checked. Never return 'ready' in that case — a pass that didn't run cannot have found nothing, and the absence of suggestions from it is missing information, not a pass. Choose 'minor_revisions' or 'major_revisions' based on what the passes that DID run found.
+
+Return the structured result.`;
 
 // Stamps the lens's suggestion type onto each item (the model never classifies
 // its own type). Returns [] defensively when a lens produced nothing.
@@ -261,8 +265,15 @@ export async function runVoiceGuard({ body, candidates, tenantId, platform, prof
 // Synthesizes the lens findings into an editorial summary + verdict. `findings`
 // is the list of recorded suggestions (each with type/reason); the summary
 // reasons over them plus the draft.
-export async function runSummaryLens({ body, findings, tenantId, modelId }) {
-  const input = `=== DRAFT ===\n${body}\n\n=== REVIEW FINDINGS (${findings.length}) ===\n${formatFindings(findings)}`;
+export async function runSummaryLens({ body, findings, tenantId, modelId, failed }) {
+  // A pass that threw contributes no findings, which is indistinguishable from
+  // a pass that ran and found nothing unless we say so. Without this the
+  // editor-in-chief can hand back "ready" on a draft half of the review never
+  // looked at.
+  const incomplete = (failed ?? []).length > 0
+    ? `\n\n=== PASSES THAT DID NOT FINISH ===\n${failed.map((f) => `- ${describePass(f)}`).join("\n")}\nThis review is incomplete. Say so, and do not return 'ready'.`
+    : "";
+  const input = `=== DRAFT ===\n${body}\n\n=== REVIEW FINDINGS (${findings.length}) ===\n${formatFindings(findings)}${incomplete}`;
   const { output } = await runAgent({
     input,
     systemPrompt: SUMMARY_PROMPT,
@@ -355,6 +366,20 @@ function buildVoiceConstraint(voice) {
     : "";
 
   return [described, habits].filter(Boolean).join("\n\n");
+}
+
+// What a pass actually checks, so the summary can name the missing feedback
+// rather than an internal lens key. Unknown names pass through as themselves.
+const PASS_DESCRIPTIONS = {
+  readability: "readability — grammar and clarity errors were not checked",
+  llm: "AI tells — generated-sounding phrasing was not checked",
+  brand: "on-voice — nothing checked whether the draft sounds like the author",
+  fact: "fact-checking — the draft's verifiable claims were not checked",
+  "voice-guard": "the voice guard — every suggestion below is unarbitrated, and some may flatten the author's voice",
+};
+
+function describePass(name) {
+  return PASS_DESCRIPTIONS[name] ?? name;
 }
 
 function formatFindings(findings) {

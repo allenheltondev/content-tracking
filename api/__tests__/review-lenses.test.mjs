@@ -101,6 +101,29 @@ describe("summary lens", () => {
 
     expect(out).toEqual({ verdict: "minor_revisions", summary: "Solid draft, trim the buzzwords." });
     expect(runAgent.mock.calls[0][0].input).toContain("REVIEW FINDINGS (2)");
+    // Nothing failed, so nothing qualifies the verdict.
+    expect(runAgent.mock.calls[0][0].input).not.toContain("DID NOT FINISH");
+  });
+
+  // A pass that threw produces no findings, which looks exactly like a pass that
+  // ran and found nothing — so without this the editor-in-chief can call a draft
+  // half the review never read 'ready'.
+  test("names the passes that didn't finish and forbids a ready verdict", async () => {
+    runAgent.mockResolvedValue({ output: { verdict: "minor_revisions", summary: "Incomplete." } });
+
+    await runSummaryLens({
+      body: BODY,
+      tenantId: TENANT,
+      findings: [{ type: "llm", reason: "buzzword" }],
+      failed: ["readability", "voice-guard"],
+    });
+
+    const input = runAgent.mock.calls[0][0].input;
+    expect(input).toContain("PASSES THAT DID NOT FINISH");
+    expect(input).toContain("grammar and clarity errors were not checked");
+    expect(input).toContain("unarbitrated");
+    expect(input).toContain("do not return 'ready'");
+    expect(runAgent.mock.calls[0][0].systemPrompt).toContain("INCOMPLETE review");
   });
 });
 

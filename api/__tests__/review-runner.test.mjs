@@ -257,4 +257,26 @@ describe("voice guard", () => {
     expect(completeReview.mock.calls[0][3].status).toBe("succeeded");
     expect(completeReview.mock.calls[0][3].lenses.vetoed).toBe(0);
   });
+
+  // Degrading to "publish everything" is the intended fallback, but it is also
+  // the one state where nothing checked whether these edits flatten the author.
+  // It must not be indistinguishable from a guarded run.
+  test("a guard failure is recorded as an incomplete pass, not hidden", async () => {
+    runVoiceGuard.mockRejectedValue(new Error("throttled"));
+
+    const events = [];
+    await runReview({ ...BASE, emit: (e) => events.push(e) });
+
+    expect(completeReview.mock.calls[0][3].lenses.failed).toContain("voice-guard");
+    expect(events).toContainEqual({ type: "lens", name: "voice-guard", count: 3, ok: false });
+    // And the editor-in-chief is told, so it can't call the review ready.
+    expect(runSummaryLens.mock.calls[0][0].failed).toContain("voice-guard");
+  });
+
+  test("a guarded run reports no failed passes", async () => {
+    runVoiceGuard.mockResolvedValue([]);
+    await runReview({ ...BASE });
+    expect(completeReview.mock.calls[0][3].lenses.failed).toEqual([]);
+    expect(runSummaryLens.mock.calls[0][0].failed).toEqual([]);
+  });
 });
