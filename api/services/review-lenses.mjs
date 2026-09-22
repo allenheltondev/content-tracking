@@ -28,18 +28,53 @@ const suggestionItem = z.object({
     .min(1)
     .describe("The EXACT substring of the content to change, copied verbatim (case-sensitive)."),
   replaceWith: z.string().describe("The replacement text. Use an empty string to delete the span."),
-  reason: z.string().describe("One sentence: why this change improves the content."),
-  priority: z.enum(["low", "medium", "high"]),
+  reason: z
+    .string()
+    .describe(
+      "One sentence naming the concrete problem a reader would hit. 'More concise', 'more professional', 'more formal', 'better flow' and 'improves clarity' are not problems — if that is the whole reason, do not emit the suggestion.",
+    ),
+  priority: z
+    .enum(["low", "medium", "high"])
+    .describe(
+      "high: a reader is actually misled or blocked. medium: a real problem worth fixing. low: worth mentioning but the author can ignore it.",
+    ),
   startOffset: z.number().int().optional().describe("Approximate start index of the span, if known."),
   endOffset: z.number().int().optional().describe("Approximate end index of the span, if known."),
 });
 
+// The per-lens suggestion cap. Deliberately small: at 20 the lenses reliably
+// returned 20, and a list that long is only reachable by padding it with
+// style-consistency nits the author never asked about. A tight cap forces the
+// model to spend its slots on the edits that actually matter, and it keeps the
+// structured response inside MAX_OUTPUT_TOKENS on a long post.
+const MAX_SUGGESTIONS = 8;
+
 const suggestionsOutput = z.object({
   suggestions: z
     .array(suggestionItem)
-    .max(20)
-    .describe("The specific, surgical edits this lens recommends. Quality over quantity."),
+    .max(MAX_SUGGESTIONS)
+    // Just the cap. The lens prompts already say when to stay quiet, and
+    // repeating "fewer is better" here stacked suppression on suppression:
+    // every lens went silent on drafts that did have small, real problems.
+    .describe(`The edits this lens recommends, at most ${MAX_SUGGESTIONS}.`),
 });
+
+// Output headroom for one lens. 2048 was not enough for a structured response
+// over a ~2000-word post: the model ran out mid-tool-call and the whole lens
+// failed with MaxTokensError, which the orchestrator then swallowed as "this
+// lens found nothing". The cap only bounds a runaway, so it can afford to be
+// generous.
+const MAX_OUTPUT_TOKENS = 8192;
+
+// The model the review lenses run on. Editorial judgment is the hardest thing
+// this stack asks a model to do — it has to tell a deliberate stylistic choice
+// from a mistake — and the default chat model (BEDROCK_MODEL_ID, tuned for
+// /briefs) is not up to it: it both failed to emit valid structured output on
+// longer posts and defaulted to formalizing everything it touched. Reviews pin
+// their own model so that choice is independent of the rest of the stack.
+function reviewModelId(explicit) {
+  return explicit ?? process.env.REVIEW_MODEL_ID ?? undefined;
+}
 
 const summaryOutput = z.object({
   verdict: z
@@ -64,7 +99,11 @@ Never flag a passage for being casual, opinionated, funny, or personal. Those ar
 
 Each suggestion must target an exact span and offer a more specific, human replacement (or deletion). Returning few or no suggestions is the correct outcome for writing that already sounds like a person. Return your edits as the structured result.`;
 
-const BRAND_PROMPT = `You are the author's on-voice editor. Using their learned writing voice (profile and real past posts, provided below) as the ground truth for how they sound, flag places in this draft that drift OFF their voice and suggest surgical edits to bring them back on-voice. Judge tone, rhythm, vocabulary, signature phrasing, and formatting habits — NOT the topic or facts (an unusual topic can still be perfectly on-voice). Their voice is defined by how they write NOW, so weight the more recently published examples most heavily. Each suggestion must target an exact span and explain, in one sentence, how the edit sounds more like them. If the draft already sounds like them, return few or no suggestions. Return your edits as the structured result.`;
+const BRAND_PROMPT = `You are the author's on-voice editor. Using their learned writing voice (profile and real past posts, provided below) as the ground truth for how they sound, flag places in this draft that drift OFF their voice and suggest surgical edits to bring them back on-voice. Judge tone, rhythm, vocabulary, signature phrasing, and formatting habits — NOT the topic or facts (an unusual topic can still be perfectly on-voice). Their voice is defined by how they write NOW, so weight the more recently published examples most heavily.
+
+Direction matters, and it only runs one way. This author wrote this draft, so the default assumption is that it already sounds like them. You are looking for the passages that sound like SOMEONE ELSE wrote them — flat corporate register, generic thought-leader phrasing, the tone of a press release. An edit that makes the draft more formal, more authoritative, more polished, or less personal than what the author wrote is drift, not a correction, and you must not propose it. If you find yourself replacing a joke, an aside, a contraction, or a plain word with something more impressive, stop: you are editing them out of their own post.
+
+Each suggestion must target an exact span and explain, in one sentence, how the edit sounds more like them. If the draft already sounds like them, return few or no suggestions. Return your edits as the structured result.`;
 
 const FACT_PROMPT = `You are a fact-checker for a content creator. Identify the specific, verifiable claims in the draft — statistics, dates, named events, quantities, attributions — and check them. Use the http_request tool to search the web for authoritative sources, then judge each claim. For each claim that is INCORRECT or that you could not verify, emit a suggestion that replaces the claim's exact text with a corrected or appropriately hedged version, and say what you found (and ideally the source) in the reason. Do NOT flag opinions, predictions, or matters of style — only checkable facts. If a claim checks out, leave it alone. Be economical: a few targeted searches, not an exhaustive audit. Return the structured result.`;
 
@@ -85,7 +124,7 @@ const guardOutput = z.object({
 
 const GUARD_PROMPT = `You are the author's voice guard, and the last check before edits reach them.
 
-You are given their draft, their established voice, and a numbered list of edits that generic editing passes want to make. Those passes do not know this author. They optimize for prose that is shorter, flatter, and more conventional, which is how a distinctive writer's personality gets edited out one reasonable-looking suggestion at a time.
+You are given their draft, their established voice, and a numbered list of edits that the review's editing passes want to make. Those passes optimize for prose that is shorter, flatter, and more conventional, which is how a distinctive writer's personality gets edited out one reasonable-looking suggestion at a time. Judge every edit on the list the same way, including the ones that claim to be making the draft sound more like the author — a pass can flatten someone while citing their own voice as the reason.
 
 Your only job is to discard the edits that would make the draft sound less like them. Discard an edit when it removes a signature habit or phrase, neutralizes humor, opinion, or an aside, replaces the author's word with a blander one, formalizes a deliberately casual passage, or is justified only by a generic style rule rather than by a problem a reader would actually hit.
 
@@ -93,7 +132,11 @@ Keep an edit when it fixes something genuinely wrong no matter whose writing it 
 
 When an edit is defensible on its own terms but you would not miss it, discard it. Suggestions are cheap to lose and voice is expensive to get back. Do not discard the whole list reflexively either: an empty result is correct when the edits are all fair. Judge each one against the voice you were given, not against your own taste. Return the structured result.`;
 
-const SUMMARY_PROMPT = `You are the editor-in-chief summarizing a multi-lens review of a draft for its author. You are given the draft and the concrete suggestions the review lenses produced. Write a short, honest editorial summary (2-3 sentences): what the draft does well, what most needs attention, and what to prioritize — then choose a verdict. Be specific and encouraging without inflating: 'ready' only if you'd publish as-is, 'minor_revisions' for small polish, 'major_revisions' when it needs real work. Return the structured result.`;
+const SUMMARY_PROMPT = `You are the editor-in-chief summarizing a multi-lens review of a draft for its author. You are given the draft and the concrete suggestions the review lenses produced. Write a short, honest editorial summary (2-3 sentences): what the draft does well, what most needs attention, and what to prioritize — then choose a verdict. Be specific and encouraging without inflating: 'ready' only if you'd publish as-is, 'minor_revisions' for small polish, 'major_revisions' when it needs real work.
+
+You may be told that some passes of the review did not finish. If so, you are summarizing an INCOMPLETE review and you must not present it as a clean bill of health: say plainly in the summary which kind of feedback is missing and that the draft has not been fully checked. Never return 'ready' in that case — a pass that didn't run cannot have found nothing, and the absence of suggestions from it is missing information, not a pass. Choose 'minor_revisions' or 'major_revisions' based on what the passes that DID run found.
+
+Return the structured result.`;
 
 // Stamps the lens's suggestion type onto each item (the model never classifies
 // its own type). Returns [] defensively when a lens produced nothing.
@@ -113,8 +156,8 @@ async function runContentLens({ body, tenantId, systemPrompt, type, temperature 
     systemPrompt: constraint ? `${systemPrompt}\n\n${constraint}` : systemPrompt,
     outputSchema: suggestionsOutput,
     temperature,
-    maxTokens: 2048,
-    modelId,
+    maxTokens: MAX_OUTPUT_TOKENS,
+    modelId: reviewModelId(modelId),
     invocationState: { tenantId },
   });
   return withType(output.suggestions, type);
@@ -139,8 +182,8 @@ export async function runBrandLens({ body, tenantId, platform, profile, samples,
     systemPrompt: `${BRAND_PROMPT}\n\n${grounding}`,
     outputSchema: suggestionsOutput,
     temperature: 0.3,
-    maxTokens: 2048,
-    modelId,
+    maxTokens: MAX_OUTPUT_TOKENS,
+    modelId: reviewModelId(modelId),
     invocationState: { tenantId },
   });
   return withType(output.suggestions, "brand");
@@ -170,8 +213,8 @@ ${authLine} Read the JSON results and judge the claim against what authoritative
     tools: [httpRequest],
     maxIterations: 8,
     temperature: 0.2,
-    maxTokens: 2048,
-    modelId,
+    maxTokens: MAX_OUTPUT_TOKENS,
+    modelId: reviewModelId(modelId),
     invocationState: { tenantId },
   });
   return withType(output.suggestions, 'fact');
@@ -206,8 +249,8 @@ export async function runVoiceGuard({ body, candidates, tenantId, platform, prof
     systemPrompt: `${GUARD_PROMPT}\n\n${grounding}${habits ? `\n\n${habits}` : ""}`,
     outputSchema: guardOutput,
     temperature: 0.2,
-    maxTokens: 2048,
-    modelId,
+    maxTokens: MAX_OUTPUT_TOKENS,
+    modelId: reviewModelId(modelId),
     invocationState: { tenantId },
   });
 
@@ -222,26 +265,76 @@ export async function runVoiceGuard({ body, candidates, tenantId, platform, prof
 // Synthesizes the lens findings into an editorial summary + verdict. `findings`
 // is the list of recorded suggestions (each with type/reason); the summary
 // reasons over them plus the draft.
-export async function runSummaryLens({ body, findings, tenantId, modelId }) {
-  const input = `=== DRAFT ===\n${body}\n\n=== REVIEW FINDINGS (${findings.length}) ===\n${formatFindings(findings)}`;
+export async function runSummaryLens({ body, findings, tenantId, modelId, failed }) {
+  // A pass that threw contributes no findings, which is indistinguishable from
+  // a pass that ran and found nothing unless we say so. Without this the
+  // editor-in-chief can hand back "ready" on a draft half of the review never
+  // looked at.
+  const incomplete = (failed ?? []).length > 0
+    ? `\n\n=== PASSES THAT DID NOT FINISH ===\n${failed.map((f) => `- ${describePass(f)}`).join("\n")}\nThis review is incomplete. Say so, and do not return 'ready'.`
+    : "";
+  const input = `=== DRAFT ===\n${body}\n\n=== REVIEW FINDINGS (${findings.length}) ===\n${formatFindings(findings)}${incomplete}`;
   const { output } = await runAgent({
     input,
     systemPrompt: SUMMARY_PROMPT,
     outputSchema: summaryOutput,
     temperature: 0.3,
     maxTokens: 1024,
-    modelId,
+    modelId: reviewModelId(modelId),
     invocationState: { tenantId },
   });
+
+  // The prompt asks for this; the code guarantees it. `verdict` is persisted on
+  // the review row and read by the GitHub action and the API long after the UI
+  // has decided what to render, so a model that ignores the instruction would
+  // otherwise leave `verdict: "ready"` sitting next to a non-empty
+  // `lenses.failed` for every other consumer to believe. "Ready to publish" is a
+  // claim about the whole draft, and a pass that never ran cannot support it.
+  if ((failed ?? []).length > 0 && output.verdict === "ready") {
+    logger.warn("Summary returned 'ready' for an incomplete review; downgrading", { failed });
+    return { ...output, verdict: "minor_revisions" };
+  }
   return output;
+}
+
+// Fields of the learned profile that a review lens must never see.
+//
+// These are the fields the reflection model fills with editorial advice rather
+// than description. A real profile came back with donts: ["Avoid overly casual
+// language."], tone: "authoritative", sentence_structure: "Clear and concise
+// sentences with a focus on delivering information efficiently" — a generic
+// tech-blogger archetype rather than the person. Handed to the lenses as "how
+// this author sounds", it read as a standing instruction to formalize, and the
+// lenses obeyed: they rewrote "I have bad news" into "Here's a critical
+// insight:", and cited "to avoid overly casual language" — the profile's own
+// words — as the reason. The lens whose job is removing AI tells was adding
+// them.
+//
+// Compose still gets the whole profile; it is writing new prose and a target
+// tone is useful there. Review is the opposite job — it decides what to leave
+// alone — so it sees only the fields that describe what the author actually
+// does. `reflectVoiceProfile` has since been taught to write these fields
+// descriptively, but a lens must not be one bad reflection away from
+// flattening someone, so the projection stays regardless.
+const PRESCRIPTIVE_PROFILE_FIELDS = ["donts", "tone", "sentence_structure"];
+
+// Projects a learned profile down to what a review lens is allowed to reason
+// against. Returns null unchanged so callers keep their cold-start path.
+export function describedVoiceOnly(profile) {
+  if (!profile || typeof profile !== "object") return profile ?? null;
+  const kept = Object.fromEntries(
+    Object.entries(profile).filter(([key]) => !PRESCRIPTIVE_PROFILE_FIELDS.includes(key)),
+  );
+  return Object.keys(kept).length > 0 ? kept : null;
 }
 
 // Renders the learned voice (portrait/profile + dated example posts) into the
 // grounding block the brand lens reasons against. Mirrors how the Voice compose
 // / check prompts present the profile + samples.
 function buildVoiceGrounding(platform, profile, samples) {
-  const profileBlock = profile
-    ? JSON.stringify(profile, null, 2)
+  const described = describedVoiceOnly(profile);
+  const profileBlock = described
+    ? JSON.stringify(described, null, 2)
     : "(no learned profile yet — infer the voice from the examples)";
   const examples = (samples ?? []).filter((s) => s?.text);
   const exampleBlock = examples.length > 0
@@ -263,7 +356,8 @@ function buildVoiceGrounding(platform, profile, samples) {
 // when there is nothing grounded to say, so the lens runs unchanged.
 function buildVoiceConstraint(voice) {
   if (!voice) return "";
-  const { platform, profile, signature } = voice;
+  const { platform, signature } = voice;
+  const profile = describedVoiceOnly(voice.profile);
 
   const parts = [];
   const portrait = typeof profile?.portrait === "string" ? profile.portrait.trim() : "";
@@ -275,12 +369,6 @@ function buildVoiceConstraint(voice) {
   const dos = (profile?.dos ?? []).filter((d) => typeof d === "string" && d.trim());
   if (dos.length > 0) parts.push(`Things they do on purpose: ${dos.join("; ")}.`);
 
-  const donts = (profile?.donts ?? []).filter((d) => typeof d === "string" && d.trim());
-  if (donts.length > 0) parts.push(`Things that would sound off-voice for them: ${donts.join("; ")}.`);
-
-  const tone = typeof profile?.tone === "string" ? profile.tone.trim() : "";
-  if (tone) parts.push(`Their tone: ${tone}.`);
-
   const habits = renderSignatureHabits(signature);
   if (parts.length === 0 && !habits) return "";
 
@@ -289,6 +377,20 @@ function buildVoiceConstraint(voice) {
     : "";
 
   return [described, habits].filter(Boolean).join("\n\n");
+}
+
+// What a pass actually checks, so the summary can name the missing feedback
+// rather than an internal lens key. Unknown names pass through as themselves.
+const PASS_DESCRIPTIONS = {
+  readability: "readability — grammar and clarity errors were not checked",
+  llm: "AI tells — generated-sounding phrasing was not checked",
+  brand: "on-voice — nothing checked whether the draft sounds like the author",
+  fact: "fact-checking — the draft's verifiable claims were not checked",
+  "voice-guard": "the voice guard — every suggestion below is unarbitrated, and some may flatten the author's voice",
+};
+
+function describePass(name) {
+  return PASS_DESCRIPTIONS[name] ?? name;
 }
 
 function formatFindings(findings) {

@@ -113,6 +113,49 @@ describe('ContentReview', () => {
     expect(streamReview).toHaveBeenCalledWith('tok', 'C1', undefined, expect.any(Function));
   });
 
+  it('says which passes failed so a partial review is not mistaken for a clean one', async () => {
+    (reviewStreamingEnabled as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (getSuggestions as ReturnType<typeof vi.fn>).mockResolvedValue({ suggestions: [], review: null });
+    (streamReview as ReturnType<typeof vi.fn>).mockImplementation(async (_t, _c, _p, onEvent) => {
+      onEvent({ type: 'review', review: { id: 'r9', status: 'pending', summary: null, lenses: null, createdAt: '', updatedAt: '' } });
+      onEvent({ type: 'lens', name: 'readability', count: 0, ok: false });
+      onEvent({ type: 'lens', name: 'llm', count: 1, ok: true });
+      onEvent({ type: 'suggestions', suggestions: [SUGGESTION] });
+      onEvent({ type: 'done', status: 'succeeded' });
+    });
+
+    render(<ContentReview contentId="C1" body={BODY} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /start review/i })).toBeEnabled());
+    await userEvent.click(screen.getByRole('button', { name: /start review/i }));
+
+    expect(await screen.findByText(/grammar and readability/i)).toBeInTheDocument();
+    expect(screen.getByText(/didn’t finish/i)).toBeInTheDocument();
+    // The pass that succeeded is not named as a failure.
+    expect(screen.queryByText(/AI-tell detection/i)).not.toBeInTheDocument();
+  });
+
+  it('does not call a draft clean when a pass failed and nothing survived', async () => {
+    (reviewStreamingEnabled as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (getSuggestions as ReturnType<typeof vi.fn>).mockResolvedValue({ suggestions: [], review: null });
+    (streamReview as ReturnType<typeof vi.fn>).mockImplementation(async (_t, _c, _p, onEvent) => {
+      onEvent({ type: 'review', review: { id: 'r9', status: 'pending', summary: null, lenses: null, createdAt: '', updatedAt: '' } });
+      onEvent({ type: 'lens', name: 'readability', count: 0, ok: false });
+      onEvent({ type: 'suggestions', suggestions: [] });
+      onEvent({ type: 'summary', summary: 'Nothing flagged.', verdict: 'ready' });
+      onEvent({ type: 'done', status: 'succeeded' });
+    });
+
+    render(<ContentReview contentId="C1" body={BODY} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /start review/i })).toBeEnabled());
+    await userEvent.click(screen.getByRole('button', { name: /start review/i }));
+
+    expect(await screen.findByText(/didn’t finish/i)).toBeInTheDocument();
+    // Zero surviving suggestions means nobody checked, not that nothing was found.
+    expect(screen.queryByText(/this draft looks good/i)).not.toBeInTheDocument();
+    // And an incomplete run doesn't get to wear a verdict badge.
+    expect(screen.queryByText(/^ready:/i)).not.toBeInTheDocument();
+  });
+
   it('inline edit applies the edited replacement instead of the suggested text', async () => {
     const onBodyChange = vi.fn();
     render(<ContentReview contentId="C1" body={BODY} onBodyChange={onBodyChange} />);

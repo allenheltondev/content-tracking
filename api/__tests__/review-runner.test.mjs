@@ -220,8 +220,14 @@ describe("voice guard", () => {
     const events = [];
     await runReview({ ...BASE, emit: (e) => events.push(e) });
 
-    // It judges only the voice-blind lenses' output; brand and fact are exempt.
-    expect(runVoiceGuard.mock.calls[0][0].candidates).toEqual([{ type: "grammar" }, { type: "llm" }]);
+    // Every style lens defends its edits, brand included — it was the pass
+    // most likely to formalize the author while citing their voice. Only
+    // factual corrections are exempt.
+    expect(runVoiceGuard.mock.calls[0][0].candidates).toEqual([
+      { type: "grammar" },
+      { type: "llm" },
+      { type: "brand" },
+    ]);
 
     const recordedSet = recordSuggestions.mock.calls[0][2].suggestions;
     expect(recordedSet).toEqual([{ type: "llm" }, { type: "brand" }]);
@@ -250,5 +256,27 @@ describe("voice guard", () => {
     expect(recordSuggestions.mock.calls[0][2].suggestions).toHaveLength(3);
     expect(completeReview.mock.calls[0][3].status).toBe("succeeded");
     expect(completeReview.mock.calls[0][3].lenses.vetoed).toBe(0);
+  });
+
+  // Degrading to "publish everything" is the intended fallback, but it is also
+  // the one state where nothing checked whether these edits flatten the author.
+  // It must not be indistinguishable from a guarded run.
+  test("a guard failure is recorded as an incomplete pass, not hidden", async () => {
+    runVoiceGuard.mockRejectedValue(new Error("throttled"));
+
+    const events = [];
+    await runReview({ ...BASE, emit: (e) => events.push(e) });
+
+    expect(completeReview.mock.calls[0][3].lenses.failed).toContain("voice-guard");
+    expect(events).toContainEqual({ type: "lens", name: "voice-guard", count: 3, ok: false });
+    // And the editor-in-chief is told, so it can't call the review ready.
+    expect(runSummaryLens.mock.calls[0][0].failed).toContain("voice-guard");
+  });
+
+  test("a guarded run reports no failed passes", async () => {
+    runVoiceGuard.mockResolvedValue([]);
+    await runReview({ ...BASE });
+    expect(completeReview.mock.calls[0][3].lenses.failed).toEqual([]);
+    expect(runSummaryLens.mock.calls[0][0].failed).toEqual([]);
   });
 });

@@ -108,8 +108,20 @@ export function lensNotes(review) {
     lines.push('', `Suggestions raised per lens: ${raised.join(', ')}.${vetoed}`);
   }
 
-  if (Array.isArray(lenses.failed) && lenses.failed.length > 0) {
-    lines.push('', `These lenses failed and contributed nothing: ${lenses.failed.join(', ')}.`);
+  // The voice guard sits in the same `failed` list but fails the other way
+  // round: a lens that throws contributes nothing, while a guard that throws
+  // lets everything through unchecked. Reporting them under one sentence would
+  // describe the more dangerous case backwards.
+  const failed = Array.isArray(lenses.failed) ? lenses.failed : [];
+  const failedLenses = failed.filter((name) => name !== 'voice-guard');
+  if (failedLenses.length > 0) {
+    lines.push('', `These lenses failed and contributed nothing: ${failedLenses.join(', ')}.`);
+  }
+  if (failed.includes('voice-guard')) {
+    lines.push(
+      '',
+      '> **The voice guard did not run.** Every suggestion below reached you unarbitrated — nothing checked whether these edits flatten your voice.',
+    );
   }
 
   // Only for an explicit false. An older review predates the field and should
