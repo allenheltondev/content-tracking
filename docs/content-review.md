@@ -434,7 +434,11 @@ What landed:
   surviving suggestions there means nobody checked, not that nothing was found.
   The summary lens is handed the same list and told it is summarizing an
   incomplete review and may not return `ready` — a pass that didn't run cannot
-  have found nothing.
+  have found nothing. The prompt asks; `runSummaryLens` enforces, downgrading a
+  `ready` the model returns anyway. The verdict is persisted and read by the
+  action and the API long after the UI has decided what to render, so a soft
+  instruction is not enough to keep "ready to publish" away from a review with a
+  non-empty `failed`.
 - **A failed voice guard is one of those passes.** `guardVoice` still degrades to
   publishing every suggestion, but it now returns `ok: false`, emits a failed
   `lens` event, and lands in `lenses.failed` as `voice-guard`. Now that the guard

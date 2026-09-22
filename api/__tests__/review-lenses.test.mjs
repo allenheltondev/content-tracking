@@ -125,6 +125,32 @@ describe("summary lens", () => {
     expect(input).toContain("do not return 'ready'");
     expect(runAgent.mock.calls[0][0].systemPrompt).toContain("INCOMPLETE review");
   });
+
+  // The prompt asks; this enforces. `verdict` outlives the UI's rendering
+  // decisions — it is persisted and read by the action and the API — so a model
+  // that ignores the instruction must not be able to publish "ready" next to a
+  // non-empty lenses.failed.
+  test("downgrades a 'ready' verdict the model returns for an incomplete review", async () => {
+    runAgent.mockResolvedValue({ output: { verdict: "ready", summary: "Looks great." } });
+
+    const out = await runSummaryLens({
+      body: BODY,
+      tenantId: TENANT,
+      findings: [],
+      failed: ["readability"],
+    });
+
+    expect(out.verdict).toBe("minor_revisions");
+    expect(out.summary).toBe("Looks great.");
+  });
+
+  test("leaves a 'ready' verdict alone when every pass finished", async () => {
+    runAgent.mockResolvedValue({ output: { verdict: "ready", summary: "Looks great." } });
+
+    const out = await runSummaryLens({ body: BODY, tenantId: TENANT, findings: [], failed: [] });
+
+    expect(out.verdict).toBe("ready");
+  });
 });
 
 describe("runLensSafely", () => {

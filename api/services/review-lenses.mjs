@@ -283,6 +283,17 @@ export async function runSummaryLens({ body, findings, tenantId, modelId, failed
     modelId: reviewModelId(modelId),
     invocationState: { tenantId },
   });
+
+  // The prompt asks for this; the code guarantees it. `verdict` is persisted on
+  // the review row and read by the GitHub action and the API long after the UI
+  // has decided what to render, so a model that ignores the instruction would
+  // otherwise leave `verdict: "ready"` sitting next to a non-empty
+  // `lenses.failed` for every other consumer to believe. "Ready to publish" is a
+  // claim about the whole draft, and a pass that never ran cannot support it.
+  if ((failed ?? []).length > 0 && output.verdict === "ready") {
+    logger.warn("Summary returned 'ready' for an incomplete review; downgrading", { failed });
+    return { ...output, verdict: "minor_revisions" };
+  }
   return output;
 }
 
