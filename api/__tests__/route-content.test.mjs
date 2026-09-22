@@ -14,6 +14,7 @@ jest.unstable_mockModule("../domain/content.mjs", () => ({
   listContentStats: jest.fn(),
   listPublishVariants: jest.fn(),
   putPublishVariant: jest.fn(),
+  setPlatformLink: jest.fn(),
   putStatsSnapshot: jest.fn(),
   updateContent: jest.fn(),
 }));
@@ -41,7 +42,7 @@ jest.unstable_mockModule("../services/blog-platforms/index.mjs", () => ({ getAda
 const {
   attachCampaign, createContent, deleteContent, detachCampaign, findContentBySlug, getContent,
   listContentByTenant, listContentStats, listPublishVariants, putPublishVariant,
-  putStatsSnapshot, updateContent,
+  setPlatformLink, putStatsSnapshot, updateContent,
 } = await import("../domain/content.mjs");
 const { createCampaign, findCampaign } = await import("../domain/campaign.mjs");
 const { getTenant } = await import("../domain/tenant.mjs");
@@ -228,6 +229,36 @@ describe("content publishing + analytics routes", () => {
     expect(res.statusCode).toBe(201);
     expect(putPublishVariant).toHaveBeenCalledWith(SUB, "C1", "devto", expect.objectContaining({ url: "https://dev.to/x" }));
     expect(JSON.parse(res.body).platform).toBe("devto");
+  });
+
+  // "devto" (the old placeholder's suggestion) is not a cross-post platform
+  // key, so it's plain distribution tracking: no link write.
+  test("POST /publish on a non-cross-post platform records only the variant", async () => {
+    getContent.mockResolvedValue({ contentId: "C1" });
+    putPublishVariant.mockResolvedValue({ platform: "youtube", url: "https://youtu.be/x" });
+    await routes["POST /content/:contentId/publish"](ctx({
+      params: { contentId: "C1" }, body: { platform: "youtube", url: "https://youtu.be/x" },
+    }));
+    expect(setPlatformLink).not.toHaveBeenCalled();
+  });
+
+  // A copy posted by hand is the same fact as one we posted: the variant stops
+  // "Cross-post for me" from publishing a duplicate, and the link lets other
+  // posts' cross-links point at it.
+  test("POST /publish on a cross-post platform also records the platform link", async () => {
+    getContent.mockResolvedValue({ contentId: "C1" });
+    putPublishVariant.mockResolvedValue({ platform: "medium", url: "https://medium.com/@me/hi" });
+    await routes["POST /content/:contentId/publish"](ctx({
+      params: { contentId: "C1" }, body: { platform: "medium", url: "https://medium.com/@me/hi" },
+    }));
+    expect(setPlatformLink).toHaveBeenCalledWith(SUB, "C1", "medium", "https://medium.com/@me/hi");
+  });
+
+  test("POST /publish without a url has no link to record", async () => {
+    getContent.mockResolvedValue({ contentId: "C1" });
+    putPublishVariant.mockResolvedValue({ platform: "dev" });
+    await routes["POST /content/:contentId/publish"](ctx({ params: { contentId: "C1" }, body: { platform: "dev" } }));
+    expect(setPlatformLink).not.toHaveBeenCalled();
   });
 
   test("POST /publish rejects a bad platform", async () => {

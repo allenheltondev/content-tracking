@@ -903,7 +903,7 @@ A piece owns at most one campaign (1:1, optional).
 
 Content-level distribution and performance, independent of any campaign.
 
-- `POST /content/{contentId}/publish` — record where a piece went live; body `{ platform, url?, published_at?, notes? }` (`platform` is a free-form slug). One row per platform.
+- `POST /content/{contentId}/publish` — record where a piece went live; body `{ platform, url?, published_at?, notes? }` (`platform` is a free-form slug). One row per platform. When `platform` is `dev`, `medium` or `hashnode` and a `url` is given, the url is also stored in the piece's `links.<platform>`. That makes a hand-posted copy count the same as one cross-posted for you. The cross-post duplicate guard skips that platform, and other posts that link here get rewritten to that copy when they are cross-posted.
 - `GET /content/{contentId}/publish` — the publish variants.
 - `PUT /content/{contentId}/stats/{platform}` — record a metric snapshot for the current UTC day; body `{ metrics: { name: number, ... }, captured_at? }`.
 - `GET /content/{contentId}/analytics` — `{ publish_variants[], stats: [{ platform, snapshots[] }] }`.
@@ -913,8 +913,13 @@ Content-level distribution and performance, independent of any campaign.
 Cross-post a content piece to dev.to / Medium / Hashnode, publishing
 synchronously off the content row (so content-native pieces can cross-post).
 Body `{ platforms: ["dev"|"medium"|"hashnode", ...] }`. Each success is recorded
-as a publish variant; platforms already published are skipped. Returns
+as a publish variant and in the piece's `links.<platform>`; platforms already
+published are skipped. Returns
 `{ content_id, results: [{ platform, status, url?, error? }] }`.
+
+Each platform needs its credentials set up first. See
+[`GET /settings/crosspost`](#get-settingscrosspost) for what a platform is
+missing. A platform that isn't set up comes back as `failed` with the reason.
 
 ---
 
@@ -1406,6 +1411,68 @@ cross-posts go out without a canonical.
 ```
 
 Set it with [`PUT /profile`](#put-profile): `{ "blog": { "canonical_base_url": "https://readysetcloud.io" } }`.
+
+### GET /settings/crosspost
+
+Whether each cross-post platform can publish, and what it still needs if not.
+
+A platform is `ready` when it has every field its publisher requires. dev.to
+requires a `token`. Medium and Hashnode require a `token` and a
+`publication_id`, because both post into a publication. `missing` names the
+fields still to set, using the same names `PUT` accepts.
+
+Tokens are write-only. The response reports `token_configured` and never the
+token itself. Credentials are read fresh on every call, so a save shows up
+immediately.
+
+**Authentication:** Cognito only. An API key can cross-post, but it cannot read
+or change the credentials it posts with.
+
+**Response** `200 OK`:
+
+```json
+{
+  "platforms": {
+    "dev":      { "ready": true,  "token_configured": true,  "missing": [], "organization_id": null },
+    "medium":   { "ready": false, "token_configured": true,  "missing": ["publication_id"], "publication_id": null },
+    "hashnode": { "ready": false, "token_configured": false, "missing": ["token", "publication_id"], "publication_id": null, "blog_url": null }
+  }
+}
+```
+
+### PUT /settings/crosspost
+
+Set or clear a platform's credentials and ids. Send only the platforms and
+fields you are changing.
+
+For every field, a value sets it, `null` clears it, and leaving it out leaves it
+alone. Clearing a `token` keeps the platform's ids, so reconnecting later only
+takes a new token. An empty-string `token` is rejected. Clearing takes an
+explicit `null`.
+
+Tokens are stored in an encrypted SSM parameter, merged into what is already
+there. Saving one platform never touches another platform's token. Ids are
+stored on the tenant config row.
+
+**Authentication:** Cognito only.
+
+**Request body:**
+
+| Field | Platforms | Notes |
+| --- | --- | --- |
+| `token` | all | dev.to API key, Medium integration token, or Hashnode personal access token |
+| `organization_id` | `dev` | Optional. Publishes under a dev.to organization |
+| `publication_id` | `medium`, `hashnode` | Required to publish |
+| `blog_url` | `hashnode` | Optional. Used to build the post link when Hashnode doesn't return one |
+
+```json
+{ "platforms": { "hashnode": { "token": "…", "publication_id": "…" } } }
+```
+
+**Responses:**
+
+- `200 OK` - the same report as `GET`.
+- `400 Bad Request` - unknown platform, a field that platform doesn't take, an empty token, or a body that changes nothing.
 
 ### POST /profile/images/upload-url
 

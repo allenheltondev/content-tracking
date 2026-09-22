@@ -26,6 +26,7 @@ const {
   getBlogCredentials,
   getBlogCredential,
   writeBlogCredentials,
+  mergeBlogCredentials,
 } = await import("../services/blog-credentials.mjs");
 
 const TENANT = "allen.helton";
@@ -132,5 +133,52 @@ describe("writeBlogCredentials", () => {
       Value: JSON.stringify(CREDS),
       Overwrite: true,
     });
+  });
+});
+
+describe("mergeBlogCredentials", () => {
+  beforeEach(() => {
+    getParameter.mockReset();
+    ssmSend.mockReset();
+    ssmSend.mockResolvedValue({});
+  });
+
+  const written = () => JSON.parse(ssmSend.mock.calls[0][0].input.Value);
+
+  // The settings page saves one platform at a time. A plain overwrite would
+  // let saving Hashnode erase the Dev.to key.
+  test("sets one key and keeps every other, including ones the UI never shows", async () => {
+    getParameter.mockResolvedValue(JSON.stringify(CREDS));
+
+    await mergeBlogCredentials(TENANT, { hashnode: "new-hn" });
+
+    expect(written()).toEqual({ ...CREDS, hashnode: "new-hn" });
+    // medium-cookie is the stats credential, set out of band.
+    expect(written()["medium-cookie"]).toBe("cookie");
+  });
+
+  test("null removes a key", async () => {
+    getParameter.mockResolvedValue(JSON.stringify(CREDS));
+
+    await mergeBlogCredentials(TENANT, { dev: null });
+
+    expect(written()).not.toHaveProperty("dev");
+    expect(written().medium).toBe("medium-token");
+  });
+
+  test("starts from empty on a tenant with no parameter yet", async () => {
+    getParameter.mockRejectedValue(notFoundError());
+
+    await mergeBlogCredentials(TENANT, { dev: "first-key" });
+
+    expect(written()).toEqual({ dev: "first-key" });
+  });
+
+  // Merging onto a cached copy up to five minutes stale would resurrect a
+  // token the author just cleared.
+  test("reads past the cache before merging", async () => {
+    getParameter.mockResolvedValue(JSON.stringify(CREDS));
+    await mergeBlogCredentials(TENANT, { dev: "k" });
+    expect(getParameter).toHaveBeenCalledWith(PARAM, expect.objectContaining({ forceFetch: true }));
   });
 });

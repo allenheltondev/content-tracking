@@ -1074,6 +1074,37 @@ export interface AddPublishVariantParams {
 
 export type CrosspostPlatform = 'dev' | 'medium' | 'hashnode';
 
+// What a platform still needs before "Cross-post for me" can publish to it.
+// Matches the PUT /settings/crosspost field names.
+export type CrosspostRequirement = 'token' | 'publication_id';
+
+// GET/PUT /settings/crosspost. Tokens are write-only: the server reports only
+// whether one is stored (`token_configured`), never the value.
+export interface CrosspostPlatformReadiness {
+  ready: boolean;
+  token_configured: boolean;
+  missing: CrosspostRequirement[];
+  organization_id?: string | null; // dev only
+  publication_id?: string | null; // medium, hashnode
+  blog_url?: string | null; // hashnode only
+}
+
+export interface CrosspostSettings {
+  platforms: Record<CrosspostPlatform, CrosspostPlatformReadiness>;
+}
+
+// Per field: a value sets it, null clears it, omitted leaves it alone.
+export interface CrosspostPlatformUpdate {
+  token?: string | null;
+  organization_id?: string | null;
+  publication_id?: string | null;
+  blog_url?: string | null;
+}
+
+export interface CrosspostSettingsUpdate {
+  platforms: Partial<Record<CrosspostPlatform, CrosspostPlatformUpdate>>;
+}
+
 export interface CrosspostRun {
   run_id: string;
   status: string;

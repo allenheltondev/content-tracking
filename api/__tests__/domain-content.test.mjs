@@ -27,6 +27,7 @@ const {
   listPublishVariants,
   putStatsSnapshot,
   listContentStats,
+  setPlatformLink,
 } = await import("../domain/content.mjs");
 
 const input = (mockSend, i = 0) => mockSend.mock.calls[i][0].input;
@@ -482,5 +483,67 @@ describe("domain/content", () => {
         "devto#2026-06-01", "devto#2026-06-02", "medium#2026-06-02",
       ]);
     });
+  });
+});
+
+describe("domain/content setPlatformLink", () => {
+  let mockSend;
+
+  beforeEach(() => {
+    mockSend = jest.fn();
+    DynamoDBDocumentClient.prototype.send = mockSend;
+  });
+
+  test("sets links.<platform> on the root, requiring the root to exist", async () => {
+    mockSend.mockResolvedValueOnce({});
+
+    await setPlatformLink(TENANT, "C1", "dev", "https://dev.to/me/hi");
+
+    const req = input(mockSend);
+    expect(req.Key).toEqual(contentKey(TENANT, "C1"));
+    expect(req.UpdateExpression).toBe("SET #links.#p = :url");
+    expect(req.ExpressionAttributeNames).toEqual({ "#links": "links", "#p": "dev" });
+    expect(req.ExpressionAttributeValues).toEqual({ ":url": "https://dev.to/me/hi" });
+    // An UpdateCommand without this would conjure a stub content row.
+    expect(req.ConditionExpression).toBe("attribute_exists(pk)");
+  });
+
+  test("reports a missing piece as NotFound rather than creating one", async () => {
+    mockSend.mockRejectedValueOnce({ name: "ConditionalCheckFailedException" });
+    await expect(setPlatformLink(TENANT, "C1", "dev", "https://x")).rejects.toThrow(/not found/i);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+  });
+
+  // A legacy row may lack the map entirely; DynamoDB rejects a SET on a child
+  // of a missing map with a ValidationException.
+  test("creates the map when a legacy row has none", async () => {
+    mockSend
+      .mockRejectedValueOnce({ name: "ValidationException", message: "The document path provided in the update expression is invalid for update" })
+      .mockResolvedValueOnce({});
+
+    await setPlatformLink(TENANT, "C1", "medium", "https://medium.com/@me/hi");
+
+    const req = input(mockSend, 1);
+    expect(req.UpdateExpression).toBe("SET #links = :links");
+    expect(req.ExpressionAttributeValues).toEqual({ ":links": { medium: "https://medium.com/@me/hi" } });
+    // Must not clobber a map that appeared between the two writes.
+    expect(req.ConditionExpression).toBe("attribute_exists(pk) AND attribute_not_exists(#links)");
+  });
+
+  test("retries the nested set if the map appeared between attempts", async () => {
+    mockSend
+      .mockRejectedValueOnce({ name: "ValidationException" })
+      .mockRejectedValueOnce({ name: "ConditionalCheckFailedException" })
+      .mockResolvedValueOnce({});
+
+    await setPlatformLink(TENANT, "C1", "dev", "https://dev.to/me/hi");
+
+    expect(mockSend).toHaveBeenCalledTimes(3);
+    expect(input(mockSend, 2).UpdateExpression).toBe("SET #links.#p = :url");
+  });
+
+  test("surfaces any other DynamoDB error", async () => {
+    mockSend.mockRejectedValueOnce({ name: "ProvisionedThroughputExceededException" });
+    await expect(setPlatformLink(TENANT, "C1", "dev", "https://x")).rejects.toMatchObject({ name: "ProvisionedThroughputExceededException" });
   });
 });

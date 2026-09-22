@@ -88,8 +88,32 @@ export async function getBlogCredential(tenantId, key, opts) {
   return creds[key];
 }
 
-// Writes the full credentials blob for a tenant (e.g. from a settings
-// endpoint). Overwrites any existing value.
+// Applies per-key changes to the stored blob: a string sets that key, null
+// removes it, and every key not named is kept. Returns the merged blob.
+//
+// The settings page saves one platform at a time, so a plain overwrite would
+// let saving Hashnode silently erase the Dev.to key. It also has to preserve
+// keys the settings page never shows — `medium-cookie` is the Medium stats
+// credential, set out of band, and must survive someone saving their Medium
+// publish token.
+//
+// The read is forced past the Powertools cache: merging onto a copy up to five
+// minutes stale would resurrect a token the author just cleared. Two saves
+// racing can still lose one, which is acceptable for a single author's
+// settings page.
+export async function mergeBlogCredentials(tenantId, changes) {
+  const current = (await getBlogCredentials(tenantId, { forceFetch: true })) ?? {};
+  const merged = { ...current };
+  for (const [key, value] of Object.entries(changes)) {
+    if (value === null) delete merged[key];
+    else merged[key] = value;
+  }
+  await writeBlogCredentials(tenantId, merged);
+  return merged;
+}
+
+// Writes the full credentials blob for a tenant. Overwrites any existing
+// value; callers editing a subset of keys want mergeBlogCredentials.
 export async function writeBlogCredentials(tenantId, credentials) {
   await ssm.send(new PutParameterCommand({
     Name: blogCredentialsParam(tenantId),

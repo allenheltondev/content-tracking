@@ -9,11 +9,13 @@ import {
   listContentStats,
   listPublishVariants,
   putPublishVariant,
+  setPlatformLink,
   putStatsSnapshot,
   updateContent,
 } from "../domain/content.mjs";
 import { createCampaign, findCampaign } from "../domain/campaign.mjs";
 import { crosspostContent } from "../services/content-crosspost.mjs";
+import { CROSSPOST_PLATFORM_KEYS } from "../services/crosspost-readiness.mjs";
 import { validateCrosspostRequest } from "../validation/blog.mjs";
 import { requireCampaignId } from "../validation/common.mjs";
 import { requirePublisherTenantId, requireTenantId } from "../services/identity.mjs";
@@ -231,6 +233,14 @@ export function registerContentRoutes(app) {
     await getContent(tenantId, params.contentId); // 404 if the piece is gone
     const { platform, ...fields } = validatePublishVariant(parseBody(event));
     const item = await putPublishVariant(tenantId, params.contentId, platform, fields);
+    // A copy the author posted by hand on a cross-post platform is the same
+    // fact as one we posted for them, so record it the same way: the variant
+    // above is what the duplicate guard reads (so "Cross-post for me" won't
+    // post a second copy), and the link is what cross-link rewriting reads.
+    // Other platforms (youtube, linkedin…) are just distribution tracking.
+    if (fields.url && CROSSPOST_PLATFORM_KEYS.includes(platform)) {
+      await setPlatformLink(tenantId, params.contentId, platform, fields.url);
+    }
     return jsonResponse(201, formatPublishVariant(item));
   }));
 
