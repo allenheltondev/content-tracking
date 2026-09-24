@@ -64,6 +64,11 @@ describe("GET /settings/crosspost", () => {
     expect(getBlogCredentials).toHaveBeenCalledWith(SUB, { forceFetch: true });
   });
 
+  test("reads the tenant row strongly consistent", async () => {
+    await routes["GET /settings/crosspost"](ctx());
+    expect(getTenant).toHaveBeenCalledWith(SUB, { consistentRead: true });
+  });
+
   test("is dashboard-only", async () => {
     await expect(routes["GET /settings/crosspost"](ctx({ authSource: "apikey" }))).rejects.toThrow(/dashboard sign-in/);
   });
@@ -102,6 +107,44 @@ describe("PUT /settings/crosspost", () => {
   test("never echoes the token it just saved", async () => {
     const res = await routes["PUT /settings/crosspost"](ctx({ body: { platforms: { dev: { token: SECRET } } } }));
     expect(res.body).not.toContain(SECRET);
+  });
+
+  // The UI caches the PUT response as the settings state. Reading the save
+  // back could land before it's visible and show "Needs publication ID" on a
+  // save that succeeded. So the report comes from what was written.
+  test("reports on an id save from the written row, not a read-back", async () => {
+    getTenant.mockResolvedValue(null); // what a read racing the write would see
+    getBlogCredentials.mockResolvedValue({ medium: "m-token" });
+    upsertTenant.mockResolvedValueOnce({ platforms: { medium: { publicationId: "pub-new" } } });
+
+    const res = await routes["PUT /settings/crosspost"](ctx({
+      body: { platforms: { medium: { publication_id: "pub-new" } } },
+    }));
+
+    expect(getTenant).not.toHaveBeenCalled();
+    expect(JSON.parse(res.body).platforms.medium).toMatchObject({ ready: true, publication_id: "pub-new", missing: [] });
+  });
+
+  test("reports on a token save from the merged blob, not a read-back", async () => {
+    getBlogCredentials.mockResolvedValue({}); // stale: no token yet
+    mergeBlogCredentials.mockResolvedValueOnce({ medium: "m-token" });
+
+    const res = await routes["PUT /settings/crosspost"](ctx({ body: { platforms: { medium: { token: "m-token" } } } }));
+
+    expect(getBlogCredentials).not.toHaveBeenCalled();
+    expect(JSON.parse(res.body).platforms.medium).toMatchObject({ ready: true, token_configured: true });
+  });
+
+  // The half this save didn't touch still gets read, and another card may
+  // have saved it a moment ago.
+  test("reads the untouched half fresh", async () => {
+    await routes["PUT /settings/crosspost"](ctx({ body: { platforms: { dev: { token: "k" } } } }));
+    expect(getTenant).toHaveBeenCalledWith(SUB, { consistentRead: true });
+
+    jest.clearAllMocks();
+    upsertTenant.mockResolvedValueOnce({ platforms: {} });
+    await routes["PUT /settings/crosspost"](ctx({ body: { platforms: { medium: { publication_id: "p" } } } }));
+    expect(getBlogCredentials).toHaveBeenCalledWith(SUB, { forceFetch: true });
   });
 
   // A failed SSM write must not leave the ids updated with the token not.

@@ -22,10 +22,16 @@ export function tenantConfigKey(tenantId) {
 // Returns the tenant config item, or null when the tenant has not
 // configured one yet (so GET /tenant can report the unconfigured state
 // rather than 404 on a fresh sign-in).
-export async function getTenant(tenantId) {
+//
+// Eventually consistent by default, which is fine for the publish path's
+// reads. Pass `consistentRead` wherever the caller may have written this row
+// moments ago and must see that write: a read-modify-write, or a settings
+// screen reporting on the save the author just made.
+export async function getTenant(tenantId, { consistentRead = false } = {}) {
   const result = await ddb.send(new GetCommand({
     TableName: TABLE_NAME,
     Key: tenantConfigKey(tenantId),
+    ...(consistentRead ? { ConsistentRead: true } : {}),
   }));
   return result.Item ?? null;
 }
@@ -42,9 +48,16 @@ function mergePlatforms(existing = {}, incoming = {}) {
 
 // Create-or-update the tenant config. Merges the validated fields over any
 // existing config (preserving createdAt and untouched platform settings)
-// so callers can send partial updates.
+// so callers can send partial updates. Returns the item exactly as written,
+// so a caller can report on the save without re-reading it.
+//
+// The read must be strongly consistent. This is a read-modify-write that ends
+// in a whole-item Put, so merging onto a stale copy doesn't just miss a recent
+// save, it overwrites it. The cross-post settings page saves one platform card
+// at a time; an eventually consistent read here could let saving Hashnode's id
+// silently erase the Medium id saved a moment before.
 export async function upsertTenant(tenantId, config) {
-  const existing = await getTenant(tenantId);
+  const existing = await getTenant(tenantId, { consistentRead: true });
   const now = new Date().toISOString();
 
   const { platforms: incomingPlatforms, ...rest } = config;

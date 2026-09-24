@@ -31,6 +31,41 @@ describe("domain/tenant", () => {
       mockSend.mockResolvedValue({});
       expect(await getTenant(TENANT)).toBeNull();
     });
+
+    test("is eventually consistent unless asked otherwise", async () => {
+      mockSend.mockResolvedValue({});
+      await getTenant(TENANT);
+      expect(mockSend.mock.calls[0][0].input).not.toHaveProperty("ConsistentRead");
+    });
+
+    test("reads strongly consistent when asked", async () => {
+      mockSend.mockResolvedValue({});
+      await getTenant(TENANT, { consistentRead: true });
+      expect(mockSend.mock.calls[0][0].input.ConsistentRead).toBe(true);
+    });
+  });
+
+  // upsertTenant is a read-modify-write that ends in a whole-item Put. On a
+  // stale read it doesn't just miss a recent save, it overwrites it: saving
+  // Hashnode's id could erase the Medium id saved a moment before.
+  describe("upsertTenant read-modify-write", () => {
+    test("reads the row strongly consistent before merging", async () => {
+      mockSend.mockResolvedValueOnce({}).mockResolvedValueOnce({});
+      await upsertTenant(TENANT, { platforms: { hashnode: { publicationId: "hp" } } });
+      expect(mockSend.mock.calls[0][0].input.ConsistentRead).toBe(true);
+    });
+
+    test("keeps another platform's just-saved id when merging", async () => {
+      mockSend
+        .mockResolvedValueOnce({ Item: { ...tenantConfigKey(TENANT), platforms: { medium: { publicationId: "pm" } } } })
+        .mockResolvedValueOnce({});
+
+      const item = await upsertTenant(TENANT, { platforms: { hashnode: { publicationId: "hp" } } });
+
+      expect(item.platforms).toEqual({ medium: { publicationId: "pm" }, hashnode: { publicationId: "hp" } });
+      // What's returned is exactly what was Put, so callers can report on it.
+      expect(mockSend.mock.calls[1][0].input.Item).toEqual(item);
+    });
   });
 
   describe("upsertTenant", () => {

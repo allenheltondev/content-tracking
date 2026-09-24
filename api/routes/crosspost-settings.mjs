@@ -30,12 +30,12 @@ export function registerCrosspostSettingsRoutes(app) {
 
     // Credentials first: they're the half that can fail on an SSM/KMS error,
     // and a failed save should not leave the ids updated with the token not.
-    if (Object.keys(credentials).length > 0) {
-      await mergeBlogCredentials(tenantId, credentials);
-    }
-    if (Object.keys(config).length > 0) {
-      await upsertTenant(tenantId, { platforms: config });
-    }
+    const writtenCredentials = Object.keys(credentials).length > 0
+      ? await mergeBlogCredentials(tenantId, credentials)
+      : undefined;
+    const writtenTenant = Object.keys(config).length > 0
+      ? await upsertTenant(tenantId, { platforms: config })
+      : undefined;
 
     logger.info("Cross-post settings updated", {
       tokens: Object.fromEntries(
@@ -44,17 +44,27 @@ export function registerCrosspostSettingsRoutes(app) {
       config: Object.keys(config),
     });
 
-    return jsonResponse(200, await readReadiness(tenantId));
+    // Report on this save from the values it wrote, never by reading them
+    // back. The UI caches this response as the settings state, so a read that
+    // lands before the write is visible would show "Needs publication ID" on a
+    // save that succeeded, and keep showing it. Only the half this request
+    // didn't touch is read, and that read is strong too: another card may have
+    // saved it a moment ago.
+    return jsonResponse(200, await readReadiness(tenantId, {
+      tenant: writtenTenant,
+      credentials: writtenCredentials,
+    }));
   });
 }
 
-// Forced past the Powertools cache. Credentials cache per Lambda container, so
-// after a save a warm container could keep reporting "not set up" for up to
-// five minutes — which is exactly the moment the author comes back to check.
-async function readReadiness(tenantId) {
+// Readiness, with any half the caller already holds used as-is. What has to be
+// read is read fresh: credentials past the per-container Powertools cache, and
+// the tenant row strongly consistent. The author checks this screen right
+// after saving, which is exactly when a stale read says "not set up".
+async function readReadiness(tenantId, known = {}) {
   const [tenant, credentials] = await Promise.all([
-    getTenant(tenantId),
-    getBlogCredentials(tenantId, { forceFetch: true }),
+    known.tenant !== undefined ? known.tenant : getTenant(tenantId, { consistentRead: true }),
+    known.credentials !== undefined ? known.credentials : getBlogCredentials(tenantId, { forceFetch: true }),
   ]);
   return describeCrosspostReadiness(tenant, credentials);
 }
