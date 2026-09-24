@@ -1,4 +1,4 @@
-import { validateTenantConfig, formatTenant } from "../validation/tenant.mjs";
+import { validateTenantConfig, formatTenant, validateDevOrganizationId } from "../validation/tenant.mjs";
 
 describe("validation/tenant", () => {
   describe("validateTenantConfig", () => {
@@ -85,5 +85,44 @@ describe("validation/tenant", () => {
       expect(out.platforms.hashnode).toEqual({ publication_id: "hn", blog_url: "https://h.dev" });
       expect(out.created_at).toBe("t0");
     });
+  });
+
+  // The dev.to adapter sends Number(organizationId). Anything that isn't a
+  // positive integer becomes NaN, serialized as null, and fails at dev.to on
+  // the next cross-post instead of here at save time.
+  describe("validateDevOrganizationId", () => {
+    test.each([
+      [2491, "2491"],
+      ["2491", "2491"],
+      [" 2491 ", "2491"],
+      ["007", "7"], // stored canonically, so what's stored is what's sent
+    ])("accepts %p as %p", (input, expected) => {
+      expect(validateDevOrganizationId(input, "org")).toBe(expected);
+    });
+
+    test.each([
+      ["abc"],
+      ["12abc"],
+      ["12.5"],
+      [12.5],
+      ["-3"],
+      [-3],
+      [0],
+      ["0"],
+      ["1e3"],
+      [""],
+      [Number.NaN],
+      [Number.POSITIVE_INFINITY],
+      ["99999999999999999999"], // past MAX_SAFE_INTEGER: Number() would round it
+      [null],
+      [{}],
+    ])("rejects %p", (input) => {
+      expect(() => validateDevOrganizationId(input, "org")).toThrow(/positive whole number/);
+    });
+  });
+
+  test("PUT /profile's blog path rejects a non-numeric dev.to organization id", () => {
+    expect(() => validateTenantConfig({ platforms: { dev: { organization_id: "abc" } } }))
+      .toThrow(/platforms\.dev\.organization_id must be a positive whole number/);
   });
 });

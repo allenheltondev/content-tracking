@@ -43,6 +43,22 @@ describe("validateCrosspostSettings", () => {
     expect(() => validateCrosspostSettings({ platforms: { dev: { publication_id: "x" } } })).toThrow(/not a recognized field/);
   });
 
+  // Saving "abc" used to succeed and report DEV as ready, then fail at
+  // dev.to on the next cross-post, because the adapter sends Number() of it.
+  test("rejects a non-numeric dev.to organization id", () => {
+    expect(() => validateCrosspostSettings({ platforms: { dev: { organization_id: "abc" } } }))
+      .toThrow(/platforms\.dev\.organization_id must be a positive whole number/);
+    expect(() => validateCrosspostSettings({ platforms: { dev: { organization_id: "12.5" } } }))
+      .toThrow(/positive whole number/);
+  });
+
+  test("accepts a numeric-string organization id and still clears with null", () => {
+    expect(validateCrosspostSettings({ platforms: { dev: { organization_id: "2491" } } }).config)
+      .toEqual({ dev: { organizationId: "2491" } });
+    expect(validateCrosspostSettings({ platforms: { dev: { organization_id: null } } }).config)
+      .toEqual({ dev: { organizationId: null } });
+  });
+
   test("rejects a non-http blog url", () => {
     expect(() => validateCrosspostSettings({ platforms: { hashnode: { blog_url: "me.hashnode.dev" } } })).toThrow(/http\(s\) URL/);
   });

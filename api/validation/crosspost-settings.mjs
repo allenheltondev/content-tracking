@@ -1,5 +1,6 @@
 import { BadRequestError } from "../services/errors.mjs";
 import { CROSSPOST_PLATFORM_KEYS } from "../services/crosspost-readiness.mjs";
+import { validateDevOrganizationId } from "./tenant.mjs";
 
 // Body for PUT /settings/crosspost. One entry per platform, each optional:
 //
@@ -54,8 +55,7 @@ function validateConfigValue(value, field, label) {
     }
     return value.trim();
   }
-  // Dev.to's organization id is numeric; accept either and store a string.
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (field === "organization_id") return validateDevOrganizationId(value, label);
   if (typeof value !== "string" || value.trim().length === 0 || value.length > ID_MAX) {
     throw new BadRequestError(`${label} must be a non-empty string up to ${ID_MAX} chars, or null`);
   }
