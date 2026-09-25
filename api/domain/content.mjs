@@ -523,6 +523,56 @@ export async function putPublishVariant(tenantId, contentId, platform, fields = 
   return item;
 }
 
+// Records where a piece lives on a cross-post platform in the root's
+// `links.<platform>` map — the value parse-blog's resolveCrossLink reads when
+// ANOTHER post that links to this one is cross-posted, so the link can point
+// at the platform-native copy instead of back to the canonical site.
+//
+// The publish variant row alone doesn't do this: it is what analytics and the
+// duplicate guard read, but cross-link rewriting only looks at `links`. Until
+// this existed nothing live wrote it — only the import scripts — so every
+// piece cross-posted after the import was invisible to rewriting.
+//
+// `links` is seeded at creation, but a legacy row may lack the map entirely,
+// and DynamoDB rejects a SET on a child of a missing map. The fallback creates
+// the map with this one entry, guarded so it can't clobber a map that appeared
+// in between. Both writes require the root to exist: an UpdateCommand would
+// otherwise quietly create a stub content row out of nothing.
+export async function setPlatformLink(tenantId, contentId, platform, url) {
+  const Key = contentKey(tenantId, contentId);
+  const names = { "#links": "links", "#p": platform };
+  try {
+    await ddb.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key,
+      UpdateExpression: "SET #links.#p = :url",
+      ConditionExpression: "attribute_exists(pk)",
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: { ":url": url },
+    }));
+    return;
+  } catch (err) {
+    if (isConditionalCheckFailed(err)) throw new NotFoundError("Content", contentId);
+    if (err?.name !== "ValidationException") throw err;
+  }
+
+  try {
+    await ddb.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key,
+      UpdateExpression: "SET #links = :links",
+      ConditionExpression: "attribute_exists(pk) AND attribute_not_exists(#links)",
+      ExpressionAttributeNames: { "#links": "links" },
+      ExpressionAttributeValues: { ":links": { [platform]: url } },
+    }));
+  } catch (err) {
+    if (!isConditionalCheckFailed(err)) throw err;
+    // Either the row is gone or the map appeared since the first attempt; the
+    // first form now works for the second case and reports the first.
+    await setPlatformLink(tenantId, contentId, platform, url);
+  }
+}
+
 // Reads the per-platform publish variants for a piece of content.
 export async function listPublishVariants(tenantId, contentId) {
   const result = await ddb.send(new QueryCommand({

@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApiFetch, ApiError } from '../auth/useApiFetch';
 import { getProfile, updateProfile } from '../api/profile';
@@ -23,12 +23,26 @@ import type {
   ProfileUpdateRequest,
 } from '../api/types';
 import Modal from '../components/Modal';
+import {
+  CROSSPOST_PLATFORM_LABELS,
+  CROSSPOST_SETTINGS_KEY,
+  getCrosspostSettings,
+  safeReturnPath,
+  updateCrosspostSettings,
+} from '../api/crosspostSettings';
+import { CROSSPOST_PLATFORMS } from '../api/content';
+import type {
+  CrosspostPlatform,
+  CrosspostPlatformReadiness,
+  CrosspostPlatformUpdate,
+} from '../api/types';
 
-type SettingsTab = 'integrations' | 'extension' | 'api';
+type SettingsTab = 'integrations' | 'crosspost' | 'extension' | 'api';
 
 const TAB_PARAM = 'tab';
 
 function parseTab(value: string | null): SettingsTab {
+  if (value === 'crosspost') return 'crosspost';
   if (value === 'extension') return 'extension';
   if (value === 'api') return 'api';
   return 'integrations';
@@ -63,6 +77,11 @@ export default function Settings(): ReactElement {
           onClick={() => selectTab('integrations')}
         />
         <TabButton
+          label="Cross-posting"
+          active={activeTab === 'crosspost'}
+          onClick={() => selectTab('crosspost')}
+        />
+        <TabButton
           label="Extension"
           active={activeTab === 'extension'}
           onClick={() => selectTab('extension')}
@@ -75,6 +94,7 @@ export default function Settings(): ReactElement {
       </nav>
 
       {activeTab === 'integrations' && <IntegrationsTab />}
+      {activeTab === 'crosspost' && <CrosspostTab />}
       {activeTab === 'extension' && <ExtensionTab />}
       {activeTab === 'api' && <ApiKeysTab />}
     </section>
@@ -937,6 +957,263 @@ function NewApiKeyDialog({
         </div>
       </div>
     </Modal>
+  );
+}
+
+// What each platform calls its credential, and where to find it plus the ids.
+// Kept to the facts the adapters rely on: dev.to needs only a key, Medium and
+// Hashnode also need the publication posts go into.
+const CROSSPOST_GUIDE: Record<
+  CrosspostPlatform,
+  { tokenLabel: string; tokenHelp: string; fields: { key: 'organization_id' | 'publication_id' | 'blog_url'; label: string; help: string; optional?: boolean }[]; note?: string }
+> = {
+  dev: {
+    tokenLabel: 'API key',
+    tokenHelp: 'Generate one on dev.to under Settings, then Extensions.',
+    fields: [
+      {
+        key: 'organization_id',
+        label: 'Organization ID',
+        help: 'Only needed to publish under an organization. Leave blank to post as yourself.',
+        optional: true,
+      },
+    ],
+  },
+  medium: {
+    tokenLabel: 'Integration token',
+    tokenHelp: 'Found on Medium under Settings, then Security and apps.',
+    fields: [
+      { key: 'publication_id', label: 'Publication ID', help: 'The publication cross-posts go into.' },
+    ],
+    note: 'Medium cross-posts arrive as drafts. You publish them from Medium.',
+  },
+  hashnode: {
+    tokenLabel: 'Personal access token',
+    tokenHelp: 'Generate one on Hashnode under Settings, then Developer.',
+    fields: [
+      { key: 'publication_id', label: 'Publication ID', help: 'Your blog’s ID, from its Hashnode dashboard.' },
+      {
+        key: 'blog_url',
+        label: 'Blog URL',
+        help: 'Used to build the post link if Hashnode doesn’t return one.',
+        optional: true,
+      },
+    ],
+  },
+};
+
+// Settings for "Cross-post for me": one card per platform. The content page's
+// cross-post panel links straight to a card (#crosspost-<platform>) with
+// `from` set, so after saving there's a one-click way back to the post.
+function CrosspostTab(): ReactElement {
+  const apiFetch = useApiFetch();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const returnTo = safeReturnPath(searchParams.get('from'));
+
+  const query = useQuery({
+    queryKey: CROSSPOST_SETTINGS_KEY,
+    queryFn: () => getCrosspostSettings(apiFetch),
+  });
+  const loadError = query.error ? (query.error as Error).message : null;
+
+  // Land on the card the content page sent us to. Runs once the cards exist;
+  // the hash names a card id, so there is nothing to parse.
+  useEffect(() => {
+    if (!query.data || !location.hash) return;
+    const card = document.getElementById(location.hash.slice(1));
+    if (!card) return;
+    card.scrollIntoView?.({ block: 'start' });
+    card.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true });
+  }, [query.data, location.hash]);
+
+  return (
+    <div className="space-y-6">
+      {returnTo && (
+        <Link to={returnTo} className="btn-link text-sm">← Back to your post</Link>
+      )}
+
+      <p className="text-sm text-muted-foreground">
+        Connect a platform to cross-post from a post&apos;s page in one click. Tokens are stored
+        encrypted and never shown again after saving. You can always add a link to a copy you
+        posted yourself, with or without a connection.
+      </p>
+
+      {loadError && <p className="form-error">Could not load cross-posting settings: {loadError}</p>}
+      {!query.data && !loadError && <p className="text-sm text-muted-foreground">Loading…</p>}
+
+      {query.data &&
+        CROSSPOST_PLATFORMS.map((platform) => (
+          <CrosspostPlatformCard
+            key={platform}
+            platform={platform}
+            readiness={query.data.platforms[platform]}
+            returnTo={returnTo}
+          />
+        ))}
+    </div>
+  );
+}
+
+function CrosspostPlatformCard({
+  platform,
+  readiness,
+  returnTo,
+}: {
+  platform: CrosspostPlatform;
+  readiness: CrosspostPlatformReadiness;
+  returnTo: string | null;
+}): ReactElement {
+  const apiFetch = useApiFetch();
+  const queryClient = useQueryClient();
+  const guide = CROSSPOST_GUIDE[platform];
+  const label = CROSSPOST_PLATFORM_LABELS[platform];
+
+  const storedField = (key: 'organization_id' | 'publication_id' | 'blog_url'): string => readiness[key] ?? '';
+
+  const [token, setToken] = useState('');
+  const [fields, setFields] = useState<Record<string, string>>(() =>
+    Object.fromEntries(guide.fields.map((f) => [f.key, storedField(f.key)])),
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
+
+  // Re-seed the id fields when a save (here or in another card) lands new data.
+  useEffect(() => {
+    setFields(Object.fromEntries(guide.fields.map((f) => [f.key, readiness[f.key] ?? ''])));
+  }, [readiness, guide]);
+
+  const send = async (update: CrosspostPlatformUpdate): Promise<boolean> => {
+    setBusy(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const res = await updateCrosspostSettings(apiFetch, { platforms: { [platform]: update } });
+      queryClient.setQueryData(CROSSPOST_SETTINGS_KEY, res);
+      return true;
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : (err as Error).message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const save = async (): Promise<void> => {
+    // Only what changed. A blank token means "keep the stored one", and an id
+    // emptied out means clear it, so the payload never guesses.
+    const update: CrosspostPlatformUpdate = {};
+    if (token.trim()) update.token = token.trim();
+    for (const f of guide.fields) {
+      const next = (fields[f.key] ?? '').trim();
+      if (next !== storedField(f.key)) update[f.key] = next || null;
+    }
+    if (Object.keys(update).length === 0) {
+      setError(readiness.token_configured ? 'Nothing changed.' : `Paste your ${guide.tokenLabel.toLowerCase()} to connect.`);
+      return;
+    }
+    if (await send(update)) {
+      setToken(''); // write-only: never keep a secret in the form once stored
+      setSaved(true);
+    }
+  };
+
+  const disconnect = async (): Promise<void> => {
+    setConfirmingDisconnect(false);
+    // Clears the token only. The publication id stays so reconnecting later is
+    // just pasting a new token.
+    if (await send({ token: null })) setSaved(true);
+  };
+
+  const needs = readiness.missing
+    .map((m) => (m === 'token' ? guide.tokenLabel.toLowerCase() : 'publication ID'))
+    .join(' and ');
+
+  return (
+    <div id={`crosspost-${platform}`} className="card card-body space-y-4 scroll-mt-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-foreground">{label}</h2>
+        {readiness.ready ? (
+          <span className="status-pill status-active">Ready</span>
+        ) : (
+          <span className="status-pill status-draft">Needs {needs}</span>
+        )}
+      </div>
+
+      <label className="block">
+        <span className="field-label">
+          {guide.tokenLabel} {readiness.token_configured && '(stored, enter a new one to replace)'}
+        </span>
+        <input
+          type="password"
+          className="input"
+          autoComplete="off"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder={readiness.token_configured ? '••••••••' : `Paste your ${guide.tokenLabel.toLowerCase()}`}
+          disabled={busy}
+        />
+        <span className="text-xs text-muted-foreground">{guide.tokenHelp}</span>
+      </label>
+
+      {guide.fields.map((f) => (
+        <label key={f.key} className="block">
+          <span className="field-label">
+            {f.label}
+            {f.optional && <span className="text-muted-foreground font-normal"> (optional)</span>}
+          </span>
+          <input
+            type="text"
+            className="input"
+            value={fields[f.key] ?? ''}
+            onChange={(e) => setFields((prev) => ({ ...prev, [f.key]: e.target.value }))}
+            disabled={busy}
+          />
+          <span className="text-xs text-muted-foreground">{f.help}</span>
+        </label>
+      ))}
+
+      {guide.note && <p className="text-xs text-muted-foreground">{guide.note}</p>}
+
+      {error && <p className="form-error">{error}</p>}
+      {saved && !error && (
+        <p className="text-sm text-success-700">
+          {readiness.ready ? `${label} is ready to cross-post.` : 'Saved.'}
+          {readiness.ready && returnTo && (
+            <>
+              {' '}
+              <Link to={returnTo} className="btn-link">Back to your post</Link>
+            </>
+          )}
+        </p>
+      )}
+
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          {readiness.token_configured &&
+            (confirmingDisconnect ? (
+              <span className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">Remove the stored {guide.tokenLabel.toLowerCase()}?</span>
+                <button type="button" className="btn btn-error btn-sm" onClick={() => void disconnect()} disabled={busy}>
+                  Disconnect
+                </button>
+                <button type="button" className="btn-link text-sm" onClick={() => setConfirmingDisconnect(false)} disabled={busy}>
+                  Keep it
+                </button>
+              </span>
+            ) : (
+              <button type="button" className="btn-link text-sm" onClick={() => setConfirmingDisconnect(true)} disabled={busy}>
+                Disconnect
+              </button>
+            ))}
+        </div>
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => void save()} disabled={busy}>
+          {busy ? 'Saving…' : `Save ${label}`}
+        </button>
+      </div>
+    </div>
   );
 }
 

@@ -22,8 +22,9 @@ function validateUrl(value, label) {
   return value;
 }
 
-// Platform id values (publication ids, org id) may arrive as strings or
-// numbers (Dev.to's organization_id is numeric); normalize to string.
+// Publication ids may arrive as strings or numbers; normalize to string.
+// Dev.to's organization id has its own, stricter check below, because the
+// adapter does arithmetic on it.
 function validateId(value, label) {
   if (typeof value === "number" && Number.isFinite(value)) {
     return String(value);
@@ -32,6 +33,25 @@ function validateId(value, label) {
     throw new BadRequestError(`${label} must be a non-empty string up to ${ID_MAX} chars`);
   }
   return value.trim();
+}
+
+// Dev.to organization ids are positive integers, and the dev.to adapter sends
+// `Number(organizationId)`. A value that isn't one becomes NaN there, which
+// JSON serializes as null, so the bad value saves cleanly, reports as ready,
+// and only fails at dev.to on the author's next cross-post. Reject it at save
+// time instead. Accepts a number or a digit string and stores the canonical
+// string ("007" -> "7") so what's stored is exactly what gets sent. Shared by
+// every path that writes this field (PUT /profile and PUT /settings/crosspost).
+const DIGITS_RE = /^\d+$/;
+
+export function validateDevOrganizationId(value, label) {
+  const n = typeof value === "number"
+    ? value
+    : typeof value === "string" && DIGITS_RE.test(value.trim()) ? Number(value.trim()) : NaN;
+  if (!Number.isSafeInteger(n) || n <= 0) {
+    throw new BadRequestError(`${label} must be a positive whole number (your dev.to organization's numeric id)`);
+  }
+  return String(n);
 }
 
 function validatePlatforms(platforms) {
@@ -50,7 +70,7 @@ function validatePlatforms(platforms) {
 
     const entry = {};
     if (platform === "dev" && settings.organization_id !== undefined) {
-      entry.organizationId = validateId(settings.organization_id, "platforms.dev.organization_id");
+      entry.organizationId = validateDevOrganizationId(settings.organization_id, "platforms.dev.organization_id");
     }
     if (platform === "medium" && settings.publication_id !== undefined) {
       entry.publicationId = validateId(settings.publication_id, "platforms.medium.publication_id");

@@ -1,6 +1,6 @@
 import type { FormEvent, ReactElement } from 'react';
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApiFetch } from '../auth/useApiFetch';
 import {
@@ -17,7 +17,12 @@ import {
   recordContentStats,
   updateContent,
 } from '../api/content';
-import type { CrosspostContentResult } from '../api/content';
+import {
+  CROSSPOST_PLATFORM_LABELS,
+  CROSSPOST_SETTINGS_KEY,
+  crosspostSetupPath,
+  getCrosspostSettings,
+} from '../api/crosspostSettings';
 import { createVoiceSample } from '../api/voice';
 import KeyValueEditor, { type Pair } from '../components/KeyValueEditor';
 import type {
@@ -28,6 +33,8 @@ import type {
   ContentStatus,
   ContentType,
   CrosspostPlatform,
+  CrosspostPlatformReadiness,
+  CrosspostRequirement,
   UpdateContentParams,
 } from '../api/types';
 import Markdown from '../components/MarkdownLazy';
@@ -504,36 +511,111 @@ function ActionsRow({
   );
 }
 
-// Cross-post a content-backed piece off the Content row (publishes immediately;
-// each success is recorded as a publish variant and shows up in Analytics).
-// Works for content-native pieces that have no Blog row.
-function ContentCrosspostPanel({ contentId, apiFetch }: { contentId: string; apiFetch: ReturnType<typeof useApiFetch> }): ReactElement {
+// Cross-posting for one piece, one row per platform. Each row is in exactly
+// one state:
+//   posted      a copy exists (we posted it, or the author added its link)
+//   ready       "Cross-post for me" publishes now; "Add link" records a copy
+//               the author already posted by hand
+//   not set up  the row says what's missing and links to that platform's
+//               Settings card; "Add link" still works, it needs no credentials
+//
+// "Posted" comes from the same analytics query the section below renders, so
+// both read one cache entry. Recording a copy by hand also writes the variant
+// the server's duplicate guard reads, so "Cross-post for me" can never post a
+// second copy of something the author already put up.
+export function ContentCrosspostPanel({ contentId, apiFetch }: { contentId: string; apiFetch: ReturnType<typeof useApiFetch> }): ReactElement {
+  const location = useLocation();
+  const settings = useQuery({
+    queryKey: CROSSPOST_SETTINGS_KEY,
+    queryFn: () => getCrosspostSettings(apiFetch),
+  });
+  const analytics = useQuery({
+    queryKey: ['content', contentId, 'analytics'],
+    queryFn: () => getContentAnalytics(apiFetch, contentId),
+  });
+
+  const posted = new Map<string, string>(
+    (analytics.data?.publish_variants ?? [])
+      .filter((v) => v.url)
+      .map((v) => [v.platform, v.url as string]),
+  );
+
+  return (
+    <div className="card card-body space-y-3">
+      <h2 className="text-lg font-semibold text-foreground">Cross-post</h2>
+      <p className="text-xs text-muted-foreground">
+        Post a copy for you, or add a link to one you posted yourself. Each copy points back to
+        this post as the original.
+      </p>
+      {settings.error && (
+        <p className="text-xs text-muted-foreground">
+          Could not check which platforms are set up. You can still try.
+        </p>
+      )}
+      <ul className="divide-y divide-border border-t border-border">
+        {CROSSPOST_PLATFORMS.map((platform) => (
+          <CrosspostRow
+            key={platform}
+            platform={platform}
+            contentId={contentId}
+            apiFetch={apiFetch}
+            postedUrl={posted.get(platform) ?? null}
+            readiness={settings.data?.platforms[platform] ?? null}
+            settingsUnknown={Boolean(settings.error)}
+            loading={settings.isPending || analytics.isPending}
+            returnTo={location.pathname}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+const TOKEN_NOUN: Record<CrosspostPlatform, string> = {
+  dev: 'an API key',
+  medium: 'an integration token',
+  hashnode: 'an access token',
+};
+
+function describeMissing(platform: CrosspostPlatform, missing: CrosspostRequirement[]): string {
+  const parts = missing.map((m) => (m === 'token' ? TOKEN_NOUN[platform] : 'a publication ID'));
+  return `Needs ${parts.join(' and ')}`;
+}
+
+function CrosspostRow({
+  platform, contentId, apiFetch, postedUrl, readiness, settingsUnknown, loading, returnTo,
+}: {
+  platform: CrosspostPlatform;
+  contentId: string;
+  apiFetch: ReturnType<typeof useApiFetch>;
+  postedUrl: string | null;
+  readiness: CrosspostPlatformReadiness | null;
+  settingsUnknown: boolean;
+  loading: boolean;
+  returnTo: string;
+}): ReactElement {
   const queryClient = useQueryClient();
-  const [selected, setSelected] = useState<Set<CrosspostPlatform>>(new Set());
-  const [results, setResults] = useState<CrosspostContentResult[] | null>(null);
+  const label = CROSSPOST_PLATFORM_LABELS[platform];
+  const [addingLink, setAddingLink] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const toggle = (p: CrosspostPlatform): void => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(p)) next.delete(p); else next.add(p);
-      return next;
-    });
+  const refresh = (): void => {
+    void queryClient.invalidateQueries({ queryKey: ['content', contentId, 'analytics'] });
   };
 
-  const submit = async (e: FormEvent): Promise<void> => {
-    e.preventDefault();
-    if (busy || selected.size === 0) return;
+  // When setup couldn't be read, let the author try. The server is the
+  // authority and reports exactly what's missing.
+  const canAutoPost = Boolean(readiness?.ready) || settingsUnknown;
+
+  const autoPost = async (): Promise<void> => {
     setBusy(true);
     setError(null);
-    setResults(null);
     try {
-      const res = await crosspostContent(apiFetch, contentId, [...selected]);
-      setResults(res.results);
-      // Successful cross-posts are recorded as publish variants — refresh the
-      // Analytics section so they show up without a page reload.
-      void queryClient.invalidateQueries({ queryKey: ['content', contentId, 'analytics'] });
+      const res = await crosspostContent(apiFetch, contentId, [platform]);
+      const result = res.results.find((r) => r.platform === platform);
+      if (result?.status === 'failed') setError(result.error ?? 'Cross-post failed.');
+      refresh();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -542,45 +624,112 @@ function ContentCrosspostPanel({ contentId, apiFetch }: { contentId: string; api
   };
 
   return (
-    <div className="card card-body space-y-3">
-      <h2 className="text-lg font-semibold text-foreground">Cross-post</h2>
-      <form onSubmit={submit} className="space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          {CROSSPOST_PLATFORMS.map((p) => (
-            <label key={p} className="flex items-center gap-1.5 text-sm capitalize">
-              <input type="checkbox" checked={selected.has(p)} onChange={() => toggle(p)} disabled={busy} />
-              {p === 'dev' ? 'DEV' : p}
-            </label>
-          ))}
-          <button type="submit" className="btn btn-secondary btn-sm" disabled={busy || selected.size === 0}>
-            {busy ? 'Publishing…' : 'Cross-post now'}
-          </button>
+    <li className="py-3 space-y-2" data-testid={`crosspost-row-${platform}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-foreground">{label}</span>
+          {postedUrl ? (
+            <a href={postedUrl} target="_blank" rel="noreferrer noopener" className="btn-link text-sm">Posted ↗</a>
+          ) : readiness && !readiness.ready ? (
+            <span className="text-xs text-muted-foreground">
+              {describeMissing(platform, readiness.missing)}.{' '}
+              <Link to={crosspostSetupPath(platform, returnTo)} className="btn-link">Set up</Link>
+            </span>
+          ) : null}
         </div>
-        <p className="text-xs text-muted-foreground">
-          Publishes immediately using the platform credentials in Settings. Platforms already
-          published are skipped.
-        </p>
-      </form>
+
+        {!postedUrl && (
+          <div className="flex items-center gap-2">
+            {canAutoPost && (
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => void autoPost()} disabled={busy || loading}>
+                {busy ? 'Posting…' : 'Cross-post for me'}
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => { setAddingLink((v) => !v); setError(null); }}
+              disabled={busy || loading}
+              aria-expanded={addingLink}
+            >
+              {addingLink ? 'Cancel' : 'Add link'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {!postedUrl && platform === 'medium' && readiness?.ready && (
+        <p className="text-xs text-muted-foreground">Medium copies arrive as drafts. You publish them from Medium.</p>
+      )}
+
+      {addingLink && !postedUrl && (
+        <AddCrosspostLinkForm
+          apiFetch={apiFetch}
+          contentId={contentId}
+          platform={platform}
+          onAdded={() => { setAddingLink(false); refresh(); }}
+        />
+      )}
 
       {error && <p className="form-error">{error}</p>}
+    </li>
+  );
+}
 
-      {results && (
-        <ul className="space-y-1 text-sm border-t border-border pt-3">
-          {results.map((r) => (
-            <li key={r.platform} className="flex items-center justify-between gap-3">
-              <span className="capitalize text-foreground">{r.platform}</span>
-              <span className="text-muted-foreground">
-                {r.url ? (
-                  <a href={r.url} target="_blank" rel="noreferrer noopener" className="btn-link">{r.status} ↗</a>
-                ) : (
-                  r.error ? `failed: ${r.error}` : r.status
-                )}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+// Records a copy the author posted themselves. Uses the platform's own key
+// (dev, not devto) so the server treats it as the same fact as a copy we
+// posted: the duplicate guard sees it and cross-link rewriting can use it.
+function AddCrosspostLinkForm({
+  apiFetch, contentId, platform, onAdded,
+}: {
+  apiFetch: ReturnType<typeof useApiFetch>;
+  contentId: string;
+  platform: CrosspostPlatform;
+  onAdded: () => void;
+}): ReactElement {
+  const [url, setUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: FormEvent): Promise<void> => {
+    e.preventDefault();
+    const value = url.trim();
+    if (busy || !value) return;
+    if (!/^https?:\/\//i.test(value)) {
+      setError('Enter the full link, starting with https://.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await addPublishVariant(apiFetch, contentId, { platform, url: value });
+      onAdded();
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  };
+
+  const label = CROSSPOST_PLATFORM_LABELS[platform];
+  return (
+    <form onSubmit={submit} className="flex flex-wrap items-end gap-2" noValidate>
+      <label className="flex-1 min-w-48">
+        <span className="field-label">Link to the {label} copy</span>
+        <input
+          className="input"
+          type="url"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://…"
+          disabled={busy}
+          autoFocus
+        />
+      </label>
+      <button type="submit" className="btn btn-primary btn-sm" disabled={busy || !url.trim()}>
+        {busy ? 'Saving…' : 'Save link'}
+      </button>
+      {error && <p className="form-error w-full">{error}</p>}
+    </form>
   );
 }
 
@@ -714,7 +863,7 @@ function AddPublishForm({
     <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
       <label className="flex-1 min-w-32">
         <span className="field-label">Platform</span>
-        <input className="input" value={platform} onChange={(e) => setPlatform(e.target.value)} placeholder="devto, medium, youtube…" disabled={busy} />
+        <input className="input" value={platform} onChange={(e) => setPlatform(e.target.value)} placeholder="dev, medium, youtube…" disabled={busy} />
       </label>
       <label className="flex-[2] min-w-48">
         <span className="field-label">URL (optional)</span>
