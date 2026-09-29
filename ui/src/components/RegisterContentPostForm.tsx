@@ -20,6 +20,10 @@ function inferPlatform(url: string): ContentPlatform | undefined {
   }
   if (host === 'medium.com' || host.endsWith('.medium.com')) return 'medium';
   if (host === 'dev.to' || host.endsWith('.dev.to')) return 'devto';
+  if (
+    host === 'hashnode.com' || host.endsWith('.hashnode.com') ||
+    host === 'hashnode.dev' || host.endsWith('.hashnode.dev')
+  ) return 'hashnode';
   return undefined;
 }
 
@@ -77,6 +81,8 @@ export default function RegisterContentPostForm({ busy, serverError, onSubmit, o
             <option value="">auto-detect</option>
             <option value="medium">medium</option>
             <option value="devto">dev.to</option>
+            <option value="hashnode">hashnode</option>
+            <option value="other">other</option>
           </select>
         </label>
         <label className="block">

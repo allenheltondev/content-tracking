@@ -12,6 +12,8 @@ describe("validation/content-post", () => {
       ["https://allen.medium.com/my-post-abc123", "medium"],
       ["https://www.medium.com/p/abc123", "medium"],
       ["https://dev.to/allenheltondev/my-post-1abc", "devto"],
+      ["https://hashnode.com/post/foo-abc", "hashnode"],
+      ["https://allen.hashnode.dev/my-post", "hashnode"],
       ["https://x.com/foo/status/123", null],
       ["not a url", null],
     ])("%s -> %s", (url, expected) => {
@@ -33,6 +35,11 @@ describe("validation/content-post", () => {
       });
       expect(out.platform).toBe("medium");
       expect(out.notes).toBe("cross-post");
+    });
+
+    test("accepts explicit hashnode and other platforms", () => {
+      expect(validateContentPostCreate({ url: "https://blog.example.com/a", platform: "hashnode" }).platform).toBe("hashnode");
+      expect(validateContentPostCreate({ url: "https://blog.example.com/a", platform: "other" }).platform).toBe("other");
     });
 
     test("rejects non-http url", () => {

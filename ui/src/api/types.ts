@@ -279,9 +279,9 @@ export interface SocialPostSnapshotsResponse {
   snapshots: SocialPostSnapshot[];
 }
 
-export type ContentPlatform = 'medium' | 'devto';
+export type ContentPlatform = 'medium' | 'devto' | 'hashnode' | 'other';
 
-// A long-form content piece (Medium, dev.to) the user cross-posted. Same
+// A long-form content piece (Medium, dev.to, Hashnode, other) the user cross-posted. Same
 // shape as SocialPost but in the content metric bucket — engagement is
 // captured by the Chrome extension off each platform's analytics traffic
 // and reported separately from social engagement.
