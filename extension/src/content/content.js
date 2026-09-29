@@ -14,6 +14,10 @@
     if (host === "bsky.app" || host.endsWith(".bsky.app")) return "bluesky";
     if (host === "medium.com" || host.endsWith(".medium.com")) return "medium";
     if (host === "dev.to" || host.endsWith(".dev.to")) return "devto";
+    if (host === "hashnode.com" || host.endsWith(".hashnode.com") ||
+        host === "hashnode.dev" || host.endsWith(".hashnode.dev")) {
+      return "hashnode";
+    }
     return null;
   }
 

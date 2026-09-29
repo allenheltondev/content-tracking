@@ -5,7 +5,7 @@ platform. It does two things as you browse:
 
 1. **Sync engagement automatically.** It reads the post URLs attached to your
    **active** campaigns — social posts on X/Twitter, LinkedIn, Instagram, and
-   Bluesky, plus long-form content posts on Medium and dev.to — and as you
+   Bluesky, plus long-form content posts on Medium, dev.to, and Hashnode — and as you
    browse those posts it captures the engagement numbers straight off each
    platform's own API traffic and writes them back to Booked automatically.
    Every write stamps a `last_fetched` timestamp on the post.
@@ -21,6 +21,11 @@ tracked post on that platform). LinkedIn, Medium, and dev.to hide their counts
 behind a separate analytics/stats page, so for those the worker opens that
 page in a background tab, syncs, and closes it — your current tab is left
 alone. This is also what the dashboard's **Refresh Stats** button drives.
+
+Hashnode is passive only. Its public GraphQL API now requires a Pro plan, so
+the extension captures stats from the traffic Hashnode's own dashboard loads
+while you're logged in. Open your Hashnode dashboard analytics to sync;
+**Sync now** and **Refresh Stats** don't open Hashnode tabs.
 
 ### Sync now
 
@@ -58,7 +63,7 @@ you never have to visit each post by hand.
 - `background.js` extracts metrics with a per-platform adapter
   (`src/adapters.js`), matches them to a tracked post by its native id
   (tweet id / LinkedIn activity id / Instagram shortcode / Bluesky post rkey /
-  Medium post id / dev.to article id), and syncs to the social or content
+  Medium post id / dev.to article id / Hashnode slug), and syncs to the social or content
   endpoint per the post's bucket.
 
 The extension only ever **reads** post engagement that the page already

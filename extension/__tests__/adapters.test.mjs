@@ -646,3 +646,34 @@ describe("devto adapter", () => {
     ]);
   });
 });
+
+describe("hashnode adapter", () => {
+  test("parsePostId returns the slug from hashnode.dev and custom-domain URLs", () => {
+    expect(adapters.hashnode.parsePostId("https://allen.hashnode.dev/my-post")).toBe("my-post");
+    expect(adapters.hashnode.parsePostId("https://blog.example.com/my-post/")).toBe("my-post");
+    expect(adapters.hashnode.parsePostId("https://allen.hashnode.dev/")).toBeNull();
+    expect(adapters.hashnode.parsePostId("not a url")).toBeNull();
+  });
+
+  test("extract reads the post-stats list shape", () => {
+    const body = { posts: [{ slug: "a", views: 120 }, { slug: "b", views: "7" }] };
+    expect(adapters.hashnode.extract(body)).toEqual([
+      { nativeId: "a", metrics: { views: 120 } },
+      { nativeId: "b", metrics: { views: 7 } },
+    ]);
+  });
+
+  test("extract reads GraphQL post nodes and skips rows without counts", () => {
+    const body = {
+      data: {
+        publication: {
+          post: { slug: "a", views: 5, reactionCount: 3, responseCount: 1 },
+          series: { slug: "some-series", name: "x" },
+        },
+      },
+    };
+    expect(adapters.hashnode.extract(body)).toEqual([
+      { nativeId: "a", metrics: { views: 5, reactions: 3, comments: 1 } },
+    ]);
+  });
+});

@@ -12,7 +12,10 @@
     "https://bsky.app/*",
     "https://medium.com/*",
     "https://*.medium.com/*",
-    "https://dev.to/*"
+    "https://dev.to/*",
+    "https://hashnode.com/*",
+    "https://*.hashnode.com/*",
+    "https://*.hashnode.dev/*"
   ],
   "optional_host_permissions": ["https://*/*"],
   "background": {
@@ -34,6 +37,10 @@
         "https://medium.com/*",
         "https://*.medium.com/*",
         "https://dev.to/*"
+,
+        "https://hashnode.com/*",
+        "https://*.hashnode.com/*",
+        "https://*.hashnode.dev/*"
       ],
       "js": ["src/content/inject.js"],
       "run_at": "document_start",
@@ -50,6 +57,10 @@
         "https://medium.com/*",
         "https://*.medium.com/*",
         "https://dev.to/*"
+,
+        "https://hashnode.com/*",
+        "https://*.hashnode.com/*",
+        "https://*.hashnode.dev/*"
       ],
       "js": ["src/content/content.js"],
       "run_at": "document_start",
