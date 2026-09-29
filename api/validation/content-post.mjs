@@ -1,13 +1,13 @@
 import { BadRequestError } from "../services/errors.mjs";
 
 // Content posts are long-form pieces published on a content platform
-// (Medium articles, dev.to posts) — the content-bucket counterpart to
+// (Medium articles, dev.to and Hashnode posts, or anything else) — the content-bucket counterpart to
 // social posts. The Chrome extension captures their engagement off each
 // platform's own analytics traffic and writes it back via
 // PUT .../content-posts/{id}/analytics. Kept separate from social posts
 // so sponsor reports can report on the two buckets independently.
 
-export const VALID_CONTENT_PLATFORMS = new Set(["medium", "devto"]);
+export const VALID_CONTENT_PLATFORMS = new Set(["medium", "devto", "hashnode", "other"]);
 
 const URL_MAX = 2048;
 const NOTES_MAX = 1000;
@@ -17,7 +17,9 @@ const METRIC_VALUE_MAX = 1e15;
 
 // Maps a content URL's host to one of the supported platforms. Medium
 // covers medium.com and its *.medium.com user/publication subdomains;
-// dev.to covers dev.to and any of its subdomains.
+// dev.to covers dev.to and any of its subdomains. Hashnode covers
+// hashnode.com and hashnode.dev (custom domains need an explicit platform).
+// "other" is never inferred; it must be chosen explicitly.
 export function derivePlatform(url) {
   let host;
   try {
@@ -30,6 +32,12 @@ export function derivePlatform(url) {
   }
   if (host === "dev.to" || host.endsWith(".dev.to")) {
     return "devto";
+  }
+  if (
+    host === "hashnode.com" || host.endsWith(".hashnode.com") ||
+    host === "hashnode.dev" || host.endsWith(".hashnode.dev")
+  ) {
+    return "hashnode";
   }
   return null;
 }
