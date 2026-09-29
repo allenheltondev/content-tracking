@@ -1,4 +1,4 @@
-import { PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { TABLE_NAME, ddb } from "../services/ddb.mjs";
 import { REPORT_RETENTION_DAYS } from "./vendor-report-record.mjs";
 
@@ -71,4 +71,19 @@ export async function listCampaignReportRecords(campaignId) {
   // Newest first. generatedAt is an ISO timestamp so a string compare is
   // a chronological compare.
   return items.sort((a, b) => (b.generatedAt ?? "").localeCompare(a.generatedAt ?? ""));
+}
+
+// Flags a report as replaced by a newer snapshot. Set once, when a newer
+// report is generated and this one's HTML is re-rendered with the "newer
+// version available" banner, so later generations skip it. The
+// attribute_exists guard keeps a record that aged out mid-flight from being
+// resurrected as a TTL-less stub.
+export async function markCampaignReportSuperseded(campaignId, reportId, supersededAt) {
+  await ddb.send(new UpdateCommand({
+    TableName: TABLE_NAME,
+    Key: reportKeyPair(campaignId, reportId),
+    UpdateExpression: "SET supersededAt = :at",
+    ConditionExpression: "attribute_exists(pk)",
+    ExpressionAttributeValues: { ":at": supersededAt },
+  }));
 }

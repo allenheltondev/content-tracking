@@ -40,3 +40,30 @@ export function renderCampaignReportHtml(snapshot) {
   // as replacement patterns by String.prototype.replace.
   return TEMPLATE.replace(TOKEN, () => safe);
 }
+
+const DATA_OPEN = '<script type="application/json" id="report-data">';
+const DATA_CLOSE = "</script>";
+
+/**
+ * Recover the snapshot embedded in a rendered report, so a stored report can
+ * be re-rendered (e.g. to add the "newer version available" banner) without
+ * keeping the snapshot anywhere else. escapeForScript only introduces
+ * unicode escapes, which JSON.parse reverses. Returns null when the markers
+ * are missing or the payload doesn't parse.
+ *
+ * @param {string} html - a document produced by renderCampaignReportHtml.
+ * @returns {object|null}
+ */
+export function extractCampaignReportSnapshot(html) {
+  if (typeof html !== "string") return null;
+  const start = html.indexOf(DATA_OPEN);
+  if (start < 0) return null;
+  const from = start + DATA_OPEN.length;
+  const end = html.indexOf(DATA_CLOSE, from);
+  if (end < 0) return null;
+  try {
+    return JSON.parse(html.slice(from, end));
+  } catch {
+    return null;
+  }
+}

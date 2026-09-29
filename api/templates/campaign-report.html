@@ -120,6 +120,22 @@
     .btn:hover { background: var(--subtle); border-color: #cbd5e1; }
     .btn svg { width: 15px; height: 15px; flex: none; }
 
+    /* Shown on an older snapshot once a newer report exists. */
+    .superseded {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px 16px;
+      padding: 12px 40px;
+      font-size: 13.5px;
+      color: var(--ink-2);
+      background: var(--accent-soft);
+      border-bottom: 1px solid var(--line);
+    }
+    .superseded strong { color: var(--ink); font-weight: 600; }
+    .superseded a { font-weight: 600; white-space: nowrap; }
+
     /* Title block */
     .title-block { padding: 36px 40px 30px; }
     .eyebrow {
@@ -333,7 +349,7 @@
     /* Responsive */
     @media screen and (max-width: 720px) {
       .sheet { margin: 0; border-radius: 0; border-left: 0; border-right: 0; }
-      .topbar, .title-block, .section, .doc-footer { padding-left: 20px; padding-right: 20px; }
+      .topbar, .superseded, .title-block, .section, .doc-footer { padding-left: 20px; padding-right: 20px; }
       .title-block { padding-top: 26px; }
       .campaign-name { font-size: 24px; }
       .meta { grid-template-columns: 1fr 1fr; }
@@ -355,6 +371,7 @@
       }
       .no-print { display: none !important; }
       .topbar, .title-block, .section, .doc-footer { padding-left: 0; padding-right: 0; }
+      .superseded { padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .topbar { min-height: 0; padding-top: 0; }
       .section { padding-top: 20px; padding-bottom: 20px; }
       .section-title { break-after: avoid; }
@@ -386,6 +403,8 @@
         <span>Download <span class="btn-text-long">PDF</span></span>
       </button>
     </header>
+
+    <div class="superseded" id="superseded" role="note" hidden></div>
 
     <section class="title-block">
       <p class="eyebrow">Campaign report</p>
@@ -450,7 +469,7 @@
 
     <footer class="doc-footer">
       <span id="footer-id"></span>
-      <span>Figures are frozen at the time this report was generated.</span>
+      <span id="footer-note">Figures are frozen at the time this report was generated.</span>
     </footer>
   </main>
 
@@ -732,6 +751,39 @@
       }
       if (report.id) footerParts.push("Report " + report.id);
       document.getElementById("footer-id").textContent = footerParts.join(" · ");
+
+      // ---- Versioning ----
+      // latestUrl is the campaign's stable link, which always opens the
+      // newest snapshot. supersededBy is stamped onto an older snapshot when
+      // a newer one is generated.
+      var latestUrl = typeof report.latestUrl === "string" && /^https:\/\//.test(report.latestUrl)
+        ? report.latestUrl : null;
+      var supersededBy = report.supersededBy && typeof report.supersededBy === "object"
+        ? report.supersededBy : null;
+      if (supersededBy) {
+        var banner = document.getElementById("superseded");
+        var newUrl = typeof supersededBy.url === "string" && /^https:\/\//.test(supersededBy.url)
+          ? supersededBy.url : latestUrl;
+        var msg = el("span");
+        msg.appendChild(el("strong", null, "A newer version of this report is available."));
+        if (supersededBy.generatedAt) {
+          msg.appendChild(document.createTextNode(" Updated " + fmtDate(supersededBy.generatedAt) + "."));
+        }
+        banner.appendChild(msg);
+        if (newUrl) {
+          var go = extLink(newUrl, "View latest report →");
+          go.setAttribute("target", "_self");
+          banner.appendChild(go);
+        } else {
+          banner.appendChild(el("span", null, "Ask the sender for the latest link."));
+        }
+        banner.hidden = false;
+      }
+      if (latestUrl) {
+        var footNote = document.getElementById("footer-note");
+        footNote.textContent = "Figures are frozen at generation time. Latest version: ";
+        footNote.appendChild(extLink(latestUrl, shortUrl(latestUrl)));
+      }
 
       // ---- KPI strips ----
       function renderKpis(rootId, items) {

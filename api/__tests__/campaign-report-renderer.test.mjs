@@ -1,5 +1,8 @@
 import { describe, it, expect } from "@jest/globals";
-import { renderCampaignReportHtml } from "../services/campaign-report-renderer.mjs";
+import {
+  renderCampaignReportHtml,
+  extractCampaignReportSnapshot,
+} from "../services/campaign-report-renderer.mjs";
 
 function sampleSnapshot(overrides = {}) {
   return {
@@ -195,5 +198,25 @@ describe("renderCampaignReportHtml", () => {
     expect(html).toContain("https://medium.com/@u/post");
     expect(html).toContain("Ready, Set, Cloud!");
     expect(html).toContain("https://readysetcloud.io");
+  });
+});
+
+describe("extractCampaignReportSnapshot", () => {
+  it("round-trips a rendered snapshot, including escaped characters", () => {
+    const snapshot = {
+      report: { id: "R1", generatedAt: "2026-05-29T12:00:00.000Z" },
+      campaign: { name: "A </script> & <b>tricky</b> name" },
+      links: [],
+    };
+    const html = renderCampaignReportHtml(snapshot);
+    expect(extractCampaignReportSnapshot(html)).toEqual(snapshot);
+  });
+
+  it("returns null when the data block is missing or unparseable", () => {
+    expect(extractCampaignReportSnapshot("<html></html>")).toBeNull();
+    expect(extractCampaignReportSnapshot(
+      '<script type="application/json" id="report-data">{nope</script>',
+    )).toBeNull();
+    expect(extractCampaignReportSnapshot(null)).toBeNull();
   });
 });

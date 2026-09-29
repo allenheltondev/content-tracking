@@ -693,6 +693,17 @@ Resources:
             RestApiId: !Ref ContentTrackingApi
             Path: /
             Method: ANY
+        # A campaign's stable sponsor report link. The only unauthenticated
+        # route: the unguessable token in the path is the credential, and
+        # the handler only ever redirects to a signed report URL.
+        PublicCampaignReport:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /public/campaign-reports/{token}
+            Method: GET
+            Auth:
+              Authorizer: NONE
 
   # Custom Lambda authorizer that accepts either Cognito id tokens
   # (dashboard) or HMAC-signed extension pairing tokens. Lives in the

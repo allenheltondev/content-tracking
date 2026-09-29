@@ -5,8 +5,15 @@ import { logger } from "../services/logger.mjs";
 import { buildCampaignReportSnapshot } from "../domain/campaign-report.mjs";
 import { assertCampaignOwned } from "../domain/campaign.mjs";
 import { requireTenantId } from "../services/identity.mjs";
-import { renderCampaignReportHtml } from "../services/campaign-report-renderer.mjs";
-import { putCampaignReportHtml } from "../services/campaign-report-store.mjs";
+import {
+  renderCampaignReportHtml,
+  extractCampaignReportSnapshot,
+} from "../services/campaign-report-renderer.mjs";
+import {
+  putCampaignReportHtml,
+  getCampaignReportHtml,
+  replaceCampaignReportHtml,
+} from "../services/campaign-report-store.mjs";
 // Signing is generic (keyed off the object key, not the vendor) so we
 // reuse it straight from the vendor report store for campaign reports too.
 import { signReportUrl } from "../services/report-signing.mjs";
@@ -14,7 +21,14 @@ import { mintShortLink } from "../services/newsletter-service.mjs";
 import {
   saveCampaignReportRecord,
   listCampaignReportRecords,
+  markCampaignReportSuperseded,
 } from "../domain/campaign-report-record.mjs";
+import {
+  ensureCampaignReportLinkToken,
+  getCampaignReportLinkToken,
+  resolveCampaignReportLinkToken,
+  publicReportLinkUrl,
+} from "../domain/campaign-report-link.mjs";
 // Retention helpers shared with vendor reports: REPORT_RETENTION_DAYS is the
 // bucket/record lifetime (90d default); reportObjectExpiresAtMs(record) is the
 // epoch-ms the S3 object behind a record is deleted.
@@ -66,10 +80,15 @@ export function registerCampaignReportRoutes(app) {
     const tenantId = requireTenantId(event);
     await assertCampaignOwned(campaignId, tenantId);
 
-    const snapshot = await buildCampaignReportSnapshot({ campaignId });
+    const [snapshot, linkToken] = await Promise.all([
+      buildCampaignReportSnapshot({ campaignId }),
+      ensureCampaignReportLinkToken(campaignId),
+    ]);
+    const latestUrl = publicReportLinkUrl(event, linkToken);
 
     const reportId = ulid();
     snapshot.report.id = reportId;
+    snapshot.report.latestUrl = latestUrl;
 
     const html = renderCampaignReportHtml(snapshot);
     const key = await putCampaignReportHtml({ campaignId, reportId, html });
@@ -88,10 +107,21 @@ export function registerCampaignReportRoutes(app) {
       summary: snapshot.summary,
     });
 
+    // Older snapshots get a banner pointing at the stable link. Best effort:
+    // the new report is already stored and recorded, so a failure here only
+    // leaves an old report without its banner until the next generation.
+    await supersedePreviousReports({
+      campaignId,
+      currentReportId: reportId,
+      supersededAt: snapshot.report.generatedAt,
+      latestUrl,
+    });
+
     return jsonResponse(201, {
       reportId,
       url,
       shortUrl,
+      latestUrl,
       expiresAt,
       dataAsOf: snapshot.report.dataAsOf,
       summary: snapshot.summary,
@@ -108,7 +138,10 @@ export function registerCampaignReportRoutes(app) {
     const campaignId = requireValidCampaignId(params.campaignId);
     const tenantId = requireTenantId(event);
     await assertCampaignOwned(campaignId, tenantId);
-    const records = await listCampaignReportRecords(campaignId);
+    const [records, linkToken] = await Promise.all([
+      listCampaignReportRecords(campaignId),
+      getCampaignReportLinkToken(campaignId),
+    ]);
 
     const nowMs = Date.now();
     const reports = records
@@ -123,12 +156,108 @@ export function registerCampaignReportRoutes(app) {
           dataAsOf: record.dataAsOf,
           url,
           expiresAt: new Date(objectExpiryMs).toISOString(),
+          superseded: Boolean(record.supersededAt),
         };
       })
       .filter(Boolean);
 
-    return jsonResponse(200, { campaign_id: campaignId, reports });
+    return jsonResponse(200, {
+      campaign_id: campaignId,
+      latest_url: publicReportLinkUrl(event, linkToken),
+      reports,
+    });
   });
+
+  // GET /public/campaign-reports/:token
+  //
+  // The campaign's stable sponsor link. Unauthenticated (the API Gateway
+  // event for this path sets Authorizer: NONE); the 128-bit token is the
+  // only credential, exactly like the signed URL it hands out. Redirects to
+  // a freshly signed URL for the newest report that is still retained, or
+  // answers with a small "no longer available" page.
+  app.get("/public/campaign-reports/:token", async ({ params }) => {
+    const campaignId = await resolveCampaignReportLinkToken(params.token);
+    if (!campaignId) return unavailablePage(404);
+
+    const records = await listCampaignReportRecords(campaignId);
+    const nowMs = Date.now();
+    for (const record of records) {
+      const remainingSeconds = Math.floor((reportObjectExpiresAtMs(record) - nowMs) / 1000);
+      if (remainingSeconds <= 60) continue;
+      const { url } = signReportUrl(record.key, { expiresInSeconds: remainingSeconds });
+      return {
+        statusCode: 302,
+        headers: {
+          location: url,
+          "cache-control": "no-store",
+          "referrer-policy": "no-referrer",
+        },
+        body: "",
+      };
+    }
+    return unavailablePage(410);
+  });
+}
+
+// Re-render every older, still-retained report that hasn't been flagged yet
+// with a supersededBy marker so it shows the "newer version available"
+// banner. Each one is handled independently; failures are logged and left
+// for the next generation to retry.
+async function supersedePreviousReports({ campaignId, currentReportId, supersededAt, latestUrl }) {
+  let records;
+  try {
+    records = await listCampaignReportRecords(campaignId);
+  } catch (err) {
+    logger.warn("Could not list campaign reports to supersede", { campaignId, error: err?.message });
+    return;
+  }
+  const nowMs = Date.now();
+  const stale = records.filter((r) =>
+    r.reportId !== currentReportId && !r.supersededAt && reportObjectExpiresAtMs(r) > nowMs);
+
+  await Promise.all(stale.map(async (record) => {
+    try {
+      const snapshot = extractCampaignReportSnapshot(await getCampaignReportHtml(record.key));
+      if (!snapshot) throw new Error("embedded snapshot missing or unreadable");
+      snapshot.report = {
+        ...(snapshot.report ?? {}),
+        latestUrl: latestUrl ?? snapshot.report?.latestUrl ?? null,
+        supersededBy: { url: latestUrl, generatedAt: supersededAt },
+      };
+      await replaceCampaignReportHtml(record.key, renderCampaignReportHtml(snapshot));
+      await markCampaignReportSuperseded(campaignId, record.reportId, supersededAt);
+    } catch (err) {
+      logger.warn("Could not mark campaign report superseded", {
+        campaignId,
+        reportId: record.reportId,
+        error: err?.message,
+      });
+    }
+  }));
+}
+
+function unavailablePage(statusCode) {
+  return {
+    statusCode,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "x-robots-tag": "noindex, nofollow",
+    },
+    body: [
+      "<!DOCTYPE html>",
+      '<html lang="en"><head><meta charset="utf-8">',
+      '<meta name="viewport" content="width=device-width, initial-scale=1">',
+      '<meta name="robots" content="noindex, nofollow">',
+      "<title>Report unavailable</title></head>",
+      '<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;',
+      'background:#f3f4f6;color:#0f172a;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif">',
+      '<main style="max-width:420px;padding:32px;text-align:center">',
+      '<h1 style="font-size:20px;margin:0 0 8px">This report is no longer available</h1>',
+      '<p style="margin:0;color:#64748b;font-size:14px">Ask the sender for an updated report.</p>',
+      "</main></body></html>",
+    ].join(""),
+  };
 }
 
 // The report (object + record) ages out RETENTION_MS after it was generated.

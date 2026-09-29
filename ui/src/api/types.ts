@@ -139,11 +139,13 @@ export interface CampaignReportSummary {
 // Response from POST /campaigns/:campaignId/report — a freshly generated,
 // frozen performance report plus the CloudFront signed link to its static
 // HTML and a shortlink wrapper. `shortUrl` is null when the shortlink
-// mint failed; callers should fall back to `url` in that case.
+// mint failed; callers should fall back to `url` in that case. `latestUrl` is
+// the campaign's permanent sponsor link, which always opens the newest report.
 export interface CampaignReportResponse {
   reportId: string;
   url: string;
   shortUrl: string | null;
+  latestUrl: string | null;
   expiresAt: string;
   dataAsOf: string;
   summary: CampaignReportSummary;
@@ -158,10 +160,12 @@ export interface CampaignReportListItem {
   dataAsOf: string;
   url: string;
   expiresAt: string;
+  superseded: boolean;
 }
 
 export interface CampaignReportsListResponse {
   campaign_id: string;
+  latest_url: string | null;
   reports: CampaignReportListItem[];
 }
 
