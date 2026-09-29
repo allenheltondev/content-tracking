@@ -30,6 +30,9 @@
     // dev.to analytics dashboard + per-article shapes.
     "/api/analytics",
     "/api/articles",
+    // Hashnode dashboard post stats.
+    "/ajax/user/post-stats",
+    "gql.hashnode.com",
   ];
 
   function shouldCapture(url) {
@@ -74,40 +77,33 @@
 
   const OriginalXHR = window.XMLHttpRequest;
   if (OriginalXHR) {
-    // Symbol stash keeps the captured URL off the enumerable surface that
-    // fingerprinting code typically scans.
-    const URL_KEY = Symbol("bookedUrl");
+    // Only `open` is wrapped, and the load listener is attached there for
+    // matching URLs only. `send` is left untouched on purpose: when the page's
+    // CSP blocks an unrelated XHR (e.g. Google Analytics on medium.com), Chrome
+    // logs the violation with the stack of the `send` call. A wrapped `send`
+    // put this file in that stack, so the block was attributed to the
+    // extension on chrome://extensions Errors even though the page caused it.
     const originalOpen = OriginalXHR.prototype.open;
-    const originalSend = OriginalXHR.prototype.send;
 
     OriginalXHR.prototype.open = new Proxy(originalOpen, {
       apply(target, thisArg, args) {
         try {
-          thisArg[URL_KEY] = args[1];
-        } catch {
-          /* ignore */
-        }
-        return Reflect.apply(target, thisArg, args);
-      },
-    });
-
-    OriginalXHR.prototype.send = new Proxy(originalSend, {
-      apply(target, thisArg, args) {
-        try {
-          thisArg.addEventListener("load", function () {
-            try {
-              const url = this.responseURL || this[URL_KEY];
-              if (!shouldCapture(url)) return;
-              const type = this.responseType;
-              if (type === "" || type === "text") {
-                forward(url, this.responseText);
-              } else if (type === "json" && this.response) {
-                forward(url, JSON.stringify(this.response));
+          if (shouldCapture(String(args[1]))) {
+            thisArg.addEventListener("load", function () {
+              try {
+                const url = this.responseURL || String(args[1]);
+                if (!shouldCapture(url)) return;
+                const type = this.responseType;
+                if (type === "" || type === "text") {
+                  forward(url, this.responseText);
+                } else if (type === "json" && this.response) {
+                  forward(url, JSON.stringify(this.response));
+                }
+              } catch {
+                /* ignore */
               }
-            } catch {
-              /* ignore */
-            }
-          });
+            });
+          }
         } catch {
           /* ignore */
         }

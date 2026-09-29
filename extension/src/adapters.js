@@ -557,7 +557,49 @@ const devto = {
   },
 };
 
-export const adapters = { twitter, linkedin, instagram, bluesky, medium, devto };
+// Hashnode posts are addressed by slug: the last path segment of the post URL
+// on either a hashnode.dev subdomain or the author's custom domain. Stats come
+// from the dashboard's own traffic while the author is logged in — the private
+// post-stats list ({ posts: [{ slug, views, ... }] }) and GraphQL post nodes
+// ({ slug, views, reactionCount, responseCount }). Both key rows by slug and
+// carry flat counts, so one walker covers them. Hashnode's public GraphQL API
+// requires a Pro plan, which is why this reads page traffic instead of calling
+// it directly.
+const hashnode = {
+  platform: "hashnode",
+  bucket: "content",
+  parsePostId(url) {
+    if (!url) return null;
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return null;
+    }
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    return segments.length ? segments[segments.length - 1] : null;
+  },
+  extract(body) {
+    const out = [];
+    const seen = new Set();
+    walk(body, (node) => {
+      if (typeof node.slug !== "string" || !node.slug) return;
+      if (seen.has(node.slug)) return;
+
+      const metrics = {};
+      num(metrics, "views", node.views);
+      num(metrics, "reactions", node.reactionCount);
+      num(metrics, "comments", node.responseCount);
+      if (Object.keys(metrics).length === 0) return;
+
+      seen.add(node.slug);
+      out.push({ nativeId: node.slug, metrics });
+    });
+    return out;
+  },
+};
+
+export const adapters = { twitter, linkedin, instagram, bluesky, medium, devto, hashnode };
 
 // Which Booked-side bucket each platform writes into. Drives the endpoint
 // the background script PUTs to and the feed the extension fetches.
@@ -569,6 +611,7 @@ export const PLATFORM_BUCKET = {
   bluesky: "social",
   medium: "content",
   devto: "content",
+  hashnode: "content",
 };
 
 // URL substrings worth capturing, per platform — kept in sync with the
@@ -592,5 +635,7 @@ export const CAPTURE_PATTERNS = {
   // dev.to's analytics dashboard hits /api/analytics; per-article shapes
   // (with page_views_count, public_reactions_count) also show up on
   // /api/articles.
-  devto: ["/api/analytics", "/api/articles"],
+  devto: ["/api/analytics", "/api/articles"],  // Hashnode's dashboard loads per-post stats from a private post-stats
+  // endpoint and from gql.hashnode.com.
+  hashnode: ["/ajax/user/post-stats", "gql.hashnode.com"],
 };
