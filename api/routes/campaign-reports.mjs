@@ -22,7 +22,9 @@ import {
   saveCampaignReportRecord,
   listCampaignReportRecords,
   findNewestCampaignReportRecord,
-  markCampaignReportSuperseded,
+  claimCampaignReportSupersede,
+  releaseCampaignReportSupersede,
+  getCampaignReportRecord,
 } from "../domain/campaign-report-record.mjs";
 import { runInBatches } from "../services/concurrency.mjs";
 import {
@@ -207,6 +209,11 @@ export function registerCampaignReportRoutes(app) {
 // Anything left over is picked up by the next generation.
 const MAX_SUPERSEDE_PER_REQUEST = 25;
 
+// Bound on convergence passes in supersedeOne. Each pass that loses to a
+// newer claimant rewrites with that claimant's data, so two passes cover the
+// realistic case of two overlapping generations.
+const MAX_SUPERSEDE_PASSES = 3;
+
 // Re-render older, still-retained reports that haven't been flagged yet
 // with a supersededBy marker so they show the "newer version available"
 // banner. Only reports whose ULID sorts before the current one qualify, so
@@ -230,25 +237,56 @@ async function supersedePreviousReports({ campaignId, currentReportId, supersede
       reportObjectExpiresAtMs(r) > nowMs)
     .slice(0, MAX_SUPERSEDE_PER_REQUEST);
 
-  await runInBatches(stale.map((record) => async () => {
-    try {
+  await runInBatches(stale.map((record) => () =>
+    supersedeOne({ campaignId, record, currentReportId, supersededAt, latestUrl })));
+}
+
+// Supersedes one report, safely against overlapping generations.
+//
+// 1. Claim the record conditionally (monotonic on the claimant's ULID). A
+//    generation that loses to a newer claimant stops here.
+// 2. Rewrite the HTML with the claimant's metadata.
+// 3. Re-read the claim. If a newer generation claimed the report while this
+//    one was writing, its S3 write may have landed first and been
+//    overwritten by ours, so rewrite again with the newer claimant's data.
+//    Every writer converges on the newest claim's content, whatever the
+//    order the S3 writes land in.
+async function supersedeOne({ campaignId, record, currentReportId, supersededAt, latestUrl }) {
+  let claimed = false;
+  try {
+    claimed = await claimCampaignReportSupersede(campaignId, record.reportId, {
+      byReportId: currentReportId,
+      supersededAt,
+    });
+    if (!claimed) return;
+
+    let winner = { reportId: currentReportId, supersededAt };
+    for (let pass = 0; pass < MAX_SUPERSEDE_PASSES; pass++) {
       const snapshot = extractCampaignReportSnapshot(await getCampaignReportHtml(record.key));
       if (!snapshot) throw new Error("embedded snapshot missing or unreadable");
       snapshot.report = {
         ...(snapshot.report ?? {}),
         latestUrl: latestUrl ?? snapshot.report?.latestUrl ?? null,
-        supersededBy: { url: latestUrl, generatedAt: supersededAt },
+        supersededBy: { url: latestUrl, generatedAt: winner.supersededAt },
       };
       await replaceCampaignReportHtml(record.key, renderCampaignReportHtml(snapshot));
-      await markCampaignReportSuperseded(campaignId, record.reportId, supersededAt);
-    } catch (err) {
-      logger.warn("Could not mark campaign report superseded", {
-        campaignId,
-        reportId: record.reportId,
-        error: err?.message,
-      });
+
+      const current = await getCampaignReportRecord(campaignId, record.reportId);
+      const holder = current?.supersededByReportId;
+      if (!holder || holder === winner.reportId) return;
+      winner = { reportId: holder, supersededAt: current.supersededAt };
     }
-  }));
+    logger.warn("Campaign report supersede did not settle", { campaignId, reportId: record.reportId });
+  } catch (err) {
+    logger.warn("Could not mark campaign report superseded", {
+      campaignId,
+      reportId: record.reportId,
+      error: err?.message,
+    });
+    if (claimed) {
+      await releaseCampaignReportSupersede(campaignId, record.reportId, currentReportId).catch(() => {});
+    }
+  }
 }
 
 function unavailablePage(statusCode) {

@@ -1,4 +1,4 @@
-import { PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { TABLE_NAME, ddb } from "../services/ddb.mjs";
 import { REPORT_RETENTION_DAYS } from "./vendor-report-record.mjs";
 
@@ -98,17 +98,53 @@ export async function findNewestCampaignReportRecord(campaignId, predicate) {
   return null;
 }
 
-// Flags a report as replaced by a newer snapshot. Set once, when a newer
-// report is generated and this one's HTML is re-rendered with the "newer
-// version available" banner, so later generations skip it. The
-// attribute_exists guard keeps a record that aged out mid-flight from being
-// resurrected as a TTL-less stub.
-export async function markCampaignReportSuperseded(campaignId, reportId, supersededAt) {
-  await ddb.send(new UpdateCommand({
+// Claims the right to banner a report as superseded by `byReportId`. The
+// claim is monotonic: it succeeds only when no generation has claimed the
+// report yet or the existing claimant is older (ULIDs sort by time), so an
+// older generation can never take a report back from a newer one. Returns
+// false when a newer generation already holds it. The attribute_exists guard
+// keeps a record that aged out mid-flight from being resurrected as a
+// TTL-less stub.
+export async function claimCampaignReportSupersede(campaignId, reportId, { byReportId, supersededAt }) {
+  try {
+    await ddb.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: reportKeyPair(campaignId, reportId),
+      UpdateExpression: "SET supersededByReportId = :by, supersededAt = :at",
+      ConditionExpression:
+        "attribute_exists(pk) AND (attribute_not_exists(supersededByReportId) OR supersededByReportId < :by)",
+      ExpressionAttributeValues: { ":by": byReportId, ":at": supersededAt },
+    }));
+    return true;
+  } catch (err) {
+    if (err?.name === "ConditionalCheckFailedException") return false;
+    throw err;
+  }
+}
+
+// Undoes a claim whose rewrite failed, so the next generation retries it.
+// Only removes the claim if `byReportId` still holds it.
+export async function releaseCampaignReportSupersede(campaignId, reportId, byReportId) {
+  try {
+    await ddb.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: reportKeyPair(campaignId, reportId),
+      UpdateExpression: "REMOVE supersededByReportId, supersededAt",
+      ConditionExpression: "supersededByReportId = :by",
+      ExpressionAttributeValues: { ":by": byReportId },
+    }));
+  } catch (err) {
+    if (err?.name !== "ConditionalCheckFailedException") throw err;
+  }
+}
+
+// Strongly consistent read of one report record, used to confirm who holds
+// a supersede claim after a rewrite.
+export async function getCampaignReportRecord(campaignId, reportId) {
+  const result = await ddb.send(new GetCommand({
     TableName: TABLE_NAME,
     Key: reportKeyPair(campaignId, reportId),
-    UpdateExpression: "SET supersededAt = :at",
-    ConditionExpression: "attribute_exists(pk)",
-    ExpressionAttributeValues: { ":at": supersededAt },
+    ConsistentRead: true,
   }));
+  return result.Item ?? null;
 }

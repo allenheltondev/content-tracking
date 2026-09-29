@@ -8,9 +8,12 @@ jest.unstable_mockModule("../services/ddb.mjs", () => ({
   ddb: { send },
 }));
 
-const { listCampaignReportRecords, findNewestCampaignReportRecord } = await import(
-  "../domain/campaign-report-record.mjs"
-);
+const {
+  listCampaignReportRecords,
+  findNewestCampaignReportRecord,
+  claimCampaignReportSupersede,
+  releaseCampaignReportSupersede,
+} = await import("../domain/campaign-report-record.mjs");
 
 describe("domain/campaign-report-record", () => {
   beforeEach(() => send.mockReset());
@@ -41,5 +44,36 @@ describe("domain/campaign-report-record", () => {
   test("returns null when nothing matches", async () => {
     send.mockResolvedValueOnce({ Items: [{ reportId: "R1", live: false }] });
     await expect(findNewestCampaignReportRecord("C1", (r) => r.live)).resolves.toBeNull();
+  });
+
+  describe("supersede claims", () => {
+    const conditionFailed = () =>
+      Object.assign(new Error("failed"), { name: "ConditionalCheckFailedException" });
+
+    test("claims only when unclaimed or held by an older generation", async () => {
+      send.mockResolvedValueOnce({});
+      await expect(
+        claimCampaignReportSupersede("C1", "R1", { byReportId: "R5", supersededAt: "t" }),
+      ).resolves.toBe(true);
+
+      const input = send.mock.calls[0][0].input;
+      expect(input.ConditionExpression).toBe(
+        "attribute_exists(pk) AND (attribute_not_exists(supersededByReportId) OR supersededByReportId < :by)",
+      );
+      expect(input.ExpressionAttributeValues).toEqual({ ":by": "R5", ":at": "t" });
+    });
+
+    test("reports false when a newer generation holds the claim", async () => {
+      send.mockRejectedValueOnce(conditionFailed());
+      await expect(
+        claimCampaignReportSupersede("C1", "R1", { byReportId: "R2", supersededAt: "t" }),
+      ).resolves.toBe(false);
+    });
+
+    test("release only removes this generation's own claim", async () => {
+      send.mockRejectedValueOnce(conditionFailed());
+      await expect(releaseCampaignReportSupersede("C1", "R1", "R2")).resolves.toBeUndefined();
+      expect(send.mock.calls[0][0].input.ConditionExpression).toBe("supersededByReportId = :by");
+    });
   });
 });

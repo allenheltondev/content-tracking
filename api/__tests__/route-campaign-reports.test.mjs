@@ -27,7 +27,9 @@ jest.unstable_mockModule("../domain/campaign-report-record.mjs", () => ({
   saveCampaignReportRecord: jest.fn(),
   listCampaignReportRecords: jest.fn(),
   findNewestCampaignReportRecord: jest.fn(),
-  markCampaignReportSuperseded: jest.fn(),
+  claimCampaignReportSupersede: jest.fn(),
+  releaseCampaignReportSupersede: jest.fn(),
+  getCampaignReportRecord: jest.fn(),
 }));
 const LATEST_URL = "https://api.example.com/public/campaign-reports/TOKEN";
 jest.unstable_mockModule("../domain/campaign-report-link.mjs", () => ({
@@ -63,7 +65,9 @@ const {
   saveCampaignReportRecord,
   listCampaignReportRecords,
   findNewestCampaignReportRecord,
-  markCampaignReportSuperseded,
+  claimCampaignReportSupersede,
+  releaseCampaignReportSupersede,
+  getCampaignReportRecord,
 } = await import("../domain/campaign-report-record.mjs");
 const {
   ensureCampaignReportLinkToken,
@@ -133,6 +137,14 @@ describe("routes/campaign-reports", () => {
     publicReportLinkUrl.mockImplementation((_event, token) => (token ? LATEST_URL : null));
     // POST lists prior reports to supersede; default to none.
     listCampaignReportRecords.mockResolvedValue([]);
+    // Supersede claims succeed and nobody else claims afterwards: the
+    // post-write read shows this generation still holding the claim.
+    claimCampaignReportSupersede.mockResolvedValue(true);
+    releaseCampaignReportSupersede.mockResolvedValue();
+    getCampaignReportRecord.mockImplementation(async (_campaignId, reportId) => {
+      const claim = claimCampaignReportSupersede.mock.calls.find((c) => c[1] === reportId);
+      return { reportId, supersededByReportId: claim?.[2].byReportId, supersededAt: claim?.[2].supersededAt };
+    });
   });
 
   describe("registration", () => {
@@ -299,13 +311,60 @@ describe("routes/campaign-reports", () => {
         latestUrl: LATEST_URL,
         supersededBy: { url: LATEST_URL, generatedAt: snapshot.report.generatedAt },
       });
+      expect(replaceCampaignReportHtml).toHaveBeenCalledTimes(1);
       expect(replaceCampaignReportHtml).toHaveBeenCalledWith("k-old", "<html>OLD</html>");
-      expect(markCampaignReportSuperseded).toHaveBeenCalledTimes(1);
-      expect(markCampaignReportSuperseded).toHaveBeenCalledWith(
-        CAMPAIGN_ID,
-        older.reportId,
-        snapshot.report.generatedAt,
-      );
+      expect(claimCampaignReportSupersede).toHaveBeenCalledTimes(1);
+      expect(claimCampaignReportSupersede).toHaveBeenCalledWith(CAMPAIGN_ID, older.reportId, {
+        byReportId: snapshot.report.id,
+        supersededAt: snapshot.report.generatedAt,
+      });
+    });
+
+    test("skips a report a newer generation has already claimed", async () => {
+      buildCampaignReportSnapshot.mockResolvedValue(makeSnapshot());
+      renderCampaignReportHtml.mockReturnValue("<html></html>");
+      putCampaignReportHtml.mockResolvedValue("k-new");
+      signReportUrl.mockReturnValue({ url: "u", expiresAt: "e" });
+      mintShortLink.mockResolvedValue({ short_url: "s" });
+      saveCampaignReportRecord.mockResolvedValue({});
+      listCampaignReportRecords.mockResolvedValue([
+        { reportId: "00000000000000000000000OLD", key: "k-old" },
+      ]);
+      claimCampaignReportSupersede.mockResolvedValue(false);
+
+      await postReport({ event: { ...AUTH_CTX, body: null }, params: { campaignId: CAMPAIGN_ID } });
+
+      expect(getCampaignReportHtml).not.toHaveBeenCalled();
+      expect(replaceCampaignReportHtml).not.toHaveBeenCalled();
+    });
+
+    test("rewrites with the newer claimant's data when it overtook this one mid-write", async () => {
+      const snapshot = makeSnapshot();
+      buildCampaignReportSnapshot.mockResolvedValue(snapshot);
+      renderCampaignReportHtml.mockImplementation((snap) =>
+        "<html>" + (snap.report.supersededBy?.generatedAt ?? snap.report.id) + "</html>");
+      putCampaignReportHtml.mockResolvedValue("k-new");
+      signReportUrl.mockReturnValue({ url: "u", expiresAt: "e" });
+      mintShortLink.mockResolvedValue({ short_url: "s" });
+      saveCampaignReportRecord.mockResolvedValue({});
+      listCampaignReportRecords.mockResolvedValue([
+        { reportId: "00000000000000000000000OLD", key: "k-old" },
+      ]);
+      getCampaignReportHtml.mockResolvedValue("<html>old</html>");
+      extractCampaignReportSnapshot.mockImplementation(() => ({ report: { id: "OLD" } }));
+      // After our first write, a newer generation holds the claim.
+      const newer = { supersededByReportId: "ZZZZZZZZZZZZZZZZZZZZZZZZZZ", supersededAt: "2026-05-29T10:00:05.000Z" };
+      getCampaignReportRecord.mockResolvedValue(newer);
+
+      await postReport({ event: { ...AUTH_CTX, body: null }, params: { campaignId: CAMPAIGN_ID } });
+
+      // First write with our metadata, then a converging write with the
+      // newer claimant's, after which the claim matches and we stop.
+      expect(replaceCampaignReportHtml.mock.calls.map((c) => c[1])).toEqual([
+        "<html>" + snapshot.report.generatedAt + "</html>",
+        "<html>" + newer.supersededAt + "</html>",
+      ]);
+      expect(releaseCampaignReportSupersede).not.toHaveBeenCalled();
     });
 
     test("caps the number of rewrites per request", async () => {
@@ -329,7 +388,7 @@ describe("routes/campaign-reports", () => {
       expect(replaceCampaignReportHtml).toHaveBeenCalledTimes(25);
     });
 
-    test("a failed supersede does not fail generation or flag the record", async () => {
+    test("a failed supersede does not fail generation and releases its claim", async () => {
       buildCampaignReportSnapshot.mockResolvedValue(makeSnapshot());
       renderCampaignReportHtml.mockReturnValue("<html></html>");
       putCampaignReportHtml.mockResolvedValue("k-new");
@@ -345,7 +404,12 @@ describe("routes/campaign-reports", () => {
 
       expect(res.statusCode).toBe(201);
       expect(replaceCampaignReportHtml).not.toHaveBeenCalled();
-      expect(markCampaignReportSuperseded).not.toHaveBeenCalled();
+      // The claim is released so the next generation retries this report.
+      expect(releaseCampaignReportSupersede).toHaveBeenCalledWith(
+        CAMPAIGN_ID,
+        "00000000000000000000000OLD",
+        expect.any(String),
+      );
     });
 
     test("400 on invalid campaignId", async () => {
