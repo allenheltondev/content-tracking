@@ -8,36 +8,32 @@
   <title>Campaign Report</title>
   <style>
     :root {
-      --bg: #eef1f6;
+      --page: #f3f4f6;
       --surface: #ffffff;
-      --ink: #161d2b;
-      --muted: #5b6675;
-      --faint: #8a94a3;
-      --line: #e6eaf0;
-      --line-soft: #f0f3f7;
+      --subtle: #f8fafc;
+      --ink: #0f172a;
+      --ink-2: #334155;
+      --muted: #64748b;
+      --faint: #94a3b8;
+      --line: #e2e8f0;
+      --line-soft: #eef2f6;
 
       /* Brand accent. Overridden at runtime from the profile's configured
          accent color when present (see the theme block in the script). */
       --accent: #4f46e5;
-      --accent-2: #7c3aed;
       --accent-soft: #eef0ff;
 
-      /* Metric palette */
+      /* Metric keys, used only for the small indicator dots. */
       --c-views: #2563eb;
-      --c-views-soft: #e8f0ff;
       --c-impr: #7c3aed;
-      --c-impr-soft: #f1eaff;
       --c-eng: #0d9488;
-      --c-eng-soft: #e2f5f2;
       --c-clicks: #d97706;
-      --c-clicks-soft: #fdf0dd;
 
-      --warn-bg: #fff7e6;
-      --warn-ink: #8a5d00;
-      --warn-line: #f0dcae;
+      --warn-bg: #fffbeb;
+      --warn-ink: #92400e;
+      --warn-line: #fde68a;
 
-      --radius: 14px;
-      --shadow: 0 1px 2px rgba(20, 32, 54, 0.04), 0 10px 30px rgba(20, 32, 54, 0.06);
+      --radius: 8px;
     }
 
     * { box-sizing: border-box; }
@@ -45,277 +41,231 @@
     html, body { margin: 0; padding: 0; }
 
     body {
-      background:
-        radial-gradient(1200px 480px at 50% -160px, rgba(79, 70, 229, 0.10), transparent 70%),
-        var(--bg);
+      background: var(--page);
       color: var(--ink);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
-      font-size: 15px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 14px;
       line-height: 1.5;
       -webkit-font-smoothing: antialiased;
     }
 
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
     .sheet {
-      max-width: 980px;
-      margin: 32px auto;
+      max-width: 960px;
+      margin: 40px auto;
       background: var(--surface);
       border: 1px solid var(--line);
+      border-top: 3px solid var(--accent);
       border-radius: var(--radius);
-      box-shadow: var(--shadow);
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 12px 32px rgba(15, 23, 42, 0.06);
       overflow: hidden;
     }
 
-    /* Brand bar */
-    .brand-bar {
+    /* Top bar: brand on the left, actions on the right, both centered on
+       the same axis. Always present so the download button has a home even
+       when no brand is configured. */
+    .topbar {
       display: flex;
-      flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
-      gap: 6px 16px;
-      padding: 18px 36px;
-      background: linear-gradient(120deg, var(--accent) 0%, var(--accent-2) 100%);
-      color: #fff;
-    }
-    .brand-bar .brand-name {
-      font-size: 19px;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-    }
-    .brand-bar .brand-site {
-      font-size: 13px;
-      color: rgba(255, 255, 255, 0.82);
-      text-decoration: none;
-    }
-    .brand-bar .brand-site:hover { color: #fff; text-decoration: underline; }
-
-    /* Header */
-    .doc-header {
-      position: relative;
-      padding: 30px 36px 26px;
-      background: linear-gradient(180deg, #f7f8fd 0%, var(--surface) 100%);
+      gap: 16px;
+      min-height: 68px;
+      padding: 14px 40px;
       border-bottom: 1px solid var(--line);
+    }
+    .brand {
       display: flex;
-      flex-wrap: wrap;
-      justify-content: space-between;
-      gap: 20px;
-      align-items: flex-start;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
     }
-    .doc-header::before {
-      content: "";
-      position: absolute;
-      left: 0; right: 0; top: 0;
-      height: 4px;
-      background: linear-gradient(90deg, var(--accent), var(--accent-2));
-    }
-
-    .doc-header .lead { min-width: 240px; }
-
-    .doc-kicker {
-      display: inline-block;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      font-size: 11px;
-      font-weight: 700;
-      color: var(--accent);
-      background: var(--accent-soft);
-      padding: 3px 10px;
-      border-radius: 999px;
-      margin: 0 0 12px;
-    }
-
-    .campaign-name {
-      font-size: 28px;
-      font-weight: 800;
-      margin: 0 0 4px;
-      letter-spacing: -0.02em;
-    }
-
-    .period-label {
-      color: var(--muted);
-      font-size: 15px;
-      margin: 0;
-    }
-
-    .campaign-meta {
-      margin: 14px 0 0;
-      padding: 0;
-      list-style: none;
-      font-size: 13px;
-      color: var(--muted);
-    }
-
-    .campaign-meta li { margin: 2px 0; }
-    .campaign-meta b { color: var(--ink); font-weight: 600; }
-
-    .stamp { text-align: right; min-width: 180px; }
-
-    .stamp .stamp-box {
-      display: inline-block;
-      border-radius: 12px;
-      padding: 12px 16px;
+    .brand-mark {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 7px;
+      background: var(--accent);
       color: #fff;
-      background: linear-gradient(135deg, var(--accent), var(--accent-2));
-      box-shadow: 0 6px 16px rgba(79, 70, 229, 0.28);
+      font-weight: 700;
+      font-size: 15px;
+      flex: none;
     }
+    .brand-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+    .brand-name { font-size: 15px; font-weight: 650; color: var(--ink); }
+    .brand-site { font-size: 12.5px; color: var(--muted); }
+    .brand-site:hover { color: var(--ink-2); }
 
-    .stamp .stamp-label {
-      display: block;
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      height: 36px;
+      padding: 0 14px;
+      margin-left: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--ink);
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+      flex: none;
+    }
+    .btn:hover { background: var(--subtle); border-color: #cbd5e1; }
+    .btn svg { width: 15px; height: 15px; flex: none; }
+
+    /* Title block */
+    .title-block { padding: 36px 40px 30px; }
+    .eyebrow {
+      margin: 0;
+      font-size: 11.5px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
-      letter-spacing: 0.1em;
-      font-size: 10px;
-      font-weight: 700;
-      opacity: 0.85;
+      color: var(--accent);
     }
-
-    .stamp .stamp-date {
-      display: block;
-      font-size: 19px;
+    .campaign-name {
+      margin: 8px 0 0;
+      font-size: 30px;
       font-weight: 700;
-      margin-top: 2px;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
     }
-
-    .stamp .stamp-note {
-      display: block;
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 16px 32px;
+      margin: 26px 0 0;
+      padding: 20px 0 0;
+      border-top: 1px solid var(--line);
+    }
+    .meta div { min-width: 0; }
+    .meta dt {
       font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
       color: var(--faint);
-      margin-top: 8px;
+    }
+    .meta dd {
+      margin: 4px 0 0;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--ink);
     }
 
     /* Sections */
     .section {
-      padding: 26px 36px;
-      border-bottom: 1px solid var(--line);
+      padding: 32px 40px;
+      border-top: 1px solid var(--line);
     }
-    .section:last-of-type { border-bottom: 0; }
-
     .section-title {
-      display: flex;
-      align-items: center;
-      gap: 9px;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      font-weight: 700;
-      color: var(--muted);
-      margin: 0 0 18px;
+      margin: 0;
+      font-size: 17px;
+      font-weight: 650;
+      letter-spacing: -0.01em;
+      color: var(--ink);
     }
-    .section-title::before {
-      content: "";
-      width: 12px;
-      height: 12px;
-      border-radius: 4px;
-      background: linear-gradient(135deg, var(--accent), var(--accent-2));
-      flex: none;
-    }
-
     .section-lead {
-      margin: -10px 0 16px;
-      font-size: 13px;
+      margin: 6px 0 0;
+      max-width: 700px;
+      font-size: 13.5px;
       color: var(--muted);
     }
-    .section-lead a { color: var(--accent); text-decoration: none; }
-    .section-lead a:hover { text-decoration: underline; }
+    .section-body { margin-top: 18px; }
 
-    /* Summary cards */
-    .cards {
+    /* KPI strip. The 1px gap over a line-colored background draws the
+       dividers, so it stays correct at any column count. */
+    .kpis {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 14px;
-    }
-
-    .card {
-      position: relative;
+      grid-template-columns: repeat(var(--cols, 4), 1fr);
+      gap: 1px;
+      background: var(--line);
       border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 16px 16px 15px 19px;
-      background: var(--surface);
+      border-radius: var(--radius);
       overflow: hidden;
     }
-    .card::before {
-      content: "";
-      position: absolute;
-      left: 0; top: 0; bottom: 0;
-      width: 5px;
-      background: var(--card-accent, var(--accent));
-    }
-
-    .card .card-label {
-      font-size: 12px;
-      color: var(--muted);
-      margin: 0 0 7px;
-      font-weight: 600;
-    }
-
-    .card .card-value {
-      font-size: 24px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
+    .kpi { background: var(--surface); padding: 18px 20px; }
+    .kpi-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
       margin: 0;
-      color: var(--card-accent, var(--ink));
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--muted);
+    }
+    .kpi-label .key { width: 8px; height: 8px; border-radius: 2px; background: var(--faint); flex: none; }
+    .kpi-value {
+      margin: 6px 0 0;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
       font-variant-numeric: tabular-nums;
     }
+    .k-views .key  { background: var(--c-views); }
+    .k-impr .key   { background: var(--c-impr); }
+    .k-eng .key    { background: var(--c-eng); }
+    .k-clicks .key { background: var(--c-clicks); }
 
-    .card.m-views   { --card-accent: var(--c-views);  background: linear-gradient(180deg, var(--c-views-soft), var(--surface) 70%); }
-    .card.m-impr    { --card-accent: var(--c-impr);   background: linear-gradient(180deg, var(--c-impr-soft), var(--surface) 70%); }
-    .card.m-eng     { --card-accent: var(--c-eng);    background: linear-gradient(180deg, var(--c-eng-soft), var(--surface) 70%); }
-    .card.m-clicks  { --card-accent: var(--c-clicks); background: linear-gradient(180deg, var(--c-clicks-soft), var(--surface) 70%); }
-
-    /* Chart */
-    .chart-wrap { width: 100%; overflow-x: auto; }
-    .chart-legend {
-      display: flex;
-      gap: 16px;
-      margin: -6px 0 14px;
-      font-size: 12px;
-      color: var(--muted);
+    .notice {
+      margin-top: 14px;
+      padding: 10px 14px;
+      font-size: 12.5px;
+      color: var(--warn-ink);
+      background: var(--warn-bg);
+      border: 1px solid var(--warn-line);
+      border-radius: 6px;
     }
-    .chart-legend .key { display: inline-flex; align-items: center; gap: 7px; }
-    .chart-legend .swatch { width: 12px; height: 12px; border-radius: 4px; background: var(--accent); }
-    svg .grid-line { stroke: var(--line); stroke-width: 1; }
-    svg .axis-label { fill: var(--faint); font-size: 11px; }
-    svg .day-label { fill: var(--muted); font-size: 10px; }
-    svg .area { fill: url(#trafficGrad); }
-    svg .trend-line { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
-    svg .dot { fill: #fff; stroke: var(--accent); stroke-width: 2; }
-    svg .hot { fill: transparent; }
 
     /* Tables */
     .table-wrap {
       width: 100%;
       overflow-x: auto;
       border: 1px solid var(--line);
-      border-radius: 12px;
+      border-radius: var(--radius);
     }
     table.data {
       width: 100%;
       border-collapse: collapse;
-      font-size: 14px;
+      font-size: 13.5px;
     }
     table.data th, table.data td {
+      padding: 13px 16px;
       text-align: left;
-      padding: 12px 14px;
-      border-bottom: 1px solid var(--line-soft);
+      vertical-align: top;
       white-space: nowrap;
     }
     table.data thead th {
+      padding-top: 10px;
+      padding-bottom: 10px;
       font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--faint);
-      background: #f8f9fc;
+      color: var(--muted);
+      background: var(--subtle);
       border-bottom: 1px solid var(--line);
     }
-    table.data tbody tr:last-child td { border-bottom: 0; }
-    table.data td.num, table.data th.num {
+    table.data tbody td { border-top: 1px solid var(--line-soft); }
+    table.data tbody tr:first-child td { border-top: 0; }
+    table.data .num {
       text-align: right;
       font-variant-numeric: tabular-nums;
     }
-    table.data td a { color: var(--accent); text-decoration: none; }
-    table.data td a:hover { text-decoration: underline; }
-    table.data tbody tr:hover { background: #f8f9fd; }
+    table.data td.num { color: var(--ink); font-weight: 500; }
+    table.data td.na { color: var(--faint); font-weight: 400; }
     .muted-cell { color: var(--muted); }
 
-    /* Channel + platform badges */
+    /* Channel cell: platform badge, optional tag, and a detail line for the
+       featured piece or cross post that lives on that channel. */
     .badge {
       display: inline-flex;
       align-items: center;
@@ -323,189 +273,184 @@
       font-weight: 600;
       color: var(--ink);
     }
-    .badge .dot {
-      width: 9px;
-      height: 9px;
-      border-radius: 50%;
-      background: var(--accent);
-      flex: none;
+    .badge .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+    .tag {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 1px 6px;
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+      background: var(--line-soft);
+      border-radius: 4px;
+      vertical-align: 1px;
+    }
+    .detail {
+      margin: 4px 0 0 16px;
+      font-size: 12.5px;
+      color: var(--muted);
+      white-space: normal;
+      max-width: 440px;
+    }
+    .detail + .detail { margin-top: 2px; }
+    .detail .sep { margin: 0 6px; color: var(--faint); }
+
+    /* Share bars */
+    .share { display: flex; align-items: center; gap: 12px; min-width: 180px; }
+    .share-track { flex: 1; height: 6px; border-radius: 3px; background: var(--line-soft); overflow: hidden; }
+    .share-fill { height: 100%; border-radius: 3px; background: var(--accent); }
+    .share-num {
+      width: 48px;
+      text-align: right;
+      font-size: 12.5px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
     }
 
-    /* Share bar inside source table */
-    .share-cell { min-width: 120px; }
-    .share-track {
-      position: relative;
-      height: 7px;
-      border-radius: 999px;
-      background: var(--line);
-      overflow: hidden;
-    }
-    .share-fill {
-      position: absolute;
-      left: 0; top: 0; bottom: 0;
-      border-radius: 999px;
-      background: linear-gradient(90deg, var(--accent), var(--accent-2));
-    }
-    .share-num { font-size: 12px; color: var(--muted); margin-top: 4px; display: block; }
-
-    .skipped-note {
-      margin-top: 14px;
-      font-size: 12px;
-      background: var(--warn-bg);
-      color: var(--warn-ink);
-      border: 1px solid var(--warn-line);
-      border-radius: 10px;
-      padding: 10px 14px;
-    }
+    /* Chart */
+    .chart-wrap { width: 100%; overflow-x: auto; }
+    svg .grid-line { stroke: var(--line-soft); stroke-width: 1; }
+    svg .base-line { stroke: var(--line); stroke-width: 1; }
+    svg .axis-label { fill: var(--faint); font-size: 11px; }
+    svg .area { fill: url(#trafficGrad); }
+    svg .trend-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    svg .dot { fill: #fff; stroke: var(--accent); stroke-width: 2; }
 
     .doc-footer {
-      padding: 18px 36px;
-      font-size: 11px;
-      color: var(--faint);
       display: flex;
-      justify-content: space-between;
       flex-wrap: wrap;
-      gap: 8px;
-      background: #fafbfd;
-    }
-
-    .btn {
-      border: 1px solid transparent;
-      background: linear-gradient(135deg, var(--accent), var(--accent-2));
-      color: #fff;
-      font-size: 14px;
-      font-weight: 600;
-      padding: 9px 18px;
-      border-radius: 10px;
-      cursor: pointer;
-      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
-    }
-    .btn:hover { filter: brightness(1.05); }
-
-    .toolbar {
-      display: flex;
-      justify-content: flex-end;
-      padding: 18px 36px 0;
+      justify-content: space-between;
+      gap: 8px 24px;
+      padding: 18px 40px;
+      font-size: 12px;
+      color: var(--faint);
+      background: var(--subtle);
+      border-top: 1px solid var(--line);
     }
 
     /* Responsive */
-    @media (max-width: 720px) {
+    @media screen and (max-width: 720px) {
       .sheet { margin: 0; border-radius: 0; border-left: 0; border-right: 0; }
-      .cards { grid-template-columns: repeat(2, 1fr); }
-      .brand-bar { padding: 14px 20px; }
-      .doc-header { padding: 22px 20px; }
-      .section { padding: 20px; }
-      .stamp { text-align: left; }
-    }
-    @media (max-width: 420px) {
-      .cards { grid-template-columns: 1fr; }
+      .topbar, .title-block, .section, .doc-footer { padding-left: 20px; padding-right: 20px; }
+      .title-block { padding-top: 26px; }
+      .campaign-name { font-size: 24px; }
+      .meta { grid-template-columns: 1fr 1fr; }
+      .kpis { grid-template-columns: repeat(2, 1fr); }
+      .kpi-value { font-size: 24px; }
+      .btn .btn-text-long { display: none; }
     }
 
     /* Print */
+    @page { margin: 14mm; }
     @media print {
       body { background: #fff; font-size: 12px; }
       .sheet {
         margin: 0;
         max-width: none;
         border: 0;
-        box-shadow: none;
         border-radius: 0;
+        box-shadow: none;
       }
-      .no-print, .toolbar { display: none !important; }
-      .brand-bar,
-      .stamp .stamp-box,
-      .btn,
-      .share-fill,
-      svg .area { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .doc-header { padding: 0 0 14px; }
-      .doc-header::before { display: none; }
-      .section { padding: 14px 0; page-break-inside: avoid; }
-      .cards { grid-template-columns: repeat(4, 1fr); gap: 8px; }
-      table.data { font-size: 11px; }
+      .no-print { display: none !important; }
+      .topbar, .title-block, .section, .doc-footer { padding-left: 0; padding-right: 0; }
+      .topbar { min-height: 0; padding-top: 0; }
+      .section { padding-top: 20px; padding-bottom: 20px; }
+      .section-title { break-after: avoid; }
+      .kpis, tr, svg { break-inside: avoid; }
+      .brand-mark, .share-fill, .kpi-label .key, .badge .dot, svg .area {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
       table.data td, table.data th { white-space: normal; }
       .chart-wrap { overflow: visible; }
-      tr { page-break-inside: avoid; }
-      a[href]::after { content: ""; }
+      .doc-footer { background: none; }
     }
   </style>
 </head>
 <body>
   <main class="sheet" id="sheet">
-    <header class="brand-bar" id="brand-bar" hidden>
-      <span class="brand-name" id="brand-name"></span>
-      <a class="brand-site" id="brand-site" target="_blank" rel="noreferrer noopener" hidden></a>
-    </header>
-
-    <div class="toolbar no-print">
-      <button type="button" class="btn" id="download-pdf">Download PDF</button>
-    </div>
-
-    <header class="doc-header">
-      <div class="lead">
-        <p class="doc-kicker">Campaign Report</p>
-        <h1 class="campaign-name" id="campaign-name"></h1>
-        <p class="period-label" id="period-label"></p>
-        <ul class="campaign-meta" id="campaign-meta"></ul>
-      </div>
-      <div class="stamp">
-        <span class="stamp-box">
-          <span class="stamp-label">Data as of</span>
-          <span class="stamp-date" id="data-as-of"></span>
+    <header class="topbar">
+      <div class="brand" id="brand" hidden>
+        <span class="brand-mark" id="brand-mark" aria-hidden="true"></span>
+        <span class="brand-text">
+          <span class="brand-name" id="brand-name"></span>
+          <a class="brand-site" id="brand-site" target="_blank" rel="noreferrer noopener" hidden></a>
         </span>
-        <span class="stamp-note" id="generated-note"></span>
       </div>
+      <button type="button" class="btn no-print" id="download-pdf">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/>
+        </svg>
+        <span>Download <span class="btn-text-long">PDF</span></span>
+      </button>
     </header>
+
+    <section class="title-block">
+      <p class="eyebrow">Campaign report</p>
+      <h1 class="campaign-name" id="campaign-name"></h1>
+      <dl class="meta" id="meta"></dl>
+    </section>
 
     <section class="section">
       <h2 class="section-title">Summary</h2>
-      <div class="cards" id="summary-cards"></div>
-      <div class="skipped-note" id="skipped-note" hidden></div>
+      <p class="section-lead">Totals across every tracked placement for this campaign.</p>
+      <div class="section-body">
+        <div class="kpis" id="summary-kpis"></div>
+        <div class="notice" id="skipped-note" hidden></div>
+      </div>
     </section>
 
     <section class="section" id="reach-section" hidden>
       <h2 class="section-title">Performance by channel</h2>
-      <p class="section-lead">Each placement on its own row. Impressions count how many times the content was shown. Views count how many times it was opened. A dash marks a metric the channel does not report.</p>
-      <div class="table-wrap" id="reach-wrap"></div>
+      <p class="section-lead">One row per placement, including the featured piece and its cross posts. Impressions count how often the content was shown. Views count how often it was opened. A dash marks a metric the channel does not report.</p>
+      <div class="section-body">
+        <div class="table-wrap" id="reach-wrap"></div>
+      </div>
     </section>
 
     <section class="section" id="main-content-section" hidden>
       <h2 class="section-title">Featured content</h2>
       <p class="section-lead" id="main-content-lead"></p>
-      <div class="cards" id="main-content-cards"></div>
-    </section>
-
-    <section class="section" id="content-posts-section" hidden>
-      <h2 class="section-title">Cross posts</h2>
-      <div class="table-wrap" id="content-posts-wrap"></div>
+      <div class="section-body">
+        <div class="kpis" id="main-content-kpis"></div>
+      </div>
     </section>
 
     <section class="section" id="chart-section">
-      <h2 class="section-title">Traffic over time</h2>
-      <div class="chart-legend">
-        <span class="key"><span class="swatch"></span>Clicks per day</span>
+      <h2 class="section-title">Clicks over time</h2>
+      <p class="section-lead">Daily clicks on tracked links.</p>
+      <div class="section-body">
+        <div class="chart-wrap" id="chart-wrap"></div>
       </div>
-      <div class="chart-wrap" id="chart-wrap"></div>
     </section>
 
     <section class="section" id="source-section">
       <h2 class="section-title">Clicks by source</h2>
-      <div class="table-wrap" id="source-wrap"></div>
+      <div class="section-body">
+        <div class="table-wrap" id="source-wrap"></div>
+      </div>
     </section>
 
     <section class="section" id="content-links-section" hidden>
       <h2 class="section-title">Content links</h2>
-      <p class="section-lead">Clicks on individual links tracked inside your content.</p>
-      <div class="table-wrap" id="content-links-wrap"></div>
+      <p class="section-lead">Clicks on individual links tracked inside the content.</p>
+      <div class="section-body">
+        <div class="table-wrap" id="content-links-wrap"></div>
+      </div>
     </section>
 
     <section class="section" id="social-posts-section" hidden>
       <h2 class="section-title">Social posts</h2>
-      <div class="table-wrap" id="social-posts-wrap"></div>
+      <div class="section-body">
+        <div class="table-wrap" id="social-posts-wrap"></div>
+      </div>
     </section>
 
     <footer class="doc-footer">
       <span id="footer-id"></span>
-      <span>This report reflects data frozen at generation time.</span>
+      <span>Figures are frozen at the time this report was generated.</span>
     </footer>
   </main>
 
@@ -543,12 +488,28 @@
         return intFmt.format(typeof n === "number" ? n : 0);
       }
 
-      // Dates in the contract are already YYYY-MM-DD or ISO timestamps; show
-      // just the date portion, "—" when missing.
+      // A reach metric is null when the channel doesn't report it; render
+      // that as a dash rather than 0.
+      function fmtMetric(n) {
+        return n == null ? "—" : fmtInt(n);
+      }
+
+      // Human date ("May 28, 2026") from a YYYY-MM-DD or ISO string. Parsed
+      // as a calendar date so the displayed day never shifts by timezone.
+      var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       function fmtDate(s) {
         if (!s || typeof s !== "string") return "—";
-        var date = s.slice(0, 10);
-        return /^[0-9]{4}-[0-9]{2}-[0-9]{2}/.test(date) && date.length === 10 ? date : "—";
+        var m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})/.exec(s);
+        if (!m) return "—";
+        var mo = parseInt(m[2], 10);
+        if (mo < 1 || mo > 12) return "—";
+        return MONTHS[mo - 1] + " " + parseInt(m[3], 10) + ", " + m[1];
+      }
+      function fmtShortDay(s) {
+        var m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})/.exec(s || "");
+        if (!m) return s || "";
+        var mo = parseInt(m[2], 10);
+        return (MONTHS[mo - 1] || m[2]) + " " + parseInt(m[3], 10);
       }
 
       function fmtDuration(seconds) {
@@ -586,25 +547,36 @@
         return node;
       }
 
+      function extLink(href, text) {
+        return el("a", { href: href, rel: "noreferrer noopener", target: "_blank" }, text);
+      }
+
       function truncate(s, n) {
         if (!s) return "";
         return s.length <= n ? s : s.slice(0, n - 1) + "…";
       }
 
-      function dateRange(start, end) {
-        if (!start && !end) return "—";
-        if (start && end) return start + " – " + end;
-        return start || end || "—";
-      }
-
       function siteLabel(u) {
-        try { return new URL(u).host; } catch (e) { return u; }
+        try { return new URL(u).host.replace(/^www\./, ""); } catch (e) { return u; }
       }
 
-      // Derive a readable label from a content URL: the last path segment,
+      // A URL without its protocol, for compact display of post links.
+      function shortUrl(u) {
+        try {
+          var url = new URL(u);
+          var path = url.pathname;
+          while (path.length > 0 && path.charAt(path.length - 1) === "/") path = path.slice(0, -1);
+          return url.host.replace(/^www\./, "") + path;
+        } catch (e) {
+          return u;
+        }
+      }
+
+      // Derive a readable title from a content URL: the last path segment,
       // de-slugified and title-cased (e.g. /blog/spring-serverless ->
-      // "Spring Serverless"). Falls back to the host so the link is never
-      // the bare URL.
+      // "Spring Serverless"). Platform id suffixes like Medium's "-3f9a2c1b"
+      // or dev.to's "-1abc" are dropped. Falls back to the host so the link
+      // is never the bare URL.
       function pageTitleFromUrl(u) {
         try {
           var url = new URL(u);
@@ -618,8 +590,15 @@
             var ext = last.slice(dot + 1);
             if (ext.length <= 5 && !/[^a-z0-9]/i.test(ext)) last = last.slice(0, dot);
           }
-          last = last.replace(/[-_]+/g, " ").trim();
-          if (!last) return url.host;
+          var words = last.split(/[-_]+/).filter(Boolean);
+          if (words.length > 1) {
+            var tail = words[words.length - 1];
+            if (tail.length >= 4 && /[0-9]/.test(tail) && /[a-z]/i.test(tail) && !/[^a-z0-9]/i.test(tail)) {
+              words.pop();
+            }
+          }
+          last = words.join(" ").trim();
+          if (!last) return url.host.replace(/^www\./, "");
           return last.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
         } catch (e) {
           return u;
@@ -627,10 +606,9 @@
       }
 
       // ---- Theme accent ----
-      // Apply the profile's configured accent color when present. We set the
-      // base accent and derive a second stop + soft tint so every accented
-      // surface (header, buttons, chart, share bars) recolors together.
-      // Anything invalid leaves the template's built-in accent in place.
+      // Apply the profile's configured accent color when present, plus a
+      // soft tint derived from it. Anything invalid leaves the template's
+      // built-in accent in place.
       var accentColor = "#4f46e5";
       (function applyAccent() {
         var hex = typeof theme.accentColor === "string" ? theme.accentColor.trim() : "";
@@ -639,7 +617,6 @@
         accentColor = "#" + toHex(rgb.r) + toHex(rgb.g) + toHex(rgb.b);
         var root = document.documentElement;
         root.style.setProperty("--accent", accentColor);
-        root.style.setProperty("--accent-2", rgbStr(shade(rgb, -0.18)));
         root.style.setProperty("--accent-soft", rgbStr(mixWhite(rgb, 0.90)));
       })();
 
@@ -660,31 +637,28 @@
       function clamp255(n) { return Math.max(0, Math.min(255, Math.round(n))); }
       function toHex(n) { var s = clamp255(n).toString(16); return s.length === 1 ? "0" + s : s; }
       function rgbStr(c) { return "rgb(" + clamp255(c.r) + "," + clamp255(c.g) + "," + clamp255(c.b) + ")"; }
-      // Darken (amount < 0) toward black; mixWhite lightens toward white.
-      function shade(c, amount) {
-        var f = 1 + amount;
-        return { r: c.r * f, g: c.g * f, b: c.b * f };
-      }
       function mixWhite(c, t) {
         return { r: c.r + (255 - c.r) * t, g: c.g + (255 - c.g) * t, b: c.b + (255 - c.b) * t };
       }
 
       // ---- Platform presentation ----
-      // Map raw platform slugs to their proper casing, plus a brand-ish dot
-      // colour so the social/cross-post tables read at a glance.
+      // Map raw platform slugs to their proper casing, plus a brand color
+      // for the dot so tables read at a glance.
       var PLATFORM_LABELS = {
         linkedin: "LinkedIn", twitter: "Twitter", x: "X", facebook: "Facebook",
         instagram: "Instagram", youtube: "YouTube", tiktok: "TikTok", threads: "Threads",
         bluesky: "Bluesky", mastodon: "Mastodon", reddit: "Reddit", medium: "Medium",
-        devto: "Dev.to", hashnode: "Hashnode", substack: "Substack", github: "GitHub",
-        pinterest: "Pinterest", discord: "Discord", slack: "Slack", newsletter: "Newsletter"
+        devto: "DEV", hashnode: "Hashnode", substack: "Substack", github: "GitHub",
+        pinterest: "Pinterest", discord: "Discord", slack: "Slack", newsletter: "Newsletter",
+        blog: "Blog", unknown: "Untagged links", other: "Other"
       };
       var PLATFORM_COLORS = {
         linkedin: "#0a66c2", twitter: "#1d9bf0", x: "#111111", facebook: "#1877f2",
         instagram: "#e1306c", youtube: "#ff0000", tiktok: "#111111", threads: "#111111",
-        bluesky: "#1185fe", mastodon: "#6364ff", reddit: "#ff4500", medium: "#00ab6c",
-        devto: "#0a0a0a", hashnode: "#2962ff", substack: "#ff6719", github: "#24292f",
-        pinterest: "#e60023", discord: "#5865f2", slack: "#4a154b", newsletter: "#0d9488"
+        bluesky: "#1185fe", mastodon: "#6364ff", reddit: "#ff4500", medium: "#111111",
+        devto: "#111111", hashnode: "#2962ff", substack: "#ff6719", github: "#24292f",
+        pinterest: "#e60023", discord: "#5865f2", slack: "#4a154b", newsletter: "#0d9488",
+        unknown: "#94a3b8", other: "#94a3b8"
       };
       function platformKey(p) {
         return String(p == null ? "" : p).toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -699,7 +673,9 @@
         });
       }
       function platformColor(p) {
-        return PLATFORM_COLORS[platformKey(p)] || "#6366f1";
+        var key = platformKey(p);
+        if (key === "blog") return accentColor;
+        return PLATFORM_COLORS[key] || accentColor;
       }
       function platformBadge(p) {
         var span = el("span", { "class": "badge" });
@@ -712,8 +688,10 @@
 
       // ---- Brand ----
       if (brand && brand.name) {
-        document.getElementById("brand-bar").hidden = false;
+        document.getElementById("brand").hidden = false;
         document.getElementById("brand-name").textContent = brand.name;
+        document.getElementById("brand-mark").textContent =
+          String(brand.name).replace(/[^A-Za-z0-9]/g, "").charAt(0).toUpperCase() || "•";
         if (brand.websiteUrl) {
           var siteEl = document.getElementById("brand-site");
           siteEl.hidden = false;
@@ -722,68 +700,119 @@
         }
       }
 
-      // ---- Header ----
+      // ---- Title block ----
       document.getElementById("campaign-name").textContent = campaign.name || "Campaign";
-      document.getElementById("period-label").textContent =
-        dateRange(campaign.startDate, campaign.endDate);
-      document.getElementById("data-as-of").textContent = report.dataAsOf || "—";
+      document.title = (campaign.name || "Campaign") + " · Campaign report";
+
+      var meta = document.getElementById("meta");
+      function addMeta(label, value) {
+        var wrap = el("div");
+        wrap.appendChild(el("dt", null, label));
+        wrap.appendChild(el("dd", null, value));
+        meta.appendChild(wrap);
+      }
+      if (campaign.sponsor) addMeta("Sponsor", campaign.sponsor);
+      if (campaign.startDate || campaign.endDate) {
+        var period = campaign.startDate && campaign.endDate
+          ? fmtDate(campaign.startDate) + " – " + fmtDate(campaign.endDate)
+          : fmtDate(campaign.startDate || campaign.endDate);
+        addMeta("Campaign period", period);
+      }
+      addMeta("Data as of", fmtDate(report.dataAsOf));
+      if (brand && brand.name) addMeta("Prepared by", brand.name);
+
+      var footerParts = [];
       if (report.generatedAt) {
         var gen = new Date(report.generatedAt);
         if (!isNaN(gen.getTime())) {
-          document.getElementById("generated-note").textContent =
-            "Generated " + gen.toLocaleString("en-US");
+          footerParts.push("Generated " + gen.toLocaleString("en-US", {
+            year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit"
+          }));
         }
       }
-      document.title = (campaign.name || "Campaign") + " — Report";
-      var footerParts = [];
-      if (brand && brand.name) footerParts.push("Prepared by " + brand.name);
       if (report.id) footerParts.push("Report " + report.id);
       document.getElementById("footer-id").textContent = footerParts.join(" · ");
 
-      var metaList = document.getElementById("campaign-meta");
-      function addMeta(label, valueNode) {
-        var li = el("li");
-        li.appendChild(el("b", null, label + ": "));
-        if (typeof valueNode === "string") {
-          li.appendChild(document.createTextNode(valueNode));
-        } else {
-          li.appendChild(valueNode);
-        }
-        metaList.appendChild(li);
+      // ---- KPI strips ----
+      function renderKpis(rootId, items) {
+        var root = document.getElementById(rootId);
+        root.style.setProperty("--cols", String(items.length));
+        items.forEach(function (item) {
+          var kpi = el("div", { "class": "kpi" + (item.variant ? " " + item.variant : "") });
+          var label = el("p", { "class": "kpi-label" });
+          label.appendChild(el("span", { "class": "key" }));
+          label.appendChild(document.createTextNode(item.label));
+          kpi.appendChild(label);
+          kpi.appendChild(el("p", { "class": "kpi-value" }, item.value));
+          root.appendChild(kpi);
+        });
       }
-      if (campaign.sponsor) addMeta("Sponsor", campaign.sponsor);
 
-      // ---- Summary cards ----
-      var cardsRoot = document.getElementById("summary-cards");
-      function addCard(label, value, variant) {
-        var card = el("div", { "class": "card" + (variant ? " " + variant : "") });
-        card.appendChild(el("p", { "class": "card-label" }, label));
-        card.appendChild(el("p", { "class": "card-value" }, value));
-        cardsRoot.appendChild(card);
-      }
       var reachTotals = (reach && reach.totals) || { views: 0, impressions: 0, engagements: 0 };
-      addCard("Views", fmtInt(reachTotals.views), "m-views");
-      addCard("Impressions", fmtInt(reachTotals.impressions), "m-impr");
-      addCard("Engagements", fmtInt(reachTotals.engagements), "m-eng");
-      addCard("Clicks", fmtInt(summary.totalClicks), "m-clicks");
+      renderKpis("summary-kpis", [
+        { label: "Impressions", value: fmtInt(reachTotals.impressions), variant: "k-impr" },
+        { label: "Views", value: fmtInt(reachTotals.views), variant: "k-views" },
+        { label: "Engagements", value: fmtInt(reachTotals.engagements), variant: "k-eng" },
+        { label: "Clicks", value: fmtInt(summary.totalClicks), variant: "k-clicks" }
+      ]);
 
       if (summary.upstreamFailures > 0) {
         var note = document.getElementById("skipped-note");
         note.hidden = false;
-        note.textContent = "Note: some link analytics couldn't be fetched (" +
-          fmtInt(summary.upstreamFailures) +
-          ") and are excluded from the totals above.";
+        note.textContent = "Analytics for " + fmtInt(summary.upstreamFailures) +
+          " tracked link" + (summary.upstreamFailures === 1 ? "" : "s") +
+          " could not be retrieved and are excluded from these totals.";
       }
 
       // ---- Performance by channel ----
       // One row per placement, un-aggregated. Reach metrics arrive as null
       // when the channel doesn't report them (Bluesky/blog have no
-      // impressions; X reports views, not impressions) — shown as "—" so a
-      // gap never reads as a measured zero. The sponsor-priority columns
-      // (Impressions, Clicks, Engagements) lead; Views trails as context.
+      // impressions; X reports views, not impressions) and render as a dash
+      // so a gap never reads as a measured zero.
+      //
+      // Cross posts are folded in here rather than listed separately: each
+      // one is attached to its platform's row as a detail line (title link
+      // and sync date). The featured deliverable's row carries its own link
+      // the same way. A cross post whose platform has no channel row (never
+      // synced, or a report frozen before per-channel data existed) still
+      // gets a row built from the post's own metrics.
       renderByChannel();
       function renderByChannel() {
-        if (!byChannel.length) return;
+        var featuredKey = mainContent ? (mainContent.kind === "youtube" ? "youtube" : "blog") : null;
+        var rows = byChannel.map(function (c) {
+          return {
+            platform: c.platform,
+            impressions: c.impressions,
+            clicks: c.clicks,
+            engagements: c.engagements,
+            views: c.views,
+            featured: featuredKey !== null && platformKey(c.platform) === featuredKey,
+            posts: []
+          };
+        });
+        var byKey = {};
+        rows.forEach(function (r) { byKey[platformKey(r.platform)] = r; });
+
+        contentPosts.forEach(function (p) {
+          var key = platformKey(p.platform);
+          var row = byKey[key];
+          if (!row) {
+            row = {
+              platform: p.platform,
+              impressions: p.impressions || null,
+              clicks: null,
+              engagements: p.engagements || null,
+              views: p.views || null,
+              featured: false,
+              posts: []
+            };
+            byKey[key] = row;
+            rows.push(row);
+          }
+          row.posts.push(p);
+        });
+
+        if (!rows.length) return;
         document.getElementById("reach-section").hidden = false;
 
         var table = el("table", { "class": "data" });
@@ -791,153 +820,161 @@
         var htr = el("tr");
         htr.appendChild(el("th", { scope: "col" }, "Channel"));
         htr.appendChild(el("th", { "class": "num", scope: "col" }, "Impressions"));
-        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Clicks"));
-        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Engagements"));
         htr.appendChild(el("th", { "class": "num", scope: "col" }, "Views"));
+        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Engagements"));
+        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Clicks"));
         thead.appendChild(htr);
         table.appendChild(thead);
 
         var tbody = el("tbody");
-        byChannel.forEach(function (c) {
+        rows.forEach(function (r) {
           var tr = el("tr");
           var chTd = el("td");
-          chTd.appendChild(platformBadge(c.platform));
+          chTd.appendChild(platformBadge(r.platform));
+          if (r.featured) {
+            chTd.appendChild(el("span", { "class": "tag" }, "Featured"));
+            var fUrl = mainContent.kind === "youtube" ? mainContent.videoUrl : mainContent.blogUrl;
+            if (fUrl) {
+              var fText = mainContent.kind === "youtube" && mainContent.title
+                ? truncate(String(mainContent.title), 70)
+                : pageTitleFromUrl(String(fUrl));
+              var fd = el("div", { "class": "detail" });
+              fd.appendChild(extLink(fUrl, fText));
+              chTd.appendChild(fd);
+            }
+          } else if (r.posts.length) {
+            chTd.appendChild(el("span", { "class": "tag" }, "Cross post"));
+            r.posts.forEach(function (p) {
+              var d = el("div", { "class": "detail" });
+              if (p.url) {
+                d.appendChild(extLink(p.url, truncate(pageTitleFromUrl(String(p.url)), 70)));
+              } else {
+                d.appendChild(document.createTextNode("Link unavailable"));
+              }
+              d.appendChild(el("span", { "class": "sep" }, "·"));
+              d.appendChild(document.createTextNode(
+                p.lastFetched ? "Synced " + fmtDate(p.lastFetched) : "Not yet synced"));
+              chTd.appendChild(d);
+            });
+          }
           tr.appendChild(chTd);
-          tr.appendChild(el("td", { "class": "num" }, fmtMetric(c.impressions)));
-          tr.appendChild(el("td", { "class": "num" }, fmtInt(c.clicks)));
-          tr.appendChild(el("td", { "class": "num" }, fmtMetric(c.engagements)));
-          tr.appendChild(el("td", { "class": "num" }, fmtMetric(c.views)));
+          tr.appendChild(metricCell(r.impressions));
+          tr.appendChild(metricCell(r.views));
+          tr.appendChild(metricCell(r.engagements));
+          tr.appendChild(metricCell(r.clicks));
           tbody.appendChild(tr);
         });
         table.appendChild(tbody);
         document.getElementById("reach-wrap").appendChild(table);
       }
 
-      // A reach metric is null when the channel doesn't report it; render
-      // that as "—" rather than 0.
-      function fmtMetric(n) {
-        return n == null ? "—" : fmtInt(n);
+      function metricCell(n) {
+        return el("td", { "class": n == null ? "num na" : "num" }, fmtMetric(n));
       }
 
       // ---- Main content (GA4 for a blog, YouTube Data API for a video) ----
       renderMainContent();
       function renderMainContent() {
         if (!mainContent) return;
-        var section = document.getElementById("main-content-section");
-        section.hidden = false;
-
-        var cards = document.getElementById("main-content-cards");
-        function addContentCard(label, value, variant) {
-          var card = el("div", { "class": "card" + (variant ? " " + variant : "") });
-          card.appendChild(el("p", { "class": "card-label" }, label));
-          card.appendChild(el("p", { "class": "card-value" }, value));
-          cards.appendChild(card);
-        }
-
+        document.getElementById("main-content-section").hidden = false;
         var lead = document.getElementById("main-content-lead");
 
         // YouTube video deliverable (tagged kind:"youtube"). The blog shape
         // is untagged so legacy frozen reports keep rendering below.
         if (mainContent.kind === "youtube") {
           if (mainContent.videoUrl) {
-            lead.textContent = "Performance of ";
-            var yt = el("a", {
-              href: mainContent.videoUrl,
-              rel: "noreferrer noopener",
-              target: "_blank"
-            }, truncate(String(mainContent.title || mainContent.videoUrl), 80));
-            lead.appendChild(yt);
+            lead.appendChild(document.createTextNode("Performance of "));
+            lead.appendChild(extLink(mainContent.videoUrl,
+              truncate(String(mainContent.title || mainContent.videoUrl), 80)));
             lead.appendChild(document.createTextNode("."));
           }
-          addContentCard("Views", fmtInt(mainContent.views), "m-views");
-          addContentCard("Likes", fmtInt(mainContent.likes), "m-impr");
-          addContentCard("Comments", fmtInt(mainContent.comments), "m-eng");
+          var ytItems = [
+            { label: "Views", value: fmtInt(mainContent.views), variant: "k-views" },
+            { label: "Likes", value: fmtInt(mainContent.likes), variant: "k-eng" },
+            { label: "Comments", value: fmtInt(mainContent.comments), variant: "k-impr" }
+          ];
           if (mainContent.publishedAt) {
-            addContentCard("Published", fmtDate(mainContent.publishedAt), "m-clicks");
+            ytItems.push({ label: "Published", value: fmtDate(mainContent.publishedAt), variant: "k-clicks" });
           }
+          renderKpis("main-content-kpis", ytItems);
           return;
         }
 
         if (mainContent.blogUrl) {
-          lead.textContent = "Traffic on ";
-          var a = el("a", {
-            href: mainContent.blogUrl,
-            rel: "noreferrer noopener",
-            target: "_blank"
-          }, pageTitleFromUrl(String(mainContent.blogUrl)));
-          lead.appendChild(a);
+          lead.appendChild(document.createTextNode("Site traffic on "));
+          lead.appendChild(extLink(mainContent.blogUrl, pageTitleFromUrl(String(mainContent.blogUrl))));
           if (mainContent.range && mainContent.range.startDate && mainContent.range.endDate) {
             lead.appendChild(document.createTextNode(
-              " over " + mainContent.range.startDate + " – " + mainContent.range.endDate + "."
+              " from " + fmtDate(mainContent.range.startDate) + " to " + fmtDate(mainContent.range.endDate) + "."
             ));
           } else {
             lead.appendChild(document.createTextNode("."));
           }
         }
 
-        addContentCard("Views", fmtInt(mainContent.pageviews), "m-views");
-        addContentCard("Unique visitors", fmtInt(mainContent.users), "m-impr");
-        addContentCard("Avg read time", fmtDuration(mainContent.avgSessionDurationSeconds), "m-eng");
-        addContentCard("Engagement rate", fmtPercent(mainContent.engagementRate), "m-clicks");
+        renderKpis("main-content-kpis", [
+          { label: "Views", value: fmtInt(mainContent.pageviews), variant: "k-views" },
+          { label: "Unique visitors", value: fmtInt(mainContent.users), variant: "k-impr" },
+          { label: "Avg. read time", value: fmtDuration(mainContent.avgSessionDurationSeconds), variant: "k-eng" },
+          { label: "Engagement rate", value: fmtPercent(mainContent.engagementRate), variant: "k-clicks" }
+        ]);
       }
 
-      // ---- Cross posts (content) ----
-      renderPostTable("content-posts-section", "content-posts-wrap", contentPosts, false);
       // ---- Social posts ----
-      renderPostTable("social-posts-section", "social-posts-wrap", socialPosts, true);
-      function renderPostTable(sectionId, wrapId, posts, consolidateReach) {
-        if (!posts.length) return;
-        document.getElementById(sectionId).hidden = false;
+      renderSocialPosts();
+      function renderSocialPosts() {
+        if (!socialPosts.length) return;
+        document.getElementById("social-posts-section").hidden = false;
 
         var table = el("table", { "class": "data" });
         var thead = el("thead");
         var htr = el("tr");
         htr.appendChild(el("th", { scope: "col" }, "Platform"));
         htr.appendChild(el("th", { scope: "col" }, "Post"));
-        if (consolidateReach) {
-          htr.appendChild(el("th", { "class": "num", scope: "col" }, "Impressions"));
-        } else {
-          htr.appendChild(el("th", { "class": "num", scope: "col" }, "Views"));
-          htr.appendChild(el("th", { "class": "num", scope: "col" }, "Impressions"));
-        }
-        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Engagement"));
-        htr.appendChild(el("th", { scope: "col" }, "As of"));
+        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Impressions"));
+        htr.appendChild(el("th", { "class": "num", scope: "col" }, "Engagements"));
+        htr.appendChild(el("th", { scope: "col" }, "Synced"));
         thead.appendChild(htr);
         table.appendChild(thead);
 
         var tbody = el("tbody");
-        posts.forEach(function (p) {
+        socialPosts.forEach(function (p) {
           var tr = el("tr");
-
           var platTd = el("td");
           platTd.appendChild(platformBadge(p.platform));
           tr.appendChild(platTd);
 
           var urlTd = el("td");
           if (p.url) {
-            var a = el("a", { href: p.url, rel: "noreferrer noopener", target: "_blank" },
-              truncate(String(p.url), 60));
-            urlTd.appendChild(a);
+            urlTd.appendChild(extLink(p.url, truncate(shortUrl(String(p.url)), 48)));
           } else {
             urlTd.textContent = "—";
           }
           tr.appendChild(urlTd);
 
-          if (consolidateReach) {
-            // Views and impressions both describe reach; on social they overlap,
-            // so collapse them into a single Impressions figure.
-            var reachVal = (p.views || 0) + (p.impressions || 0);
-            tr.appendChild(el("td", { "class": "num" }, fmtInt(reachVal)));
-          } else {
-            tr.appendChild(el("td", { "class": "num" }, fmtInt(p.views)));
-            tr.appendChild(el("td", { "class": "num" }, fmtInt(p.impressions)));
-          }
+          // Views and impressions both describe reach; on social they
+          // overlap, so collapse them into a single Impressions figure.
+          tr.appendChild(el("td", { "class": "num" }, fmtInt((p.views || 0) + (p.impressions || 0))));
           tr.appendChild(el("td", { "class": "num" }, fmtInt(p.engagements)));
           tr.appendChild(el("td", { "class": "muted-cell" }, fmtDate(p.lastFetched)));
           tbody.appendChild(tr);
         });
         table.appendChild(tbody);
-        document.getElementById(wrapId).appendChild(table);
+        document.getElementById("social-posts-wrap").appendChild(table);
+      }
+
+      function shareCell(fraction) {
+        var pct = typeof fraction === "number" && isFinite(fraction) ? Math.max(0, Math.min(1, fraction)) : 0;
+        var td = el("td");
+        var wrap = el("div", { "class": "share" });
+        var track = el("div", { "class": "share-track" });
+        var fill = el("div", { "class": "share-fill" });
+        fill.style.width = (pct * 100).toFixed(1) + "%";
+        track.appendChild(fill);
+        wrap.appendChild(track);
+        wrap.appendChild(el("span", { "class": "share-num" }, (pct * 100).toFixed(1) + "%"));
+        td.appendChild(wrap);
+        return td;
       }
 
       // ---- Clicks by source ----
@@ -955,26 +992,21 @@
         var htr = el("tr");
         htr.appendChild(el("th", { scope: "col" }, "Source"));
         htr.appendChild(el("th", { "class": "num", scope: "col" }, "Clicks"));
-        htr.appendChild(el("th", { scope: "col" }, "Share"));
+        htr.appendChild(el("th", { scope: "col", style: "width: 45%" }, "Share of clicks"));
         thead.appendChild(htr);
         table.appendChild(thead);
         var tbody = el("tbody");
         rows.forEach(function (r) {
           var tr = el("tr");
-          tr.appendChild(el("td", null, r.source != null ? String(r.source) : "—"));
+          var srcTd = el("td");
+          if (r.source != null && PLATFORM_LABELS[platformKey(r.source)]) {
+            srcTd.appendChild(platformBadge(r.source));
+          } else {
+            srcTd.textContent = r.source != null ? String(r.source) : "—";
+          }
+          tr.appendChild(srcTd);
           tr.appendChild(el("td", { "class": "num" }, fmtInt(r.clicks)));
-
-          var shareTd = el("td", { "class": "share-cell" });
-          var pct = typeof r.share === "number" ? Math.max(0, Math.min(1, r.share)) : 0;
-          var track = el("div", { "class": "share-track" });
-          var fill = el("div", { "class": "share-fill" });
-          fill.style.width = (pct * 100).toFixed(1) + "%";
-          track.appendChild(fill);
-          shareTd.appendChild(track);
-          shareTd.appendChild(el("span", { "class": "share-num" },
-            typeof r.share === "number" ? (r.share * 100).toFixed(1) + "%" : "—"));
-          tr.appendChild(shareTd);
-
+          tr.appendChild(shareCell(r.share));
           tbody.appendChild(tr);
         });
         table.appendChild(tbody);
@@ -983,9 +1015,8 @@
 
       // ---- Content links ----
       // Per-link click attribution for links tracked inside the content
-      // (anything carrying a source). Hidden until such links exist, then
-      // rendered in the same share-bar layout as Clicks by source. Share is
-      // each link's slice of the clicks across these links.
+      // (anything carrying a source). Hidden until such links exist. Share
+      // is each link's slice of the clicks across these links.
       renderContentLinks();
       function renderContentLinks() {
         var rows = links.filter(function (l) {
@@ -1005,44 +1036,30 @@
         htr.appendChild(el("th", { scope: "col" }, "Destination"));
         htr.appendChild(el("th", { scope: "col" }, "Source"));
         htr.appendChild(el("th", { "class": "num", scope: "col" }, "Clicks"));
-        htr.appendChild(el("th", { scope: "col" }, "Share"));
+        htr.appendChild(el("th", { scope: "col", style: "width: 32%" }, "Share of clicks"));
         thead.appendChild(htr);
         table.appendChild(thead);
 
         var tbody = el("tbody");
         rows.forEach(function (l) {
           var tr = el("tr");
-
           var destTd = el("td");
           if (l.url) {
-            var a = el("a", { href: l.url, rel: "noreferrer noopener", target: "_blank" },
-              truncate(String(l.url), 52));
-            destTd.appendChild(a);
+            destTd.appendChild(extLink(l.url, truncate(shortUrl(String(l.url)), 48)));
           } else {
             destTd.textContent = "—";
           }
           tr.appendChild(destTd);
-
-          tr.appendChild(el("td", null, l.source != null ? String(l.source) : "—"));
+          tr.appendChild(el("td", { "class": "muted-cell" }, l.source != null ? String(l.source) : "—"));
           tr.appendChild(el("td", { "class": "num" }, fmtInt(l.totalClicks)));
-
-          var shareTd = el("td", { "class": "share-cell" });
-          var pct = sum > 0 ? (l.totalClicks || 0) / sum : 0;
-          var track = el("div", { "class": "share-track" });
-          var fill = el("div", { "class": "share-fill" });
-          fill.style.width = (pct * 100).toFixed(1) + "%";
-          track.appendChild(fill);
-          shareTd.appendChild(track);
-          shareTd.appendChild(el("span", { "class": "share-num" }, (pct * 100).toFixed(1) + "%"));
-          tr.appendChild(shareTd);
-
+          tr.appendChild(shareCell(sum > 0 ? (l.totalClicks || 0) / sum : 0));
           tbody.appendChild(tr);
         });
         table.appendChild(tbody);
         document.getElementById("content-links-wrap").appendChild(table);
       }
 
-      // ---- Traffic over time chart ----
+      // ---- Clicks over time chart ----
       renderChart();
       function renderChart() {
         var wrap = document.getElementById("chart-wrap");
@@ -1051,8 +1068,8 @@
           return;
         }
 
-        var W = 880, H = 300;
-        var pad = { top: 16, right: 18, bottom: 42, left: 56 };
+        var W = 880, H = 260;
+        var pad = { top: 12, right: 12, bottom: 34, left: 48 };
         var plotW = W - pad.left - pad.right;
         var plotH = H - pad.top - pad.bottom;
         var n = byDay.length;
@@ -1060,8 +1077,13 @@
         var maxVal = 0;
         byDay.forEach(function (d) { maxVal = Math.max(maxVal, d.clicks || 0); });
         if (maxVal <= 0) maxVal = 1;
-        var pow = Math.pow(10, Math.floor(Math.log10(maxVal)));
-        var niceMax = Math.ceil(maxVal / pow) * pow;
+        var ticks = 4;
+        var rawStep = maxVal / ticks;
+        var pow = Math.pow(10, Math.floor(Math.log10(rawStep)));
+        var step = [1, 2, 2.5, 5, 10].map(function (m) { return m * pow; })
+          .filter(function (s) { return s >= rawStep; })[0];
+        step = Math.max(1, step);
+        var niceMax = step * ticks;
 
         var svg = svgEl("svg", {
           viewBox: "0 0 " + W + " " + H,
@@ -1070,15 +1092,14 @@
           "aria-label": "Clicks per day over time",
           preserveAspectRatio: "xMidYMid meet"
         });
-        svg.style.minWidth = n > 14 ? "720px" : "0";
+        svg.style.minWidth = n > 14 ? "640px" : "0";
 
-        // Gradient fill for the area under the line.
         var defs = svgEl("defs");
         var grad = svgEl("linearGradient", {
           id: "trafficGrad", x1: "0", y1: "0", x2: "0", y2: "1"
         });
-        grad.appendChild(svgEl("stop", { offset: "0", "stop-color": accentColor, "stop-opacity": "0.32" }));
-        grad.appendChild(svgEl("stop", { offset: "1", "stop-color": accentColor, "stop-opacity": "0.02" }));
+        grad.appendChild(svgEl("stop", { offset: "0", "stop-color": accentColor, "stop-opacity": "0.16" }));
+        grad.appendChild(svgEl("stop", { offset: "1", "stop-color": accentColor, "stop-opacity": "0" }));
         defs.appendChild(grad);
         svg.appendChild(defs);
 
@@ -1090,10 +1111,8 @@
           return pad.top + plotH - ((v || 0) / niceMax) * plotH;
         }
 
-        // Gridlines + y-axis labels.
-        var ticks = 4;
-        for (var t = 0; t <= ticks; t++) {
-          var val = (niceMax / ticks) * t;
+        for (var t = 1; t <= ticks; t++) {
+          var val = step * t;
           var y = yFor(val);
           svg.appendChild(svgEl("line", {
             "class": "grid-line", x1: pad.left, y1: y, x2: pad.left + plotW, y2: y
@@ -1104,8 +1123,12 @@
           lbl.textContent = fmtInt(Math.round(val));
           svg.appendChild(lbl);
         }
+        var zero = svgEl("text", {
+          "class": "axis-label", x: pad.left - 10, y: baseY + 4, "text-anchor": "end"
+        });
+        zero.textContent = "0";
+        svg.appendChild(zero);
 
-        // Build the area + line paths.
         var linePts = byDay.map(function (d, i) {
           return xFor(i) + "," + yFor(d.clicks || 0);
         });
@@ -1115,30 +1138,36 @@
         svg.appendChild(svgEl("path", { "class": "area", d: areaD }));
         svg.appendChild(svgEl("path", { "class": "trend-line", d: "M " + linePts.join(" L ") }));
 
-        // Dots + hover targets with native tooltips.
-        var labelEvery = Math.ceil(n / 12);
+        svg.appendChild(svgEl("line", {
+          "class": "base-line", x1: pad.left, y1: baseY, x2: pad.left + plotW, y2: baseY
+        }));
+
+        // Dots only when sparse enough to read; every point still gets a
+        // native tooltip via an invisible hover target.
+        var showDots = n <= 31;
+        var labelEvery = Math.ceil(n / 10);
+        var lastLabeled = Math.floor((n - 1) / labelEvery) * labelEvery;
         byDay.forEach(function (d, i) {
           var cx = xFor(i);
           var cy = yFor(d.clicks || 0);
-          var dot = svgEl("circle", { "class": "dot", cx: cx, cy: cy, r: n > 30 ? 2 : 3.5 });
+          var dot = showDots
+            ? svgEl("circle", { "class": "dot", cx: cx, cy: cy, r: 3 })
+            : svgEl("circle", { cx: cx, cy: cy, r: 6, fill: "transparent" });
           var title = svgEl("title", {});
-          title.textContent = (d.day || "") + ": " + fmtInt(d.clicks || 0) + " clicks";
+          title.textContent = fmtDate(d.day) + ": " + fmtInt(d.clicks || 0) + " clicks";
           dot.appendChild(title);
           svg.appendChild(dot);
 
-          if (i % labelEvery === 0) {
+          var isLast = i === n - 1 && n - 1 - lastLabeled >= labelEvery / 2;
+          if (i % labelEvery === 0 || isLast) {
             var dl = svgEl("text", {
-              "class": "day-label", x: cx, y: H - 16, "text-anchor": "middle"
+              "class": "axis-label", x: cx, y: H - 10,
+              "text-anchor": n === 1 ? "middle" : (i === 0 ? "start" : (i === n - 1 ? "end" : "middle"))
             });
-            dl.textContent = d.day || "";
+            dl.textContent = fmtShortDay(d.day);
             svg.appendChild(dl);
           }
         });
-
-        // Baseline axis.
-        svg.appendChild(svgEl("line", {
-          "class": "grid-line", x1: pad.left, y1: baseY, x2: pad.left + plotW, y2: baseY
-        }));
 
         wrap.appendChild(svg);
       }
