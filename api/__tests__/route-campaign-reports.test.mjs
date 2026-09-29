@@ -265,7 +265,7 @@ describe("routes/campaign-reports", () => {
       expect(buildCampaignReportSnapshot).toHaveBeenCalledWith({ campaignId: CAMPAIGN_ID });
     });
 
-    test("re-renders older, unflagged reports with a supersededBy banner", async () => {
+    test("re-renders older reports not claimed by a newer generation", async () => {
       const snapshot = makeSnapshot();
       buildCampaignReportSnapshot.mockResolvedValue(snapshot);
       renderCampaignReportHtml.mockImplementation((snap) => "<html>" + snap.report.id + "</html>");
@@ -278,16 +278,24 @@ describe("routes/campaign-reports", () => {
       // generated one; "ZZZ..." stands in for a report created concurrently
       // after it.
       const older = { reportId: "00000000000000000000000OLD", key: "k-old", generatedAt: "2026-05-01T00:00:00.000Z" };
-      const flagged = {
-        reportId: "0000000000000000000000DONE", key: "k-done", generatedAt: "2026-04-01T00:00:00.000Z", supersededAt: "x",
+      const newer = { reportId: "ZZZZZZZZZZZZZZZZZZZZZZZZZZ", key: "k-newer", generatedAt: "2026-05-29T10:00:01.000Z" };
+      // Already bannered by an older generation: this newer one takes it over.
+      const claimedByOlder = {
+        reportId: "0000000000000000000000PREV", key: "k-prev", generatedAt: "2026-04-15T00:00:00.000Z",
+        supersededByReportId: "00000000000000000000000001", supersededAt: "2026-04-20T00:00:00.000Z",
+      };
+      // Already claimed by a newer generation: left to it.
+      const claimedByNewer = {
+        reportId: "0000000000000000000000DONE", key: "k-done", generatedAt: "2026-04-01T00:00:00.000Z",
+        supersededByReportId: newer.reportId, supersededAt: newer.generatedAt,
       };
       const expired = { reportId: "0000000000000000000000GONE", key: "k-gone", generatedAt: "2025-01-01T00:00:00.000Z" };
-      const newer = { reportId: "ZZZZZZZZZZZZZZZZZZZZZZZZZZ", key: "k-newer", generatedAt: "2026-05-29T10:00:01.000Z" };
       listCampaignReportRecords.mockImplementation(async () => [
         newer,
         { reportId: snapshot.report.id, key: "k-new", generatedAt: snapshot.report.generatedAt },
         older,
-        flagged,
+        claimedByOlder,
+        claimedByNewer,
         expired,
       ]);
       reportObjectExpiresAtMs.mockImplementation((r) =>
@@ -300,20 +308,22 @@ describe("routes/campaign-reports", () => {
       const res = await postReport({ event: { ...AUTH_CTX, body: null }, params: { campaignId: CAMPAIGN_ID } });
       expect(res.statusCode).toBe(201);
 
-      // Only the live, unflagged, older report is touched; the concurrently
-      // created newer one is left alone.
-      expect(getCampaignReportHtml).toHaveBeenCalledTimes(1);
-      expect(getCampaignReportHtml).toHaveBeenCalledWith("k-old");
-      const rerendered = renderCampaignReportHtml.mock.calls.at(-1)[0];
+      // The unclaimed report and the one held by an older generation are
+      // (re)bannered; the report claimed by a newer generation, the expired
+      // one, and the concurrently created newer report are left alone.
+      expect(getCampaignReportHtml.mock.calls.map((c) => c[0])).toEqual(["k-old", "k-prev"]);
+      const rerendered = renderCampaignReportHtml.mock.calls.find((c) => c[0].report?.supersededBy)[0];
       expect(rerendered.report).toEqual({
         id: "OLD",
         generatedAt: older.generatedAt,
         latestUrl: LATEST_URL,
         supersededBy: { url: LATEST_URL, generatedAt: snapshot.report.generatedAt },
       });
-      expect(replaceCampaignReportHtml).toHaveBeenCalledTimes(1);
-      expect(replaceCampaignReportHtml).toHaveBeenCalledWith("k-old", "<html>OLD</html>");
-      expect(claimCampaignReportSupersede).toHaveBeenCalledTimes(1);
+      expect(replaceCampaignReportHtml.mock.calls.map((c) => c[0])).toEqual(["k-old", "k-prev"]);
+      expect(claimCampaignReportSupersede.mock.calls.map((c) => c[1])).toEqual([
+        older.reportId,
+        claimedByOlder.reportId,
+      ]);
       expect(claimCampaignReportSupersede).toHaveBeenCalledWith(CAMPAIGN_ID, older.reportId, {
         byReportId: snapshot.report.id,
         supersededAt: snapshot.report.generatedAt,

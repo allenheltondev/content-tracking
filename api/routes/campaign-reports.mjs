@@ -203,10 +203,12 @@ export function registerCampaignReportRoutes(app) {
   });
 }
 
-// Most superseded rewrites one POST will do. Normally there is exactly one
-// candidate (the previous report); the cap only matters on rollout or after
-// a run of failures, and keeps the synchronous POST well inside its timeout.
-// Anything left over is picked up by the next generation.
+// Most superseded rewrites one POST will do. Every retained older report is
+// a candidate on each generation (so its banner advances to the newest
+// report), which retention keeps small in practice; the cap keeps the
+// synchronous POST well inside its timeout for a campaign regenerated very
+// often. Candidates are newest-first, so the most recent snapshots, the ones
+// a sponsor is likeliest to still hold, are the ones kept current.
 const MAX_SUPERSEDE_PER_REQUEST = 25;
 
 // Bound on convergence passes in supersedeOne. Each pass that loses to a
@@ -214,10 +216,11 @@ const MAX_SUPERSEDE_PER_REQUEST = 25;
 // realistic case of two overlapping generations.
 const MAX_SUPERSEDE_PASSES = 3;
 
-// Re-render older, still-retained reports that haven't been flagged yet
-// with a supersededBy marker so they show the "newer version available"
-// banner. Only reports whose ULID sorts before the current one qualify, so
-// an overlapping generation can never banner a report newer than itself.
+// Re-render older, still-retained reports with a supersededBy marker so they
+// show the "newer version available" banner. Only reports whose ULID sorts
+// before the current one qualify, so an overlapping generation can never
+// banner a report newer than itself, and only ones not already claimed by a
+// newer generation.
 // Each rewrite is independent; failures are logged and left for the next
 // generation to retry.
 async function supersedePreviousReports({ campaignId, currentReportId, supersededAt, latestUrl }) {
@@ -233,7 +236,10 @@ async function supersedePreviousReports({ campaignId, currentReportId, supersede
     .filter((r) =>
       typeof r.reportId === "string" &&
       r.reportId < currentReportId &&
-      !r.supersededAt &&
+      // Unclaimed, or claimed by an older generation. Filtering on the
+      // claimant (not on whether a claim exists) lets each newer generation
+      // advance the monotonic claim, so the banner tracks the newest report.
+      (!r.supersededByReportId || r.supersededByReportId < currentReportId) &&
       reportObjectExpiresAtMs(r) > nowMs)
     .slice(0, MAX_SUPERSEDE_PER_REQUEST);
 
