@@ -15,7 +15,8 @@ export default function ReportLinkDialog({
   report: {
     url: string;
     shortUrl?: string | null;
-    expiresAt: string;
+    // Null for a link that never expires (the campaign sponsor link).
+    expiresAt: string | null;
     dataAsOf: string;
   } | null;
   onClose: () => void;
@@ -55,7 +56,7 @@ export default function ReportLinkDialog({
           </code>
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs text-muted-foreground">
-              Link expires {report.expiresAt.slice(0, 10)}
+              {report.expiresAt ? `Link expires ${report.expiresAt.slice(0, 10)}` : 'Link does not expire'}
             </span>
             <div className="flex gap-2">
               <a href={shareUrl} target="_blank" rel="noreferrer" className="btn-link">
@@ -68,8 +69,9 @@ export default function ReportLinkDialog({
           </div>
         </div>
         <p className="text-muted-foreground">
-          Anyone with this link can view the report until it expires. Generate a
-          new report any time to refresh the data.
+          {report.expiresAt
+            ? 'Anyone with this link can view the report until it expires. Generate a new report any time to refresh the data.'
+            : 'Anyone with this link can view the report. It always opens the newest report, so you can refresh the data without sending a new link.'}
         </p>
         <div className="flex justify-end">
           <button type="button" className="btn btn-primary" onClick={onClose}>

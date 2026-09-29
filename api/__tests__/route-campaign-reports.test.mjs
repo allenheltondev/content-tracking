@@ -12,9 +12,12 @@ jest.unstable_mockModule("../domain/campaign-report.mjs", () => ({
 }));
 jest.unstable_mockModule("../services/campaign-report-renderer.mjs", () => ({
   renderCampaignReportHtml: jest.fn(),
+  extractCampaignReportSnapshot: jest.fn(),
 }));
 jest.unstable_mockModule("../services/campaign-report-store.mjs", () => ({
   putCampaignReportHtml: jest.fn(),
+  getCampaignReportHtml: jest.fn(),
+  replaceCampaignReportHtml: jest.fn(),
 }));
 jest.unstable_mockModule("../services/report-signing.mjs", () => ({
   signReportUrl: jest.fn(),
@@ -23,6 +26,17 @@ jest.unstable_mockModule("../services/report-signing.mjs", () => ({
 jest.unstable_mockModule("../domain/campaign-report-record.mjs", () => ({
   saveCampaignReportRecord: jest.fn(),
   listCampaignReportRecords: jest.fn(),
+  findNewestCampaignReportRecord: jest.fn(),
+  claimCampaignReportSupersede: jest.fn(),
+  releaseCampaignReportSupersede: jest.fn(),
+  getCampaignReportRecord: jest.fn(),
+}));
+const LATEST_URL = "https://api.example.com/public/campaign-reports/TOKEN";
+jest.unstable_mockModule("../domain/campaign-report-link.mjs", () => ({
+  ensureCampaignReportLinkToken: jest.fn(),
+  getCampaignReportLinkToken: jest.fn(),
+  resolveCampaignReportLinkToken: jest.fn(),
+  publicReportLinkUrl: jest.fn(),
 }));
 jest.unstable_mockModule("../domain/vendor-report-record.mjs", () => ({
   reportObjectExpiresAtMs: jest.fn(),
@@ -40,12 +54,27 @@ jest.unstable_mockModule("../domain/campaign.mjs", () => ({
 }));
 
 const { buildCampaignReportSnapshot } = await import("../domain/campaign-report.mjs");
-const { renderCampaignReportHtml } = await import("../services/campaign-report-renderer.mjs");
-const { putCampaignReportHtml } = await import("../services/campaign-report-store.mjs");
-const { signReportUrl } = await import("../services/report-signing.mjs");
-const { saveCampaignReportRecord, listCampaignReportRecords } = await import(
-  "../domain/campaign-report-record.mjs"
+const { renderCampaignReportHtml, extractCampaignReportSnapshot } = await import(
+  "../services/campaign-report-renderer.mjs"
 );
+const { putCampaignReportHtml, getCampaignReportHtml, replaceCampaignReportHtml } = await import(
+  "../services/campaign-report-store.mjs"
+);
+const { signReportUrl } = await import("../services/report-signing.mjs");
+const {
+  saveCampaignReportRecord,
+  listCampaignReportRecords,
+  findNewestCampaignReportRecord,
+  claimCampaignReportSupersede,
+  releaseCampaignReportSupersede,
+  getCampaignReportRecord,
+} = await import("../domain/campaign-report-record.mjs");
+const {
+  ensureCampaignReportLinkToken,
+  getCampaignReportLinkToken,
+  resolveCampaignReportLinkToken,
+  publicReportLinkUrl,
+} = await import("../domain/campaign-report-link.mjs");
 const { reportObjectExpiresAtMs } = await import("../domain/vendor-report-record.mjs");
 const { mintShortLink } = await import("../services/newsletter-service.mjs");
 const { assertCampaignOwned } = await import("../domain/campaign.mjs");
@@ -67,6 +96,7 @@ function buildRouteTable() {
 const routes = buildRouteTable();
 const postReport = routes["POST /campaigns/:campaignId/report"];
 const getReports = routes["GET /campaigns/:campaignId/reports"];
+const getPublicReport = routes["GET /public/campaign-reports/:token"];
 
 const CAMPAIGN_ID = "01HV0AABBCCDDEEFFGGHHJJKKM";
 
@@ -102,6 +132,19 @@ describe("routes/campaign-reports", () => {
     // Default: every record's object outlives any link we'd mint, so the
     // list endpoint's staleness filter keeps them. Individual tests override.
     reportObjectExpiresAtMs.mockReturnValue(Date.now() + 365 * 24 * 60 * 60 * 1000);
+    ensureCampaignReportLinkToken.mockResolvedValue("TOKEN");
+    getCampaignReportLinkToken.mockResolvedValue("TOKEN");
+    publicReportLinkUrl.mockImplementation((_event, token) => (token ? LATEST_URL : null));
+    // POST lists prior reports to supersede; default to none.
+    listCampaignReportRecords.mockResolvedValue([]);
+    // Supersede claims succeed and nobody else claims afterwards: the
+    // post-write read shows this generation still holding the claim.
+    claimCampaignReportSupersede.mockResolvedValue(true);
+    releaseCampaignReportSupersede.mockResolvedValue();
+    getCampaignReportRecord.mockImplementation(async (_campaignId, reportId) => {
+      const claim = claimCampaignReportSupersede.mock.calls.find((c) => c[1] === reportId);
+      return { reportId, supersededByReportId: claim?.[2].byReportId, supersededAt: claim?.[2].supersededAt };
+    });
   });
 
   describe("registration", () => {
@@ -131,6 +174,9 @@ describe("routes/campaign-reports", () => {
 
       // reportId assigned onto the snapshot before render + persistence.
       expect(snapshot.report.id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+      // The stable sponsor link is stamped onto the snapshot for the footer.
+      expect(ensureCampaignReportLinkToken).toHaveBeenCalledWith(CAMPAIGN_ID);
+      expect(snapshot.report.latestUrl).toBe(LATEST_URL);
       expect(renderCampaignReportHtml).toHaveBeenCalledWith(snapshot);
 
       // HTML stored under the right campaign/report key with the generated id.
@@ -171,6 +217,7 @@ describe("routes/campaign-reports", () => {
         reportId: snapshot.report.id,
         url: "https://cdn.example.com/reports/campaigns/c/RID.html?sig",
         shortUrl: "https://bkd.to/r1",
+        latestUrl: LATEST_URL,
         // generatedAt (2026-05-29T10:00Z) + 90-day retention window.
         expiresAt: "2026-08-27T10:00:00.000Z",
         dataAsOf: "2026-05-29",
@@ -216,6 +263,163 @@ describe("routes/campaign-reports", () => {
       });
 
       expect(buildCampaignReportSnapshot).toHaveBeenCalledWith({ campaignId: CAMPAIGN_ID });
+    });
+
+    test("re-renders older reports not claimed by a newer generation", async () => {
+      const snapshot = makeSnapshot();
+      buildCampaignReportSnapshot.mockResolvedValue(snapshot);
+      renderCampaignReportHtml.mockImplementation((snap) => "<html>" + snap.report.id + "</html>");
+      putCampaignReportHtml.mockResolvedValue("k-new");
+      signReportUrl.mockReturnValue({ url: "u", expiresAt: "e" });
+      mintShortLink.mockResolvedValue({ short_url: "s" });
+      saveCampaignReportRecord.mockResolvedValue({});
+
+      // ULIDs sort by time, so these fixed ids all precede the freshly
+      // generated one; "ZZZ..." stands in for a report created concurrently
+      // after it.
+      const older = { reportId: "00000000000000000000000OLD", key: "k-old", generatedAt: "2026-05-01T00:00:00.000Z" };
+      const newer = { reportId: "ZZZZZZZZZZZZZZZZZZZZZZZZZZ", key: "k-newer", generatedAt: "2026-05-29T10:00:01.000Z" };
+      // Already bannered by an older generation: this newer one takes it over.
+      const claimedByOlder = {
+        reportId: "0000000000000000000000PREV", key: "k-prev", generatedAt: "2026-04-15T00:00:00.000Z",
+        supersededByReportId: "00000000000000000000000001", supersededAt: "2026-04-20T00:00:00.000Z",
+      };
+      // Already claimed by a newer generation: left to it.
+      const claimedByNewer = {
+        reportId: "0000000000000000000000DONE", key: "k-done", generatedAt: "2026-04-01T00:00:00.000Z",
+        supersededByReportId: newer.reportId, supersededAt: newer.generatedAt,
+      };
+      const expired = { reportId: "0000000000000000000000GONE", key: "k-gone", generatedAt: "2025-01-01T00:00:00.000Z" };
+      listCampaignReportRecords.mockImplementation(async () => [
+        newer,
+        { reportId: snapshot.report.id, key: "k-new", generatedAt: snapshot.report.generatedAt },
+        older,
+        claimedByOlder,
+        claimedByNewer,
+        expired,
+      ]);
+      reportObjectExpiresAtMs.mockImplementation((r) =>
+        r.key === "k-gone" ? Date.now() - 1000 : Date.now() + 86400000);
+      getCampaignReportHtml.mockResolvedValue("<html>old</html>");
+      extractCampaignReportSnapshot.mockReturnValue({
+        report: { id: "OLD", generatedAt: older.generatedAt },
+      });
+
+      const res = await postReport({ event: { ...AUTH_CTX, body: null }, params: { campaignId: CAMPAIGN_ID } });
+      expect(res.statusCode).toBe(201);
+
+      // The unclaimed report and the one held by an older generation are
+      // (re)bannered; the report claimed by a newer generation, the expired
+      // one, and the concurrently created newer report are left alone.
+      expect(getCampaignReportHtml.mock.calls.map((c) => c[0])).toEqual(["k-old", "k-prev"]);
+      const rerendered = renderCampaignReportHtml.mock.calls.find((c) => c[0].report?.supersededBy)[0];
+      expect(rerendered.report).toEqual({
+        id: "OLD",
+        generatedAt: older.generatedAt,
+        latestUrl: LATEST_URL,
+        supersededBy: { url: LATEST_URL, generatedAt: snapshot.report.generatedAt },
+      });
+      expect(replaceCampaignReportHtml.mock.calls.map((c) => c[0])).toEqual(["k-old", "k-prev"]);
+      expect(claimCampaignReportSupersede.mock.calls.map((c) => c[1])).toEqual([
+        older.reportId,
+        claimedByOlder.reportId,
+      ]);
+      expect(claimCampaignReportSupersede).toHaveBeenCalledWith(CAMPAIGN_ID, older.reportId, {
+        byReportId: snapshot.report.id,
+        supersededAt: snapshot.report.generatedAt,
+      });
+    });
+
+    test("skips a report a newer generation has already claimed", async () => {
+      buildCampaignReportSnapshot.mockResolvedValue(makeSnapshot());
+      renderCampaignReportHtml.mockReturnValue("<html></html>");
+      putCampaignReportHtml.mockResolvedValue("k-new");
+      signReportUrl.mockReturnValue({ url: "u", expiresAt: "e" });
+      mintShortLink.mockResolvedValue({ short_url: "s" });
+      saveCampaignReportRecord.mockResolvedValue({});
+      listCampaignReportRecords.mockResolvedValue([
+        { reportId: "00000000000000000000000OLD", key: "k-old" },
+      ]);
+      claimCampaignReportSupersede.mockResolvedValue(false);
+
+      await postReport({ event: { ...AUTH_CTX, body: null }, params: { campaignId: CAMPAIGN_ID } });
+
+      expect(getCampaignReportHtml).not.toHaveBeenCalled();
+      expect(replaceCampaignReportHtml).not.toHaveBeenCalled();
+    });
+
+    test("rewrites with the newer claimant's data when it overtook this one mid-write", async () => {
+      const snapshot = makeSnapshot();
+      buildCampaignReportSnapshot.mockResolvedValue(snapshot);
+      renderCampaignReportHtml.mockImplementation((snap) =>
+        "<html>" + (snap.report.supersededBy?.generatedAt ?? snap.report.id) + "</html>");
+      putCampaignReportHtml.mockResolvedValue("k-new");
+      signReportUrl.mockReturnValue({ url: "u", expiresAt: "e" });
+      mintShortLink.mockResolvedValue({ short_url: "s" });
+      saveCampaignReportRecord.mockResolvedValue({});
+      listCampaignReportRecords.mockResolvedValue([
+        { reportId: "00000000000000000000000OLD", key: "k-old" },
+      ]);
+      getCampaignReportHtml.mockResolvedValue("<html>old</html>");
+      extractCampaignReportSnapshot.mockImplementation(() => ({ report: { id: "OLD" } }));
+      // After our first write, a newer generation holds the claim.
+      const newer = { supersededByReportId: "ZZZZZZZZZZZZZZZZZZZZZZZZZZ", supersededAt: "2026-05-29T10:00:05.000Z" };
+      getCampaignReportRecord.mockResolvedValue(newer);
+
+      await postReport({ event: { ...AUTH_CTX, body: null }, params: { campaignId: CAMPAIGN_ID } });
+
+      // First write with our metadata, then a converging write with the
+      // newer claimant's, after which the claim matches and we stop.
+      expect(replaceCampaignReportHtml.mock.calls.map((c) => c[1])).toEqual([
+        "<html>" + snapshot.report.generatedAt + "</html>",
+        "<html>" + newer.supersededAt + "</html>",
+      ]);
+      expect(releaseCampaignReportSupersede).not.toHaveBeenCalled();
+    });
+
+    test("caps the number of rewrites per request", async () => {
+      buildCampaignReportSnapshot.mockResolvedValue(makeSnapshot());
+      renderCampaignReportHtml.mockReturnValue("<html></html>");
+      putCampaignReportHtml.mockResolvedValue("k-new");
+      signReportUrl.mockReturnValue({ url: "u", expiresAt: "e" });
+      mintShortLink.mockResolvedValue({ short_url: "s" });
+      saveCampaignReportRecord.mockResolvedValue({});
+      listCampaignReportRecords.mockResolvedValue(
+        Array.from({ length: 40 }, (_, i) => ({
+          reportId: "0000000000000000000000" + String(i).padStart(4, "0"),
+          key: "k-" + i,
+        })),
+      );
+      getCampaignReportHtml.mockResolvedValue("<html>old</html>");
+      extractCampaignReportSnapshot.mockReturnValue({ report: {} });
+
+      await postReport({ event: { ...AUTH_CTX, body: null }, params: { campaignId: CAMPAIGN_ID } });
+
+      expect(replaceCampaignReportHtml).toHaveBeenCalledTimes(25);
+    });
+
+    test("a failed supersede does not fail generation and releases its claim", async () => {
+      buildCampaignReportSnapshot.mockResolvedValue(makeSnapshot());
+      renderCampaignReportHtml.mockReturnValue("<html></html>");
+      putCampaignReportHtml.mockResolvedValue("k-new");
+      signReportUrl.mockReturnValue({ url: "u", expiresAt: "e" });
+      mintShortLink.mockResolvedValue({ short_url: "s" });
+      saveCampaignReportRecord.mockResolvedValue({});
+      listCampaignReportRecords.mockResolvedValue([
+        { reportId: "00000000000000000000000OLD", key: "k-old", generatedAt: "2026-05-01T00:00:00.000Z" },
+      ]);
+      getCampaignReportHtml.mockRejectedValue(new Error("NoSuchKey"));
+
+      const res = await postReport({ event: { ...AUTH_CTX, body: null }, params: { campaignId: CAMPAIGN_ID } });
+
+      expect(res.statusCode).toBe(201);
+      expect(replaceCampaignReportHtml).not.toHaveBeenCalled();
+      // The claim is released so the next generation retries this report.
+      expect(releaseCampaignReportSupersede).toHaveBeenCalledWith(
+        CAMPAIGN_ID,
+        "00000000000000000000000OLD",
+        expect.any(String),
+      );
     });
 
     test("400 on invalid campaignId", async () => {
@@ -277,6 +481,7 @@ describe("routes/campaign-reports", () => {
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body);
       expect(body.campaign_id).toBe(CAMPAIGN_ID);
+      expect(body.latest_url).toBe(LATEST_URL);
       expect(body.reports).toEqual([
         {
           reportId: "R2",
@@ -284,6 +489,7 @@ describe("routes/campaign-reports", () => {
           dataAsOf: "2026-05-29",
           url: "https://cdn/r2?fresh",
           expiresAt: expectedExpiresAt,
+          superseded: false,
         },
         {
           reportId: "R1",
@@ -291,6 +497,7 @@ describe("routes/campaign-reports", () => {
           dataAsOf: "2026-04-01",
           url: "https://cdn/r1?fresh",
           expiresAt: expectedExpiresAt,
+          superseded: false,
         },
       ]);
     });
@@ -331,13 +538,70 @@ describe("routes/campaign-reports", () => {
       listCampaignReportRecords.mockResolvedValue([]);
       const res = await getReports({ event: AUTH_CTX, params: { campaignId: CAMPAIGN_ID } });
       expect(res.statusCode).toBe(200);
-      expect(JSON.parse(res.body)).toEqual({ campaign_id: CAMPAIGN_ID, reports: [] });
+      expect(JSON.parse(res.body)).toEqual({ campaign_id: CAMPAIGN_ID, latest_url: LATEST_URL, reports: [] });
       expect(signReportUrl).not.toHaveBeenCalled();
+    });
+
+    test("latest_url is null before any report has been generated", async () => {
+      getCampaignReportLinkToken.mockResolvedValue(null);
+      const res = await getReports({ event: AUTH_CTX, params: { campaignId: CAMPAIGN_ID } });
+      expect(JSON.parse(res.body).latest_url).toBeNull();
     });
 
     test("400 on invalid campaignId", async () => {
       await expect(getReports({ event: AUTH_CTX, params: { campaignId: "bad id!" } })).rejects.toThrow(/campaignId must be/);
       expect(listCampaignReportRecords).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("GET /public/campaign-reports/:token", () => {
+    test("redirects to a fresh signed URL for the newest retained report", async () => {
+      resolveCampaignReportLinkToken.mockResolvedValue(CAMPAIGN_ID);
+      findNewestCampaignReportRecord.mockResolvedValue(
+        { reportId: "NEW", key: "k-new", generatedAt: "2026-05-29T00:00:00.000Z" },
+      );
+      signReportUrl.mockReturnValue({ url: "https://cdn/new?sig", expiresAt: "e" });
+
+      // No authorizer context: this route is public.
+      const res = await getPublicReport({ event: {}, params: { token: "TOKEN" } });
+
+      expect(resolveCampaignReportLinkToken).toHaveBeenCalledWith("TOKEN");
+      expect(signReportUrl).toHaveBeenCalledWith(
+        "k-new",
+        expect.objectContaining({ expiresInSeconds: expect.any(Number) }),
+      );
+      expect(res.statusCode).toBe(302);
+      expect(res.headers.location).toBe("https://cdn/new?sig");
+      expect(res.headers["cache-control"]).toBe("no-store");
+    });
+
+    test("only accepts reports with more than a minute of retention left", async () => {
+      resolveCampaignReportLinkToken.mockResolvedValue(CAMPAIGN_ID);
+      findNewestCampaignReportRecord.mockResolvedValue(null);
+      await getPublicReport({ event: {}, params: { token: "TOKEN" } });
+
+      const predicate = findNewestCampaignReportRecord.mock.calls[0][1];
+      reportObjectExpiresAtMs.mockReturnValueOnce(Date.now() - 1000);
+      expect(predicate({ key: "gone" })).toBe(false);
+      reportObjectExpiresAtMs.mockReturnValueOnce(Date.now() + 86400000);
+      expect(predicate({ key: "live" })).toBe(true);
+    });
+
+    test("404 page for an unknown token", async () => {
+      resolveCampaignReportLinkToken.mockResolvedValue(null);
+      const res = await getPublicReport({ event: {}, params: { token: "nope" } });
+      expect(res.statusCode).toBe(404);
+      expect(res.headers["content-type"]).toMatch(/text\/html/);
+      expect(res.body).toContain("no longer available");
+      expect(findNewestCampaignReportRecord).not.toHaveBeenCalled();
+    });
+
+    test("410 page when every report has aged out", async () => {
+      resolveCampaignReportLinkToken.mockResolvedValue(CAMPAIGN_ID);
+      findNewestCampaignReportRecord.mockResolvedValue(null);
+      const res = await getPublicReport({ event: {}, params: { token: "TOKEN" } });
+      expect(res.statusCode).toBe(410);
+      expect(signReportUrl).not.toHaveBeenCalled();
     });
   });
 });
