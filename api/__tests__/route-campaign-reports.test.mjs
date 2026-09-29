@@ -26,6 +26,7 @@ jest.unstable_mockModule("../services/report-signing.mjs", () => ({
 jest.unstable_mockModule("../domain/campaign-report-record.mjs", () => ({
   saveCampaignReportRecord: jest.fn(),
   listCampaignReportRecords: jest.fn(),
+  findNewestCampaignReportRecord: jest.fn(),
   markCampaignReportSuperseded: jest.fn(),
 }));
 const LATEST_URL = "https://api.example.com/public/campaign-reports/TOKEN";
@@ -58,8 +59,12 @@ const { putCampaignReportHtml, getCampaignReportHtml, replaceCampaignReportHtml 
   "../services/campaign-report-store.mjs"
 );
 const { signReportUrl } = await import("../services/report-signing.mjs");
-const { saveCampaignReportRecord, listCampaignReportRecords, markCampaignReportSuperseded } =
-  await import("../domain/campaign-report-record.mjs");
+const {
+  saveCampaignReportRecord,
+  listCampaignReportRecords,
+  findNewestCampaignReportRecord,
+  markCampaignReportSuperseded,
+} = await import("../domain/campaign-report-record.mjs");
 const {
   ensureCampaignReportLinkToken,
   getCampaignReportLinkToken,
@@ -257,19 +262,24 @@ describe("routes/campaign-reports", () => {
       mintShortLink.mockResolvedValue({ short_url: "s" });
       saveCampaignReportRecord.mockResolvedValue({});
 
-      const older = { reportId: "OLD", key: "k-old", generatedAt: "2026-05-01T00:00:00.000Z" };
+      // ULIDs sort by time, so these fixed ids all precede the freshly
+      // generated one; "ZZZ..." stands in for a report created concurrently
+      // after it.
+      const older = { reportId: "00000000000000000000000OLD", key: "k-old", generatedAt: "2026-05-01T00:00:00.000Z" };
       const flagged = {
-        reportId: "DONE", key: "k-done", generatedAt: "2026-04-01T00:00:00.000Z", supersededAt: "x",
+        reportId: "0000000000000000000000DONE", key: "k-done", generatedAt: "2026-04-01T00:00:00.000Z", supersededAt: "x",
       };
-      const expired = { reportId: "GONE", key: "k-gone", generatedAt: "2025-01-01T00:00:00.000Z" };
+      const expired = { reportId: "0000000000000000000000GONE", key: "k-gone", generatedAt: "2025-01-01T00:00:00.000Z" };
+      const newer = { reportId: "ZZZZZZZZZZZZZZZZZZZZZZZZZZ", key: "k-newer", generatedAt: "2026-05-29T10:00:01.000Z" };
       listCampaignReportRecords.mockImplementation(async () => [
+        newer,
         { reportId: snapshot.report.id, key: "k-new", generatedAt: snapshot.report.generatedAt },
         older,
         flagged,
         expired,
       ]);
       reportObjectExpiresAtMs.mockImplementation((r) =>
-        r.reportId === "GONE" ? Date.now() - 1000 : Date.now() + 86400000);
+        r.key === "k-gone" ? Date.now() - 1000 : Date.now() + 86400000);
       getCampaignReportHtml.mockResolvedValue("<html>old</html>");
       extractCampaignReportSnapshot.mockReturnValue({
         report: { id: "OLD", generatedAt: older.generatedAt },
@@ -278,7 +288,8 @@ describe("routes/campaign-reports", () => {
       const res = await postReport({ event: { ...AUTH_CTX, body: null }, params: { campaignId: CAMPAIGN_ID } });
       expect(res.statusCode).toBe(201);
 
-      // Only the live, unflagged older report is touched.
+      // Only the live, unflagged, older report is touched; the concurrently
+      // created newer one is left alone.
       expect(getCampaignReportHtml).toHaveBeenCalledTimes(1);
       expect(getCampaignReportHtml).toHaveBeenCalledWith("k-old");
       const rerendered = renderCampaignReportHtml.mock.calls.at(-1)[0];
@@ -289,11 +300,33 @@ describe("routes/campaign-reports", () => {
         supersededBy: { url: LATEST_URL, generatedAt: snapshot.report.generatedAt },
       });
       expect(replaceCampaignReportHtml).toHaveBeenCalledWith("k-old", "<html>OLD</html>");
+      expect(markCampaignReportSuperseded).toHaveBeenCalledTimes(1);
       expect(markCampaignReportSuperseded).toHaveBeenCalledWith(
         CAMPAIGN_ID,
-        "OLD",
+        older.reportId,
         snapshot.report.generatedAt,
       );
+    });
+
+    test("caps the number of rewrites per request", async () => {
+      buildCampaignReportSnapshot.mockResolvedValue(makeSnapshot());
+      renderCampaignReportHtml.mockReturnValue("<html></html>");
+      putCampaignReportHtml.mockResolvedValue("k-new");
+      signReportUrl.mockReturnValue({ url: "u", expiresAt: "e" });
+      mintShortLink.mockResolvedValue({ short_url: "s" });
+      saveCampaignReportRecord.mockResolvedValue({});
+      listCampaignReportRecords.mockResolvedValue(
+        Array.from({ length: 40 }, (_, i) => ({
+          reportId: "0000000000000000000000" + String(i).padStart(4, "0"),
+          key: "k-" + i,
+        })),
+      );
+      getCampaignReportHtml.mockResolvedValue("<html>old</html>");
+      extractCampaignReportSnapshot.mockReturnValue({ report: {} });
+
+      await postReport({ event: { ...AUTH_CTX, body: null }, params: { campaignId: CAMPAIGN_ID } });
+
+      expect(replaceCampaignReportHtml).toHaveBeenCalledTimes(25);
     });
 
     test("a failed supersede does not fail generation or flag the record", async () => {
@@ -304,7 +337,7 @@ describe("routes/campaign-reports", () => {
       mintShortLink.mockResolvedValue({ short_url: "s" });
       saveCampaignReportRecord.mockResolvedValue({});
       listCampaignReportRecords.mockResolvedValue([
-        { reportId: "OLD", key: "k-old", generatedAt: "2026-05-01T00:00:00.000Z" },
+        { reportId: "00000000000000000000000OLD", key: "k-old", generatedAt: "2026-05-01T00:00:00.000Z" },
       ]);
       getCampaignReportHtml.mockRejectedValue(new Error("NoSuchKey"));
 
@@ -450,10 +483,9 @@ describe("routes/campaign-reports", () => {
   describe("GET /public/campaign-reports/:token", () => {
     test("redirects to a fresh signed URL for the newest retained report", async () => {
       resolveCampaignReportLinkToken.mockResolvedValue(CAMPAIGN_ID);
-      listCampaignReportRecords.mockResolvedValue([
+      findNewestCampaignReportRecord.mockResolvedValue(
         { reportId: "NEW", key: "k-new", generatedAt: "2026-05-29T00:00:00.000Z" },
-        { reportId: "OLD", key: "k-old", generatedAt: "2026-05-01T00:00:00.000Z" },
-      ]);
+      );
       signReportUrl.mockReturnValue({ url: "https://cdn/new?sig", expiresAt: "e" });
 
       // No authorizer context: this route is public.
@@ -469,20 +501,16 @@ describe("routes/campaign-reports", () => {
       expect(res.headers["cache-control"]).toBe("no-store");
     });
 
-    test("falls through to an older report when the newest has aged out", async () => {
+    test("only accepts reports with more than a minute of retention left", async () => {
       resolveCampaignReportLinkToken.mockResolvedValue(CAMPAIGN_ID);
-      listCampaignReportRecords.mockResolvedValue([
-        { reportId: "NEW", key: "k-new" },
-        { reportId: "OLD", key: "k-old" },
-      ]);
-      reportObjectExpiresAtMs.mockImplementation((r) =>
-        r.reportId === "NEW" ? Date.now() - 1000 : Date.now() + 86400000);
-      signReportUrl.mockReturnValue({ url: "https://cdn/old?sig", expiresAt: "e" });
+      findNewestCampaignReportRecord.mockResolvedValue(null);
+      await getPublicReport({ event: {}, params: { token: "TOKEN" } });
 
-      const res = await getPublicReport({ event: {}, params: { token: "TOKEN" } });
-
-      expect(signReportUrl).toHaveBeenCalledWith("k-old", expect.anything());
-      expect(res.statusCode).toBe(302);
+      const predicate = findNewestCampaignReportRecord.mock.calls[0][1];
+      reportObjectExpiresAtMs.mockReturnValueOnce(Date.now() - 1000);
+      expect(predicate({ key: "gone" })).toBe(false);
+      reportObjectExpiresAtMs.mockReturnValueOnce(Date.now() + 86400000);
+      expect(predicate({ key: "live" })).toBe(true);
     });
 
     test("404 page for an unknown token", async () => {
@@ -491,13 +519,12 @@ describe("routes/campaign-reports", () => {
       expect(res.statusCode).toBe(404);
       expect(res.headers["content-type"]).toMatch(/text\/html/);
       expect(res.body).toContain("no longer available");
-      expect(listCampaignReportRecords).not.toHaveBeenCalled();
+      expect(findNewestCampaignReportRecord).not.toHaveBeenCalled();
     });
 
     test("410 page when every report has aged out", async () => {
       resolveCampaignReportLinkToken.mockResolvedValue(CAMPAIGN_ID);
-      listCampaignReportRecords.mockResolvedValue([{ reportId: "OLD", key: "k-old" }]);
-      reportObjectExpiresAtMs.mockReturnValue(Date.now() - 1000);
+      findNewestCampaignReportRecord.mockResolvedValue(null);
       const res = await getPublicReport({ event: {}, params: { token: "TOKEN" } });
       expect(res.statusCode).toBe(410);
       expect(signReportUrl).not.toHaveBeenCalled();

@@ -965,6 +965,69 @@ Resources:
               Resource:
                 - !GetAtt RevalidateSuggestionsDLQ.Arn
 
+  # Poison-record sink for the campaign-report cleanup stream consumer.
+  CampaignReportCleanupDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "content-tracking-campaign-report-cleanup-dlq-${Environment}"
+      MessageRetentionPeriod: 1209600 # 14 days
+
+  # Deletes a campaign report's HTML object when TTL expires its record.
+  # Superseding an old report rewrites its object, which restarts the bucket
+  # lifecycle clock; this keeps the object's lifetime tied to the report's
+  # original generation time. The bucket lifecycle rule remains the backstop.
+  CampaignReportCleanupFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - index.mjs
+    Properties:
+      CodeUri: functions/campaign-report-cleanup
+      Handler: index.handler
+      MemorySize: 256
+      Timeout: 30
+      Environment:
+        Variables:
+          VENDOR_REPORTS_BUCKET: !Ref VendorReportsBucket
+      Events:
+        CampaignReportTtlStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt ContentTrackingTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 10
+            MaximumRetryAttempts: 3
+            BisectBatchOnFunctionError: true
+            # Only TTL expiries (the DynamoDB service principal) of campaign
+            # report records.
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"eventName":["REMOVE"],"userIdentity":{"type":["Service"],"principalId":["dynamodb.amazonaws.com"]},"dynamodb":{"OldImage":{"entity":{"S":["CampaignReport"]}}}}'
+            DestinationConfig:
+              OnFailure:
+                Destination: !GetAtt CampaignReportCleanupDLQ.Arn
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            # Read the stream (aliased from VectorizeContent's statement).
+            - *ddb-stream-read-statement
+            # Delete campaign report objects only.
+            - Effect: Allow
+              Action:
+                - s3:DeleteObject
+              Resource:
+                - !Sub "${VendorReportsBucket.Arn}/reports/campaigns/*"
+            # Deliver poison records to the DLQ.
+            - Effect: Allow
+              Action:
+                - sqs:SendMessage
+              Resource:
+                - !GetAtt CampaignReportCleanupDLQ.Arn
+
   # Poison-record sink for the voice-memory stream consumer.
   VoiceMemoryDLQ:
     Type: AWS::SQS::Queue

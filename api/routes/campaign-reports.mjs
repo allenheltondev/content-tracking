@@ -21,8 +21,10 @@ import { mintShortLink } from "../services/newsletter-service.mjs";
 import {
   saveCampaignReportRecord,
   listCampaignReportRecords,
+  findNewestCampaignReportRecord,
   markCampaignReportSuperseded,
 } from "../domain/campaign-report-record.mjs";
+import { runInBatches } from "../services/concurrency.mjs";
 import {
   ensureCampaignReportLinkToken,
   getCampaignReportLinkToken,
@@ -179,30 +181,38 @@ export function registerCampaignReportRoutes(app) {
     const campaignId = await resolveCampaignReportLinkToken(params.token);
     if (!campaignId) return unavailablePage(404);
 
-    const records = await listCampaignReportRecords(campaignId);
+    // Newest-first and paged, so the redirect always lands on the actual
+    // latest report even when the campaign's records span several pages.
     const nowMs = Date.now();
-    for (const record of records) {
-      const remainingSeconds = Math.floor((reportObjectExpiresAtMs(record) - nowMs) / 1000);
-      if (remainingSeconds <= 60) continue;
-      const { url } = signReportUrl(record.key, { expiresInSeconds: remainingSeconds });
-      return {
-        statusCode: 302,
-        headers: {
-          location: url,
-          "cache-control": "no-store",
-          "referrer-policy": "no-referrer",
-        },
-        body: "",
-      };
-    }
-    return unavailablePage(410);
+    const remainingSeconds = (r) => Math.floor((reportObjectExpiresAtMs(r) - nowMs) / 1000);
+    const record = await findNewestCampaignReportRecord(campaignId, (r) => remainingSeconds(r) > 60);
+    if (!record) return unavailablePage(410);
+
+    const { url } = signReportUrl(record.key, { expiresInSeconds: remainingSeconds(record) });
+    return {
+      statusCode: 302,
+      headers: {
+        location: url,
+        "cache-control": "no-store",
+        "referrer-policy": "no-referrer",
+      },
+      body: "",
+    };
   });
 }
 
-// Re-render every older, still-retained report that hasn't been flagged yet
-// with a supersededBy marker so it shows the "newer version available"
-// banner. Each one is handled independently; failures are logged and left
-// for the next generation to retry.
+// Most superseded rewrites one POST will do. Normally there is exactly one
+// candidate (the previous report); the cap only matters on rollout or after
+// a run of failures, and keeps the synchronous POST well inside its timeout.
+// Anything left over is picked up by the next generation.
+const MAX_SUPERSEDE_PER_REQUEST = 25;
+
+// Re-render older, still-retained reports that haven't been flagged yet
+// with a supersededBy marker so they show the "newer version available"
+// banner. Only reports whose ULID sorts before the current one qualify, so
+// an overlapping generation can never banner a report newer than itself.
+// Each rewrite is independent; failures are logged and left for the next
+// generation to retry.
 async function supersedePreviousReports({ campaignId, currentReportId, supersededAt, latestUrl }) {
   let records;
   try {
@@ -212,10 +222,15 @@ async function supersedePreviousReports({ campaignId, currentReportId, supersede
     return;
   }
   const nowMs = Date.now();
-  const stale = records.filter((r) =>
-    r.reportId !== currentReportId && !r.supersededAt && reportObjectExpiresAtMs(r) > nowMs);
+  const stale = records
+    .filter((r) =>
+      typeof r.reportId === "string" &&
+      r.reportId < currentReportId &&
+      !r.supersededAt &&
+      reportObjectExpiresAtMs(r) > nowMs)
+    .slice(0, MAX_SUPERSEDE_PER_REQUEST);
 
-  await Promise.all(stale.map(async (record) => {
+  await runInBatches(stale.map((record) => async () => {
     try {
       const snapshot = extractCampaignReportSnapshot(await getCampaignReportHtml(record.key));
       if (!snapshot) throw new Error("embedded snapshot missing or unreadable");

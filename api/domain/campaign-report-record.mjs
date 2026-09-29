@@ -61,16 +61,41 @@ export async function saveCampaignReportRecord({
   return item;
 }
 
+// Yields a campaign's report records newest-first, one Query page at a time.
+// The sk is REPORT#{ulid}, so a descending key order is a newest-first order
+// and callers looking for "the latest X" can stop after the first match
+// instead of reading the whole partition.
+async function* campaignReportRecordsNewestFirst(campaignId) {
+  let exclusiveStartKey;
+  do {
+    const result = await ddb.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+      ExpressionAttributeValues: { ":pk": `CAMPAIGN#${campaignId}`, ":prefix": "REPORT#" },
+      ScanIndexForward: false,
+      ExclusiveStartKey: exclusiveStartKey,
+    }));
+    for (const item of result.Items ?? []) yield item;
+    exclusiveStartKey = result.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+}
+
+// Every retained report record, newest first. Retention bounds the
+// partition, but a campaign regenerated often can still exceed one page, so
+// every page is read.
 export async function listCampaignReportRecords(campaignId) {
-  const result = await ddb.send(new QueryCommand({
-    TableName: TABLE_NAME,
-    KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
-    ExpressionAttributeValues: { ":pk": `CAMPAIGN#${campaignId}`, ":prefix": "REPORT#" },
-  }));
-  const items = result.Items ?? [];
-  // Newest first. generatedAt is an ISO timestamp so a string compare is
-  // a chronological compare.
-  return items.sort((a, b) => (b.generatedAt ?? "").localeCompare(a.generatedAt ?? ""));
+  const items = [];
+  for await (const item of campaignReportRecordsNewestFirst(campaignId)) items.push(item);
+  return items;
+}
+
+// The newest record satisfying `predicate`, or null. Stops paging as soon as
+// one matches.
+export async function findNewestCampaignReportRecord(campaignId, predicate) {
+  for await (const item of campaignReportRecordsNewestFirst(campaignId)) {
+    if (predicate(item)) return item;
+  }
+  return null;
 }
 
 // Flags a report as replaced by a newer snapshot. Set once, when a newer
