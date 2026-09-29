@@ -38,6 +38,10 @@
 
     * { box-sizing: border-box; }
 
+    /* Component display rules (flex, grid) would otherwise override the
+       hidden attribute and show empty blocks. */
+    [hidden] { display: none !important; }
+
     html, body { margin: 0; padding: 0; }
 
     body {
@@ -423,17 +427,9 @@
 
     <section class="section" id="reach-section" hidden>
       <h2 class="section-title">Performance by channel</h2>
-      <p class="section-lead">One row per placement, including the featured piece and its cross posts. Impressions count how often the content was shown. Views count how often it was opened. A dash marks a metric the channel does not report.</p>
+      <p class="section-lead">The featured piece and each platform it was cross posted to. Impressions count how often the content was shown. Views count how often it was opened. A dash marks a metric the channel does not report.</p>
       <div class="section-body">
         <div class="table-wrap" id="reach-wrap"></div>
-      </div>
-    </section>
-
-    <section class="section" id="main-content-section" hidden>
-      <h2 class="section-title">Featured content</h2>
-      <p class="section-lead" id="main-content-lead"></p>
-      <div class="section-body">
-        <div class="kpis" id="main-content-kpis"></div>
       </div>
     </section>
 
@@ -531,19 +527,6 @@
         return (MONTHS[mo - 1] || m[2]) + " " + parseInt(m[3], 10);
       }
 
-      function fmtDuration(seconds) {
-        if (typeof seconds !== "number" || !isFinite(seconds) || seconds <= 0) return "—";
-        var s = Math.round(seconds);
-        var m = Math.floor(s / 60);
-        var rem = s - m * 60;
-        return m > 0 ? m + "m " + rem + "s" : rem + "s";
-      }
-
-      function fmtPercent(rate) {
-        if (typeof rate !== "number" || !isFinite(rate)) return "—";
-        return Math.round(rate * 100) + "%";
-      }
-
       function el(tag, attrs, text) {
         var node = document.createElement(tag);
         if (attrs) {
@@ -612,7 +595,15 @@
           var words = last.split(/[-_]+/).filter(Boolean);
           if (words.length > 1) {
             var tail = words[words.length - 1];
-            if (tail.length >= 4 && /[0-9]/.test(tail) && /[a-z]/i.test(tail) && !/[^a-z0-9]/i.test(tail)) {
+            var alnum = !/[^a-z0-9]/i.test(tail);
+            // dev.to always appends a short random id (e.g. "-afp", "-1abc"),
+            // with or without digits; elsewhere only a mixed letter+digit id
+            // is treated as one, so real trailing words survive.
+            var host = url.host.replace(/^www\./, "");
+            var isDevTo = host === "dev.to" || host.slice(-7) === ".dev.to";
+            if (alnum && (isDevTo
+              ? tail.length <= 6
+              : tail.length >= 4 && /[0-9]/.test(tail) && /[a-z]/i.test(tail))) {
               words.pop();
             }
           }
@@ -822,16 +813,22 @@
       // impressions; X reports views, not impressions) and render as a dash
       // so a gap never reads as a measured zero.
       //
-      // Cross posts are folded in here rather than listed separately: each
-      // one is attached to its platform's row as a detail line (title link
-      // and sync date). The featured deliverable's row carries its own link
-      // the same way. A cross post whose platform has no channel row (never
-      // synced, or a report frozen before per-channel data existed) still
-      // gets a row built from the post's own metrics.
+      // Only the featured deliverable and its cross posts appear here; social
+      // placements have their own Social posts section. The featured row
+      // leads, and each cross post is attached to its platform's row as a
+      // detail line (title link and sync date). A cross post whose platform
+      // has no channel row (never synced, or a report frozen before
+      // per-channel data existed) still gets a row built from the post's own
+      // metrics.
       renderByChannel();
       function renderByChannel() {
         var featuredKey = mainContent ? (mainContent.kind === "youtube" ? "youtube" : "blog") : null;
-        var rows = byChannel.map(function (c) {
+        var crossPostKeys = {};
+        contentPosts.forEach(function (p) { crossPostKeys[platformKey(p.platform)] = true; });
+        var rows = byChannel.filter(function (c) {
+          var key = platformKey(c.platform);
+          return key === featuredKey || crossPostKeys[key];
+        }).map(function (c) {
           return {
             platform: c.platform,
             impressions: c.impressions,
@@ -864,6 +861,8 @@
           row.posts.push(p);
         });
 
+        rows.sort(function (a, b) { return (b.featured ? 1 : 0) - (a.featured ? 1 : 0); });
+
         if (!rows.length) return;
         document.getElementById("reach-section").hidden = false;
 
@@ -895,7 +894,6 @@
               chTd.appendChild(fd);
             }
           } else if (r.posts.length) {
-            chTd.appendChild(el("span", { "class": "tag" }, "Cross post"));
             r.posts.forEach(function (p) {
               var d = el("div", { "class": "detail" });
               if (p.url) {
@@ -922,54 +920,6 @@
 
       function metricCell(n) {
         return el("td", { "class": n == null ? "num na" : "num" }, fmtMetric(n));
-      }
-
-      // ---- Main content (GA4 for a blog, YouTube Data API for a video) ----
-      renderMainContent();
-      function renderMainContent() {
-        if (!mainContent) return;
-        document.getElementById("main-content-section").hidden = false;
-        var lead = document.getElementById("main-content-lead");
-
-        // YouTube video deliverable (tagged kind:"youtube"). The blog shape
-        // is untagged so legacy frozen reports keep rendering below.
-        if (mainContent.kind === "youtube") {
-          if (mainContent.videoUrl) {
-            lead.appendChild(document.createTextNode("Performance of "));
-            lead.appendChild(extLink(mainContent.videoUrl,
-              truncate(String(mainContent.title || mainContent.videoUrl), 80)));
-            lead.appendChild(document.createTextNode("."));
-          }
-          var ytItems = [
-            { label: "Views", value: fmtInt(mainContent.views), variant: "k-views" },
-            { label: "Likes", value: fmtInt(mainContent.likes), variant: "k-eng" },
-            { label: "Comments", value: fmtInt(mainContent.comments), variant: "k-impr" }
-          ];
-          if (mainContent.publishedAt) {
-            ytItems.push({ label: "Published", value: fmtDate(mainContent.publishedAt), variant: "k-clicks" });
-          }
-          renderKpis("main-content-kpis", ytItems);
-          return;
-        }
-
-        if (mainContent.blogUrl) {
-          lead.appendChild(document.createTextNode("Site traffic on "));
-          lead.appendChild(extLink(mainContent.blogUrl, pageTitleFromUrl(String(mainContent.blogUrl))));
-          if (mainContent.range && mainContent.range.startDate && mainContent.range.endDate) {
-            lead.appendChild(document.createTextNode(
-              " from " + fmtDate(mainContent.range.startDate) + " to " + fmtDate(mainContent.range.endDate) + "."
-            ));
-          } else {
-            lead.appendChild(document.createTextNode("."));
-          }
-        }
-
-        renderKpis("main-content-kpis", [
-          { label: "Views", value: fmtInt(mainContent.pageviews), variant: "k-views" },
-          { label: "Unique visitors", value: fmtInt(mainContent.users), variant: "k-impr" },
-          { label: "Avg. read time", value: fmtDuration(mainContent.avgSessionDurationSeconds), variant: "k-eng" },
-          { label: "Engagement rate", value: fmtPercent(mainContent.engagementRate), variant: "k-clicks" }
-        ]);
       }
 
       // ---- Social posts ----
