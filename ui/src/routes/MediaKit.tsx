@@ -10,6 +10,7 @@ import {
   publishMediaKit,
   unpublishMediaKit,
 } from '../api/mediaKit';
+import ConfirmModal from '../components/ConfirmModal';
 import type { MediaKitListItem, MediaKitPublishState, MediaKitStats } from '../api/types';
 import { fmtCompact, fmtPercent, intFmt } from '../lib/format';
 
@@ -182,6 +183,7 @@ function PublicKitPanel({
 }): ReactElement | null {
   const apiFetch = useApiFetch();
   const [busy, setBusy] = useState(false);
+  const [confirmingUnpublish, setConfirmingUnpublish] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -209,8 +211,6 @@ function PublicKitPanel({
     try {
       await unpublishMediaKit(apiFetch);
       onChange({ ...state, published: false, url: null, published_at: null });
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : (err as Error).message);
     } finally {
       setBusy(false);
     }
@@ -267,12 +267,23 @@ function PublicKitPanel({
               {busy ? 'Working…' : state.published ? 'Republish (refresh data)' : 'Publish'}
             </button>
             {state.published && (
-              <button type="button" className="btn btn-secondary" onClick={() => void unpublish()} disabled={busy}>
+              <button type="button" className="btn btn-secondary" onClick={() => setConfirmingUnpublish(true)} disabled={busy}>
                 Unpublish
               </button>
             )}
           </div>
         </>
+      )}
+      {confirmingUnpublish && (
+        <ConfirmModal
+          title="Unpublish media kit"
+          confirmLabel="Unpublish"
+          busyLabel="Unpublishing…"
+          onConfirm={unpublish}
+          onClose={() => setConfirmingUnpublish(false)}
+        >
+          Take your media kit offline? Anyone with the link loses access until you publish again.
+        </ConfirmModal>
       )}
     </div>
   );

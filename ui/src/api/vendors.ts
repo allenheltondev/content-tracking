@@ -1,4 +1,5 @@
 import type { ApiFetch } from '../auth/useApiFetch';
+import { MAX_PAGE_SIZE, fetchAllPages } from './pagination';
 import type {
   Vendor,
   VendorCampaignsResponse,
@@ -10,11 +11,17 @@ import type {
 
 export async function listVendors(
   apiFetch: ApiFetch,
-  options: { limit?: number } = {},
+  options: { limit?: number; startKey?: string } = {},
 ): Promise<VendorListResponse> {
   return apiFetch<VendorListResponse>('/vendors', {
-    query: { limit: options.limit ?? 100 },
+    query: { limit: options.limit ?? 100, startKey: options.startKey },
   });
+}
+
+// Every vendor, for pickers and client-side search.
+export async function listAllVendors(apiFetch: ApiFetch): Promise<VendorListResponse> {
+  const pages = await fetchAllPages((startKey) => listVendors(apiFetch, { limit: MAX_PAGE_SIZE, startKey }));
+  return { vendors: pages.flatMap((p) => p.vendors) };
 }
 
 export async function getVendor(apiFetch: ApiFetch, vendorId: string): Promise<Vendor> {

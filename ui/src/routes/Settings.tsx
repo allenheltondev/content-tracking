@@ -22,6 +22,7 @@ import type {
   ProfileResponse,
   ProfileUpdateRequest,
 } from '../api/types';
+import ConfirmModal from '../components/ConfirmModal';
 import Modal from '../components/Modal';
 import {
   CROSSPOST_PLATFORM_LABELS,
@@ -397,7 +398,7 @@ function ExtensionTab(): ReactElement {
   const [justMinted, setJustMinted] = useState<CreateExtensionPairingResponse | null>(null);
 
   const [revoking, setRevoking] = useState<string | null>(null);
-  const [revokeError, setRevokeError] = useState<string | null>(null);
+  const [confirmingRevoke, setConfirmingRevoke] = useState<ExtensionPairing | null>(null);
 
   const onGenerated = (res: CreateExtensionPairingResponse): void => {
     queryClient.setQueryData<ExtensionPairing[]>(['extension-pairings'], (prev) => [
@@ -410,7 +411,6 @@ function ExtensionTab(): ReactElement {
   };
 
   const revoke = async (jti: string): Promise<void> => {
-    setRevokeError(null);
     setRevoking(jti);
     try {
       await revokeExtensionPairing(apiFetch, jti);
@@ -418,8 +418,6 @@ function ExtensionTab(): ReactElement {
         (prev ?? []).filter((p) => p.jti !== jti),
       );
       void queryClient.invalidateQueries({ queryKey: ['extension-pairings'] });
-    } catch (err) {
-      setRevokeError(err instanceof ApiError ? err.message : (err as Error).message);
     } finally {
       setRevoking(null);
     }
@@ -489,7 +487,6 @@ function ExtensionTab(): ReactElement {
           extension holds for your account.
         </p>
         {loadError && <p className="form-error">Could not load pairings: {loadError}</p>}
-        {revokeError && <p className="form-error">{revokeError}</p>}
         {loading ? (
           <p className="text-muted-foreground">Loading...</p>
         ) : pairings.length === 0 ? (
@@ -517,7 +514,7 @@ function ExtensionTab(): ReactElement {
                     <button
                       type="button"
                       className="btn-link text-error-600"
-                      onClick={() => void revoke(p.jti)}
+                      onClick={() => setConfirmingRevoke(p)}
                       disabled={revoking === p.jti}
                     >
                       {revoking === p.jti ? 'Revoking...' : 'Revoke'}
@@ -541,6 +538,19 @@ function ExtensionTab(): ReactElement {
         result={justMinted}
         onClose={() => setJustMinted(null)}
       />
+
+      {confirmingRevoke && (
+        <ConfirmModal
+          title="Revoke device"
+          confirmLabel="Revoke"
+          busyLabel="Revoking…"
+          onConfirm={() => revoke(confirmingRevoke.jti)}
+          onClose={() => setConfirmingRevoke(null)}
+        >
+          Revoke <strong>{confirmingRevoke.label}</strong>? The extension stops capturing engagement on that device
+          until you pair it again.
+        </ConfirmModal>
+      )}
     </div>
   );
 }
@@ -713,7 +723,7 @@ function ApiKeysTab(): ReactElement {
   const [justMinted, setJustMinted] = useState<CreateApiKeyResponse | null>(null);
 
   const [revoking, setRevoking] = useState<string | null>(null);
-  const [revokeError, setRevokeError] = useState<string | null>(null);
+  const [confirmingRevoke, setConfirmingRevoke] = useState<ApiKey | null>(null);
 
   const onGenerated = (res: CreateApiKeyResponse): void => {
     const { key: _key, ...meta } = res;
@@ -724,7 +734,6 @@ function ApiKeysTab(): ReactElement {
   };
 
   const revoke = async (jti: string): Promise<void> => {
-    setRevokeError(null);
     setRevoking(jti);
     try {
       await revokeApiKey(apiFetch, jti);
@@ -732,8 +741,6 @@ function ApiKeysTab(): ReactElement {
         (prev ?? []).filter((k) => k.jti !== jti),
       );
       void queryClient.invalidateQueries({ queryKey: ['api-keys'] });
-    } catch (err) {
-      setRevokeError(err instanceof ApiError ? err.message : (err as Error).message);
     } finally {
       setRevoking(null);
     }
@@ -785,7 +792,6 @@ function ApiKeysTab(): ReactElement {
           row to cut that automation off immediately.
         </p>
         {loadError && <p className="form-error">Could not load keys: {loadError}</p>}
-        {revokeError && <p className="form-error">{revokeError}</p>}
         {loading ? (
           <p className="text-muted-foreground">Loading...</p>
         ) : keys.length === 0 ? (
@@ -813,7 +819,7 @@ function ApiKeysTab(): ReactElement {
                       <button
                         type="button"
                         className="btn-link text-error-600"
-                        onClick={() => void revoke(k.jti)}
+                        onClick={() => setConfirmingRevoke(k)}
                         disabled={revoking === k.jti}
                       >
                         {revoking === k.jti ? 'Revoking...' : 'Revoke'}
@@ -834,6 +840,19 @@ function ApiKeysTab(): ReactElement {
       />
 
       <NewApiKeyDialog result={justMinted} onClose={() => setJustMinted(null)} />
+
+      {confirmingRevoke && (
+        <ConfirmModal
+          title="Revoke API key"
+          confirmLabel="Revoke"
+          busyLabel="Revoking…"
+          onConfirm={() => revoke(confirmingRevoke.jti)}
+          onClose={() => setConfirmingRevoke(null)}
+        >
+          Revoke <strong>{confirmingRevoke.label}</strong>? Anything using this key stops working right away, and
+          it can't be restored.
+        </ConfirmModal>
+      )}
     </div>
   );
 }

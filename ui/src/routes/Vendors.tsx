@@ -3,17 +3,17 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useApiFetch } from '../auth/useApiFetch';
-import { listVendors } from '../api/vendors';
+import { listAllVendors } from '../api/vendors';
 
 export default function Vendors(): ReactElement {
   const apiFetch = useApiFetch();
   const [search, setSearch] = useState('');
 
-  // Cached under the bare ['vendors'] key and shared with VendorSelect, so
-  // both must request the same page size (500).
+  // Search runs in the browser, so this needs every vendor. Cached under the
+  // bare ['vendors'] key and shared with VendorSelect.
   const { data, error: queryError } = useQuery({
     queryKey: ['vendors'],
-    queryFn: () => listVendors(apiFetch, { limit: 500 }),
+    queryFn: () => listAllVendors(apiFetch),
   });
   const vendors = data?.vendors ?? null;
   const error = queryError ? (queryError as Error).message : null;

@@ -1,4 +1,6 @@
 import {
+  CopyObjectCommand,
+  DeleteObjectCommand,
   GetObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -15,12 +17,9 @@ export const BRIEFS_BUCKET = process.env.BRIEFS_BUCKET;
 
 const PRESIGN_EXPIRES_SECONDS = 15 * 60;
 
-// Presigned URL the client uses to PUT a PDF directly to S3. Bound to
-// content-type so the dashboard can't accidentally upload non-PDFs
-// against an URL minted for a PDF brief. Keyed by campaignId since a
-// campaign owns at most one brief.
-export async function presignBriefUpload({ campaignId, contentType }) {
-  const key = `uploads/${campaignId}.pdf`;
+// Bound to content-type so the dashboard can't upload some other kind of file
+// against a URL minted for a brief.
+async function presignBriefPut(key, contentType) {
   const command = new PutObjectCommand({
     Bucket: BRIEFS_BUCKET,
     Key: key,
@@ -34,6 +33,38 @@ export async function presignBriefUpload({ campaignId, contentType }) {
     url,
     expiresAt: new Date(Date.now() + PRESIGN_EXPIRES_SECONDS * 1000).toISOString(),
   };
+}
+
+// Where a campaign's brief file lives. Keyed by campaignId since a campaign
+// owns at most one brief.
+export function briefFileKey(campaignId, format) {
+  return `uploads/${campaignId}.${format}`;
+}
+
+// Where a brief waits before its campaign exists. Tenant-scoped so one tenant
+// can't claim another's upload by guessing its id. A lifecycle rule expires
+// anything left behind.
+export function stagedBriefKey(tenantId, uploadId, format) {
+  return `staged/${tenantId}/${uploadId}.${format}`;
+}
+
+// Presigned URL the client uses to PUT a brief file directly to S3.
+export async function presignBriefUpload({ campaignId, format, contentType }) {
+  return presignBriefPut(briefFileKey(campaignId, format), contentType);
+}
+
+export async function presignStagedBriefUpload({ tenantId, uploadId, format, contentType }) {
+  return presignBriefPut(stagedBriefKey(tenantId, uploadId, format), contentType);
+}
+
+// Moves a staged brief to its permanent key once the campaign exists.
+export async function moveBriefObject({ from, to }) {
+  await s3.send(new CopyObjectCommand({
+    Bucket: BRIEFS_BUCKET,
+    CopySource: encodeURI(`${BRIEFS_BUCKET}/${from}`),
+    Key: to,
+  }));
+  await s3.send(new DeleteObjectCommand({ Bucket: BRIEFS_BUCKET, Key: from }));
 }
 
 // Presigned URL the audit view returns to clients so they can download
@@ -63,7 +94,7 @@ export async function putBriefTranscript({ campaignId, body }) {
 }
 
 // Reads an object back as a Buffer. Used by the brief pipeline to load
-// the uploaded PDF before passing it to Bedrock.
+// the uploaded file before passing it to Bedrock.
 export async function getBriefObjectBytes(key) {
   const response = await s3.send(new GetObjectCommand({
     Bucket: BRIEFS_BUCKET,

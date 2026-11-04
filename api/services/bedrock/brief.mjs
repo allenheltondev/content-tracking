@@ -112,7 +112,7 @@ const RECORD_BRIEF_TOOL = {
 // returns cache-hit indicators on the response which we log for visibility.
 const SYSTEM_PROMPT = `You are an assistant that extracts structured information from influencer marketing briefs. Briefs arrive in two forms:
 
-1. PDFs attached to the request as a document content block.
+1. PDF or Word files attached to the request as a document content block.
 2. Chat transcripts pasted as plain text (vendor / influencer back-and-forth).
 
 For each brief, do all of the following and return them by calling the record_brief_summary tool:
@@ -129,14 +129,14 @@ Existing context: the user message may include an "Existing campaign" block (fie
 Be conservative. If a field is genuinely not stated in the brief, leave it off rather than guessing. Add a warning instead. Currency defaults to USD only when an amount is given without a currency. Do not write prose — only call the tool.`;
 
 // Calls Bedrock Converse with the appropriate content for the source type.
-// `pdfBytes` is a Buffer; pass it for PDF briefs. `text` is the chat
+// `documentBytes` is a Buffer; pass it for file briefs. `text` is the chat
 // transcript for chat briefs. Exactly one should be set.
 //
 // `existingCampaign` is the campaign row this brief is being attached to
 // (so the model knows what's already set and doesn't re-suggest it).
 // `vendors` is the list of known vendors so the model can match by id
 // rather than fabricating a new spelling. Both are optional.
-export async function summarizeBrief({ sourceType, pdfBytes, text, existingCampaign, vendors }) {
+export async function summarizeBrief({ sourceType, documentBytes, text, existingCampaign, vendors }) {
   if (!MODEL_ID) {
     throw new Error("BEDROCK_MODEL_ID env var is not set");
   }
@@ -144,13 +144,13 @@ export async function summarizeBrief({ sourceType, pdfBytes, text, existingCampa
   const contextBlock = formatBriefContext({ existingCampaign, vendors });
   const userContent = [];
 
-  if (sourceType === "pdf") {
-    if (!pdfBytes) throw new Error("pdfBytes is required for source_type=pdf");
+  if (sourceType === "pdf" || sourceType === "docx") {
+    if (!documentBytes) throw new Error(`documentBytes is required for source_type=${sourceType}`);
     userContent.push({
       document: {
-        format: "pdf",
+        format: sourceType,
         name: "brief",
-        source: { bytes: pdfBytes },
+        source: { bytes: documentBytes },
       },
     });
     userContent.push({

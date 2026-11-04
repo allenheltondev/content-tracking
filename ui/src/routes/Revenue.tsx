@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useApiFetch } from '../auth/useApiFetch';
 import { getRevenue } from '../api/revenue';
-import { listVendors } from '../api/vendors';
+import { listAllVendors } from '../api/vendors';
 import type { Vendor } from '../api/types';
 import RevenueChart from '../components/RevenueChart';
 import { formatMoney } from '../lib/format';
@@ -34,7 +34,7 @@ export default function Revenue(): ReactElement {
   // to showing vendor ids.
   const vendorsQuery = useQuery({
     queryKey: ['vendors', { bestEffort: true }],
-    queryFn: () => listVendors(apiFetch, { limit: 500 }).catch(() => ({ vendors: [] as Vendor[] })),
+    queryFn: () => listAllVendors(apiFetch).catch(() => ({ vendors: [] as Vendor[] })),
   });
 
   // Per-year: two queries (month + vendor groupings).

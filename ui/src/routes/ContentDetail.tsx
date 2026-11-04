@@ -6,12 +6,9 @@ import { useApiFetch } from '../auth/useApiFetch';
 import {
   addPublishVariant,
   askContent,
-  attachContentCampaign,
-  createContentSponsorship,
   CROSSPOST_PLATFORMS,
   crosspostContent,
   deleteContent,
-  detachContentCampaign,
   getContent,
   getContentAnalytics,
   recordContentStats,
@@ -24,6 +21,7 @@ import {
   getCrosspostSettings,
 } from '../api/crosspostSettings';
 import { createVoiceSample } from '../api/voice';
+import ContentSponsorship from '../components/ContentSponsorship';
 import KeyValueEditor, { type Pair } from '../components/KeyValueEditor';
 import type {
   Content,
@@ -142,6 +140,8 @@ export default function ContentDetail(): ReactElement {
               }}
             />
 
+            <ContentSponsorship content={content} onChanged={applyContent} />
+
             {content.content_markdown ? (
               <article className="card card-body text-sm">
                 <Markdown>{content.content_markdown}</Markdown>
@@ -173,10 +173,7 @@ export default function ContentDetail(): ReactElement {
         )}
       </div>
 
-      {/* Sponsorship: attach/create/detach, and — when attached — the full
-          campaign workspace hangs off the content piece right here. */}
-      <SponsorshipRow content={content} apiFetch={apiFetch} onChanged={applyContent} />
-
+      {/* The full campaign workspace hangs off a sponsored piece right here. */}
       {content.campaign_id && (
         <div className="border-t border-border pt-6">
           <CampaignDetail campaignId={content.campaign_id} />
@@ -298,123 +295,6 @@ function EditContentForm({
         {busy ? 'Saving…' : 'Save changes'}
       </button>
     </form>
-  );
-}
-
-// The sponsorship (campaign) that hangs off this piece — 1:1, optional. When
-// unsponsored, offers to create a campaign for the piece or attach an existing
-// one. When sponsored, links to the campaign and offers to detach it.
-function SponsorshipRow({
-  content, apiFetch, onChanged,
-}: {
-  content: Content;
-  apiFetch: ReturnType<typeof useApiFetch>;
-  onChanged: (c: Content) => void;
-}): ReactElement {
-  const navigate = useNavigate();
-  const [mode, setMode] = useState<'idle' | 'create' | 'attach'>('idle');
-  const [name, setName] = useState('');
-  const [campaignId, setCampaignId] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const reset = (): void => { setMode('idle'); setName(''); setCampaignId(''); setError(null); };
-
-  const doCreate = async (e: FormEvent): Promise<void> => {
-    e.preventDefault();
-    if (busy || name.trim().length === 0) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const campaign = await createContentSponsorship(apiFetch, content.content_id, { name: name.trim() });
-      navigate(`/campaigns/${campaign.campaign_id}`);
-    } catch (err) {
-      setError((err as Error).message);
-      setBusy(false);
-    }
-  };
-
-  const doAttach = async (e: FormEvent): Promise<void> => {
-    e.preventDefault();
-    if (busy || campaignId.trim().length === 0) return;
-    setBusy(true);
-    setError(null);
-    try {
-      onChanged(await attachContentCampaign(apiFetch, content.content_id, campaignId.trim()));
-      reset();
-    } catch (err) {
-      setError((err as Error).message);
-      setBusy(false);
-    }
-  };
-
-  const doDetach = async (): Promise<void> => {
-    setBusy(true);
-    setError(null);
-    try {
-      await detachContentCampaign(apiFetch, content.content_id);
-      onChanged({ ...content, campaign_id: null });
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="card card-body space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-foreground">Sponsorship</h2>
-          <p className="text-sm text-muted-foreground">
-            {content.campaign_id
-              ? 'A campaign is attached to this piece.'
-              : 'This is an unsponsored creation — no campaign attached.'}
-          </p>
-        </div>
-        {content.campaign_id ? (
-          <div className="flex items-center gap-2">
-            <Link to={`/campaigns/${content.campaign_id}`} className="btn btn-secondary btn-sm">View campaign</Link>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => void doDetach()} disabled={busy}>
-              {busy ? 'Detaching…' : 'Detach'}
-            </button>
-          </div>
-        ) : mode === 'idle' ? (
-          <div className="flex items-center gap-2">
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setMode('create')}>Add sponsorship</button>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setMode('attach')}>Attach existing</button>
-          </div>
-        ) : (
-          <button type="button" className="btn btn-ghost btn-sm" onClick={reset} disabled={busy}>Cancel</button>
-        )}
-      </div>
-
-      {mode === 'create' && !content.campaign_id && (
-        <form onSubmit={doCreate} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
-          <label className="flex-1 min-w-48">
-            <span className="field-label">Campaign name</span>
-            <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Acme Q3 sponsorship" disabled={busy} />
-          </label>
-          <button type="submit" className="btn btn-primary btn-sm" disabled={busy || !name.trim()}>
-            {busy ? 'Creating…' : 'Create & attach'}
-          </button>
-        </form>
-      )}
-
-      {mode === 'attach' && !content.campaign_id && (
-        <form onSubmit={doAttach} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
-          <label className="flex-1 min-w-48">
-            <span className="field-label">Existing campaign ID</span>
-            <input className="input" value={campaignId} onChange={(e) => setCampaignId(e.target.value)} placeholder="01H…" disabled={busy} />
-          </label>
-          <button type="submit" className="btn btn-primary btn-sm" disabled={busy || !campaignId.trim()}>
-            {busy ? 'Attaching…' : 'Attach'}
-          </button>
-        </form>
-      )}
-
-      {error && <p className="form-error">{error}</p>}
-    </div>
   );
 }
 

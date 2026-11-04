@@ -150,6 +150,7 @@ export default function Content(): ReactElement {
                     {c.source && (
                       <span className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">{c.source}</span>
                     )}
+                    {c.campaign_id && <span className="tag-chip">Campaign linked</span>}
                   </div>
                   {c.description && (
                     <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{c.description}</p>

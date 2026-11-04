@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useApiFetch } from '../auth/useApiFetch';
-import { listContent } from '../api/content';
+import { listAllContent } from '../api/content';
 import type { ContentStatus, ContentSummary } from '../api/types';
 
 // Content calendar: every piece placed on its publish date (falling back to the
@@ -41,8 +41,9 @@ export default function Calendar(): ReactElement {
   const [month, setMonth] = useState(now.getUTCMonth()); // 0-11
 
   const { data, error: queryError } = useQuery({
-    queryKey: ['calendar'],
-    queryFn: () => listContent(apiFetch, {}),
+    // Under the ['content'] prefix so a content change refreshes the calendar.
+    queryKey: ['content', { view: 'calendar' }],
+    queryFn: () => listAllContent(apiFetch),
   });
   const content: ContentSummary[] = useMemo(() => data?.content ?? [], [data]);
   const error = queryError ? (queryError as Error).message : null;

@@ -3,10 +3,16 @@ import { jsonResponse, parseBody } from "../services/http-handler.mjs";
 import { withIdempotency } from "../services/idempotency.mjs";
 import { logger } from "../services/logger.mjs";
 import { decodeCursor, encodeCursor, parseLimit } from "../services/pagination.mjs";
-import { attachBrief, reviewCampaignDraft } from "../services/brief-pipeline.mjs";
+import {
+  attachBrief,
+  createCampaignFromBrief,
+  reviewCampaignDraft,
+  stageBriefUpload,
+} from "../services/brief-pipeline.mjs";
 import { presignBriefDownload, presignBriefUpload } from "../services/s3.mjs";
 import { formatCampaign, validateCampaignCreate, validateCampaignUpdate } from "../validation/campaign.mjs";
 import {
+  validateBriefImport,
   validateBriefSubmission,
   validateUploadUrlRequest,
 } from "../validation/brief.mjs";
@@ -64,6 +70,32 @@ export function registerCampaignRoutes(app) {
     // Gamification: a created campaign is the "Deal Maker" activity (and feeds
     // the higher campaign-count tiers). Idempotent per campaign so a retry with
     // the same Idempotency-Key can't double-count.
+    await trackActivity(tenantId, "campaign.created", {
+      id: `campaign.created#${tenantId}#${item.campaignId}`,
+    });
+    return jsonResponse(201, formatCampaign(item));
+  }));
+
+  // POST /campaigns/from-brief/upload-url
+  //
+  // Mints a presigned PUT URL for a brief whose campaign doesn't exist yet. The
+  // client uploads straight to S3, then calls POST /campaigns/from-brief.
+  app.post("/campaigns/from-brief/upload-url", async ({ event }) => {
+    const tenantId = requireTenantId(event);
+    const { content_type: contentType, format } = validateUploadUrlRequest(parseBody(event, { optional: true }));
+    const { uploadId, url, expiresAt } = await stageBriefUpload({ tenantId, format, contentType });
+    return jsonResponse(201, { upload_id: uploadId, upload_url: url, expires_at: expiresAt });
+  });
+
+  // POST /campaigns/from-brief
+  //
+  // Reads a staged brief and creates the campaign from it. Nothing is created
+  // if the file can't be read. Dates and payout come back as brief suggestions
+  // for the user to review.
+  app.post("/campaigns/from-brief", withIdempotency(async ({ event }) => {
+    const tenantId = requireTenantId(event);
+    const submission = validateBriefImport(parseBody(event));
+    const item = await createCampaignFromBrief({ tenantId, ...submission });
     await trackActivity(tenantId, "campaign.created", {
       id: `campaign.created#${tenantId}#${item.campaignId}`,
     });
@@ -145,19 +177,16 @@ export function registerCampaignRoutes(app) {
 
   // POST /campaigns/:campaignId/brief/upload-url
   //
-  // Mints a 15-minute presigned PUT URL for a PDF brief. The client uploads
+  // Mints a 15-minute presigned PUT URL for a brief file. The client uploads
   // the PDF directly to S3 (avoids API Gateway's 6MB payload cap), then
-  // calls POST /campaigns/:campaignId/brief with source_type=pdf.
+  // calls POST /campaigns/:campaignId/brief with the file's source_type.
   app.post("/campaigns/:campaignId/brief/upload-url", async ({ event, params }) => {
     const { campaignId } = params;
     const tenantId = requireTenantId(event);
     await assertCampaignOwned(campaignId, tenantId);
     requireUlid(campaignId, "campaignId");
-    validateUploadUrlRequest(parseBody(event, { optional: true }));
-    const { url, key, expiresAt } = await presignBriefUpload({
-      campaignId,
-      contentType: "application/pdf",
-    });
+    const { content_type: contentType, format } = validateUploadUrlRequest(parseBody(event, { optional: true }));
+    const { url, key, expiresAt } = await presignBriefUpload({ campaignId, format, contentType });
     logger.info("Issued brief upload URL", { campaignId, key });
     return jsonResponse(201, {
       upload_url: url,
@@ -170,7 +199,7 @@ export function registerCampaignRoutes(app) {
   //
   // Attaches a brief to the campaign. Accepts either:
   //   { source_type: "chat", conversation: [...] }
-  //   { source_type: "pdf" }   (after the upload-url flow)
+  //   { source_type: "pdf" | "docx" }   (after the upload-url flow)
   //
   // Summarizes the brief via Bedrock, stores the summary + suggested
   // campaign fields under the campaign (replacing any prior brief), and

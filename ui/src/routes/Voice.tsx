@@ -2,7 +2,8 @@ import type { ReactElement } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApiFetch } from '../auth/useApiFetch';
-import { formatDate } from '../lib/format';
+import ConfirmModal from '../components/ConfirmModal';
+import { formatDate, truncate } from '../lib/format';
 import {
   VOICE_PLATFORMS,
   checkVoice,
@@ -590,6 +591,7 @@ function SamplesList({ platform }: { platform: string }): ReactElement {
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<VoiceSample | null>(null);
 
   const samplesQuery = useQuery({
     queryKey: ['voice', platform, 'samples'],
@@ -625,8 +627,6 @@ function SamplesList({ platform }: { platform: string }): ReactElement {
         (old) => (old ? { ...old, samples: old.samples.filter((s) => s.sample_id !== id) } : old),
       );
       void queryClient.invalidateQueries({ queryKey: ['voice'] });
-    } catch (err) {
-      setActionError((err as Error).message);
     } finally {
       setBusyId(null);
     }
@@ -678,7 +678,7 @@ function SamplesList({ platform }: { platform: string }): ReactElement {
                     <button
                       type="button"
                       className="btn btn-ghost btn-sm"
-                      onClick={() => void remove(s.sample_id)}
+                      onClick={() => setRemoving(s)}
                       disabled={busyId === s.sample_id}
                       aria-label="Delete sample"
                     >
@@ -690,6 +690,18 @@ function SamplesList({ platform }: { platform: string }): ReactElement {
             );
           })}
         </ul>
+      )}
+      {removing && (
+        <ConfirmModal
+          title="Remove sample"
+          confirmLabel="Remove"
+          busyLabel="Removing…"
+          onConfirm={() => remove(removing.sample_id)}
+          onClose={() => setRemoving(null)}
+        >
+          Remove <strong>{truncate(removing.text, 80)}</strong> from your voice? Mute it instead to keep it for
+          reference.
+        </ConfirmModal>
       )}
     </div>
   );

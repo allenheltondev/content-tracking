@@ -3,12 +3,13 @@ import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useApiFetch } from '../auth/useApiFetch';
-import { listCampaigns } from '../api/campaigns';
-import { listVendors } from '../api/vendors';
+import { listAllCampaigns } from '../api/campaigns';
+import { listAllVendors } from '../api/vendors';
 import { getRevenue } from '../api/revenue';
 import { listContent } from '../api/content';
 import type { Campaign, ContentSummary, RevenueResponse, Vendor } from '../api/types';
 import RevenueChart from '../components/RevenueChart';
+import UploadBriefButton from '../components/UploadBriefButton';
 import { formatMoney } from '../lib/format';
 
 const CURRENT_YEAR = new Date().getUTCFullYear();
@@ -35,7 +36,7 @@ export default function Home(): ReactElement {
   });
   const campaignsQuery = useQuery({
     queryKey: ['campaigns'],
-    queryFn: () => listCampaigns(apiFetch, { limit: 200 }),
+    queryFn: () => listAllCampaigns(apiFetch),
   });
   const thisYearQuery = useQuery({
     queryKey: ['revenue', { year: CURRENT_YEAR, grouping: 'month' }],
@@ -44,7 +45,7 @@ export default function Home(): ReactElement {
   // Best-effort: names enrich the lists, last year only drives a delta.
   const vendorsQuery = useQuery({
     queryKey: ['vendors', { bestEffort: true }],
-    queryFn: () => listVendors(apiFetch, { limit: 500 }).catch(() => ({ vendors: [] as Vendor[] })),
+    queryFn: () => listAllVendors(apiFetch).catch(() => ({ vendors: [] as Vendor[] })),
   });
   const lastYearQuery = useQuery({
     queryKey: ['revenue', { year: CURRENT_YEAR - 1 }],
@@ -152,12 +153,14 @@ export default function Home(): ReactElement {
         <DashboardHeader />
         <div className="card card-body text-center py-16 space-y-4">
           <p className="text-muted-foreground">
-            No content yet. Create your first piece — then attach a sponsorship if a brand
-            comes along.
+            Nothing here yet. Create your first piece, or upload a brief to start a campaign.
           </p>
-          <Link to="/content" className="btn btn-primary inline-flex w-auto mx-auto">
-            Create your first piece
-          </Link>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Link to="/content" className="btn btn-primary w-auto">
+              Create your first piece
+            </Link>
+            <UploadBriefButton className="btn btn-secondary w-auto" />
+          </div>
         </div>
       </section>
     );
@@ -349,9 +352,12 @@ function DashboardHeader(): ReactElement {
           Your latest content, plus any sponsorships and how the year is tracking.
         </p>
       </div>
-      <Link to="/content" className="btn btn-primary w-auto">
-        New content
-      </Link>
+      <div className="flex flex-wrap gap-2">
+        <UploadBriefButton className="btn btn-secondary w-auto" />
+        <Link to="/content" className="btn btn-primary w-auto">
+          New content
+        </Link>
+      </div>
     </header>
   );
 }

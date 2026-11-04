@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApiFetch } from '../auth/useApiFetch';
 import { VOICE_PLATFORMS, platformLabel } from '../api/voice';
+import ConfirmModal from '../components/ConfirmModal';
 import TagsInput from '../components/TagsInput';
 import { formatDate } from '../lib/format';
 import {
@@ -495,6 +496,7 @@ function FeedManager({
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<FeedSource | null>(null);
 
   const add = async (): Promise<void> => {
     setAdding(true);
@@ -606,7 +608,7 @@ function FeedManager({
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm text-error-600"
-                  onClick={() => void remove(feed.feed_id)}
+                  onClick={() => setRemoving(feed)}
                   disabled={busyId === feed.feed_id}
                   aria-label="Remove feed"
                 >
@@ -616,6 +618,17 @@ function FeedManager({
             </li>
           ))}
         </ul>
+      )}
+      {removing && (
+        <ConfirmModal
+          title="Remove feed"
+          confirmLabel="Remove"
+          busyLabel="Removing…"
+          onConfirm={() => remove(removing.feed_id)}
+          onClose={() => setRemoving(null)}
+        >
+          Remove <strong>{removing.title ?? removing.url}</strong> from your radar? Mute it instead to pause it.
+        </ConfirmModal>
       )}
     </div>
   );

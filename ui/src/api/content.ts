@@ -1,4 +1,5 @@
 import type { ApiFetch } from '../auth/useApiFetch';
+import { MAX_PAGE_SIZE, fetchAllPages } from './pagination';
 import type {
   AddPublishVariantParams,
   Campaign,
@@ -26,6 +27,7 @@ export interface ListContentParams {
   type?: ContentType;
   source?: string;
   status?: string;
+  limit?: number;
   startKey?: string;
 }
 
@@ -38,9 +40,16 @@ export async function listContent(
       type: params.type,
       source: params.source,
       status: params.status,
+      limit: params.limit,
       startKey: params.startKey,
     },
   });
+}
+
+// Every piece, for screens that are wrong with only some of them.
+export async function listAllContent(apiFetch: ApiFetch): Promise<ContentListResponse> {
+  const pages = await fetchAllPages((startKey) => listContent(apiFetch, { limit: MAX_PAGE_SIZE, startKey }));
+  return { content: pages.flatMap((p) => p.content), nextStartKey: null };
 }
 
 export async function getContent(apiFetch: ApiFetch, contentId: string): Promise<Content> {
