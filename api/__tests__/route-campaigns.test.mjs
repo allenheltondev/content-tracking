@@ -11,10 +11,14 @@ jest.unstable_mockModule("../services/activity.mjs", () => ({ trackActivity: jes
 jest.unstable_mockModule("../services/bedrock/brief.mjs", () => ({ reviewDraft: jest.fn(), summarizeBrief: jest.fn() }));
 jest.unstable_mockModule("../services/google-docs.mjs", () => ({ extractGoogleDocId: jest.fn(), fetchGoogleDocText: jest.fn() }));
 jest.unstable_mockModule("../services/s3.mjs", () => ({
+  briefFileKey: jest.fn(),
   getBriefObjectBytes: jest.fn(),
+  moveBriefObject: jest.fn(),
   presignBriefDownload: jest.fn(),
   presignBriefUpload: jest.fn(),
+  presignStagedBriefUpload: jest.fn(),
   putBriefTranscript: jest.fn(),
+  stagedBriefKey: jest.fn(),
 }));
 jest.unstable_mockModule("../domain/campaign.mjs", () => ({
   assertCampaignOwned: jest.fn(),
@@ -39,7 +43,9 @@ jest.unstable_mockModule("../domain/draft.mjs", () => ({
 }));
 
 const { assertCampaignOwned, createCampaign, updateCampaignFields } = await import("../domain/campaign.mjs");
-const { assertVendorOwned } = await import("../domain/vendor.mjs");
+const { assertVendorOwned, listVendors } = await import("../domain/vendor.mjs");
+const { summarizeBrief } = await import("../services/bedrock/brief.mjs");
+const { presignStagedBriefUpload } = await import("../services/s3.mjs");
 const { trackActivity } = await import("../services/activity.mjs");
 const { NotFoundError } = await import("../services/errors.mjs");
 const { registerCampaignRoutes } = await import("../routes/campaigns.mjs");
@@ -69,6 +75,37 @@ function ctx({ body, params } = {}) {
     params,
   };
 }
+
+describe("routes/campaigns — from brief", () => {
+  const UPLOAD_ID = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test("upload-url scopes the staged file to the caller's tenant", async () => {
+    presignStagedBriefUpload.mockResolvedValue({ url: "https://s3/put", key: "k", expiresAt: "soon" });
+
+    const res = await routes["POST /campaigns/from-brief/upload-url"](ctx({ body: {} }));
+
+    expect(res.statusCode).toBe(201);
+    expect(presignStagedBriefUpload).toHaveBeenCalledWith(expect.objectContaining({ tenantId: SUB, format: "pdf" }));
+    expect(JSON.parse(res.body)).toMatchObject({ upload_url: "https://s3/put", expires_at: "soon" });
+  });
+
+  test("creates the campaign and counts it as created", async () => {
+    listVendors.mockResolvedValue({ items: [] });
+    summarizeBrief.mockResolvedValue({ summary: "s", suggested_campaign: { name: "Acme launch" } });
+    createCampaign.mockResolvedValue({ campaignId: "C1", name: "Acme launch", status: "active" });
+
+    const res = await routes["POST /campaigns/from-brief"](ctx({ body: { upload_id: UPLOAD_ID, source_type: "pdf" } }));
+
+    expect(res.statusCode).toBe(201);
+    expect(JSON.parse(res.body)).toMatchObject({ campaign_id: "C1", name: "Acme launch" });
+    expect(createCampaign).toHaveBeenCalledWith(expect.objectContaining({ tenantId: SUB }));
+    expect(trackActivity).toHaveBeenCalledWith(SUB, "campaign.created", { id: `campaign.created#${SUB}#C1` });
+  });
+});
 
 describe("routes/campaigns — vendor ownership on link", () => {
   beforeEach(() => {

@@ -428,6 +428,12 @@ Resources:
               - StorageClass: STANDARD_IA
                 TransitionInDays: 90
             ExpirationInDays: 365
+          # Briefs wait here until their campaign exists. Claimed files move to
+          # uploads/, so anything still here was abandoned.
+          - Id: ExpireStagedBriefsAfter1Day
+            Status: Enabled
+            Prefix: staged/
+            ExpirationInDays: 1
           - Id: ExpireFailedUploadsAfter7Days
             Status: Enabled
             AbortIncompleteMultipartUpload:

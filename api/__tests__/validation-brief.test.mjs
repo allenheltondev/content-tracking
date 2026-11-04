@@ -1,5 +1,6 @@
 import {
   conversationToTranscript,
+  validateBriefImport,
   validateBriefSubmission,
   validateUploadUrlRequest,
 } from "../validation/brief.mjs";
@@ -7,8 +8,9 @@ import { BadRequestError } from "../services/errors.mjs";
 
 describe("validateUploadUrlRequest", () => {
   test("accepts empty body", () => {
-    expect(validateUploadUrlRequest({})).toEqual({ content_type: "application/pdf" });
-    expect(validateUploadUrlRequest(undefined)).toEqual({});
+    const pdf = { content_type: "application/pdf", format: "pdf" };
+    expect(validateUploadUrlRequest({})).toEqual(pdf);
+    expect(validateUploadUrlRequest(undefined)).toEqual(pdf);
   });
 
   test("rejects non-pdf content_type", () => {
@@ -18,6 +20,15 @@ describe("validateUploadUrlRequest", () => {
   test("accepts explicit application/pdf", () => {
     expect(validateUploadUrlRequest({ content_type: "application/pdf" })).toEqual({
       content_type: "application/pdf",
+      format: "pdf",
+    });
+  });
+
+  test("accepts a Word document", () => {
+    const contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    expect(validateUploadUrlRequest({ content_type: contentType })).toEqual({
+      content_type: contentType,
+      format: "docx",
     });
   });
 });
@@ -70,6 +81,32 @@ describe("validateBriefSubmission", () => {
     test("happy path needs no id (PDF is keyed by campaign)", () => {
       expect(validateBriefSubmission({ source_type: "pdf" })).toEqual({ source_type: "pdf" });
     });
+  });
+});
+
+describe("validateBriefImport", () => {
+  const uploadId = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+
+  test("accepts a staged file", () => {
+    expect(validateBriefImport({ upload_id: uploadId, source_type: "docx", file_name: "Acme.docx" })).toEqual({
+      uploadId,
+      sourceType: "docx",
+      fileName: "Acme.docx",
+    });
+  });
+
+  test("rejects a bad upload id", () => {
+    expect(() => validateBriefImport({ upload_id: "../other", source_type: "pdf" })).toThrow(BadRequestError);
+  });
+
+  test("rejects chat, which has no file", () => {
+    expect(() => validateBriefImport({ upload_id: uploadId, source_type: "chat" })).toThrow(BadRequestError);
+  });
+
+  test("rejects an oversized file name", () => {
+    expect(() =>
+      validateBriefImport({ upload_id: uploadId, source_type: "pdf", file_name: "a".repeat(256) }),
+    ).toThrow(BadRequestError);
   });
 });
 

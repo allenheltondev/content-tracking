@@ -2,14 +2,18 @@ import type { ReactElement } from 'react';
 import { useMemo, useState } from 'react';
 import { ApiError, type ApiFetch } from '../auth/useApiFetch';
 import {
+  briefErrorMessage,
+  briefFormat,
   requestBriefUploadUrl,
   submitChatBrief,
-  submitPdfBrief,
-  uploadPdf,
+  submitFileBrief,
+  uploadBriefFile,
+  type BriefFormat,
 } from '../api/briefs';
 import { createLink, updateCampaign } from '../api/campaigns';
 import type {
   BriefResponse,
+  BriefSourceType,
   Campaign,
   CampaignBrief,
   CampaignLink,
@@ -63,21 +67,22 @@ export default function CampaignBriefSection({
     try {
       finishSubmit(await submitChatBrief(apiFetch, campaign.campaign_id, conversation));
     } catch (err) {
-      setSubmitError(formatBriefError(err));
+      setSubmitError(briefErrorMessage(err));
     } finally {
       setBusy(false);
     }
   };
 
-  const handlePdfSubmit = async (file: File): Promise<void> => {
+  const handleFileSubmit = async (file: File): Promise<void> => {
     setBusy(true);
     setSubmitError(null);
     try {
-      const upload = await requestBriefUploadUrl(apiFetch, campaign.campaign_id);
-      await uploadPdf(upload.upload_url, file);
-      finishSubmit(await submitPdfBrief(apiFetch, campaign.campaign_id));
+      const format = briefFormat(file) as BriefFormat;
+      const upload = await requestBriefUploadUrl(apiFetch, campaign.campaign_id, format);
+      await uploadBriefFile(upload.upload_url, file, format);
+      finishSubmit(await submitFileBrief(apiFetch, campaign.campaign_id, format));
     } catch (err) {
-      setSubmitError(formatBriefError(err));
+      setSubmitError(briefErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -99,14 +104,14 @@ export default function CampaignBriefSection({
       {showPicker && (
         <div className="space-y-3">
           <p className="text-muted-foreground max-w-2xl">
-            Upload a vendor brief PDF or paste the conversation. The model produces a structured
+            Upload a vendor brief or paste the conversation. The model produces a structured
             summary and suggested fields you can apply to this campaign.
           </p>
           {submitError && <p className="form-error">{submitError}</p>}
           <SourcePicker
             busy={busy}
             onSubmitChat={(c) => void handleChatSubmit(c)}
-            onSubmitPdf={(f) => void handlePdfSubmit(f)}
+            onSubmitFile={(f) => void handleFileSubmit(f)}
           />
           {brief && (
             <button
@@ -145,6 +150,12 @@ interface SummaryProps {
   onCampaignChange: (campaign: Campaign) => void;
   onLinkCreated: (link: CampaignLink) => void;
 }
+
+const SOURCE_LABELS: Record<BriefSourceType, string> = {
+  pdf: 'from PDF',
+  docx: 'from Word doc',
+  chat: 'from chat',
+};
 
 interface ApplyState {
   name: string;
@@ -202,6 +213,12 @@ function BriefSummary({
     if (name.length > 0) payload.name = name;
     payload.sponsor = form.sponsor.trim();
     payload.status = form.status;
+    // Link the vendor the brief matched, unless the user retyped the sponsor to
+    // someone else or the campaign already has a vendor.
+    const matched = brief.suggested_campaign?.vendor;
+    if (matched?.vendor_id && !campaign.vendor_id && payload.sponsor === matched.name_hint?.trim()) {
+      payload.vendor_id = matched.vendor_id;
+    }
     if (form.startDate) payload.startDate = form.startDate;
     if (form.endDate) payload.endDate = form.endDate;
 
@@ -241,7 +258,7 @@ function BriefSummary({
           <div className="flex items-baseline gap-2">
             <h3 className="text-sm font-semibold text-foreground">Summary</h3>
             <span className="text-xs text-muted-foreground">
-              {brief.source_type === 'pdf' ? 'from PDF' : 'from chat'}
+              {SOURCE_LABELS[brief.source_type]}
             </span>
           </div>
           <div className="flex items-center gap-3">
@@ -429,18 +446,3 @@ function seedApplyState(campaign: Campaign, brief: CampaignBrief): ApplyState {
   };
 }
 
-function formatBriefError(err: unknown): string {
-  if (err instanceof ApiError) {
-    if (err.status === 502) {
-      return `The model couldn't parse the brief. Try again or simplify the input. (${err.message})`;
-    }
-    if (err.status === 413) {
-      return 'The brief is too large for the API.';
-    }
-    if (err.status === 0) {
-      return 'Network error. Check your connection and retry.';
-    }
-    return err.message;
-  }
-  return (err as Error).message;
-}

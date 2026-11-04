@@ -108,8 +108,8 @@ describe("services/bedrock summarizeBrief", () => {
   });
 
   describe("pdf source", () => {
-    test("requires pdfBytes", async () => {
-      await expect(summarizeBrief({ sourceType: "pdf" })).rejects.toThrow(/pdfBytes is required/);
+    test("requires documentBytes", async () => {
+      await expect(summarizeBrief({ sourceType: "pdf" })).rejects.toThrow(/documentBytes is required/);
     });
 
     test("sends a document content block", async () => {
@@ -118,14 +118,26 @@ describe("services/bedrock summarizeBrief", () => {
         suggested_campaign: { name: "PDF Test" },
       }));
 
-      const pdfBytes = Buffer.from("fake-pdf-bytes");
-      await summarizeBrief({ sourceType: "pdf", pdfBytes });
+      const documentBytes = Buffer.from("fake-pdf-bytes");
+      await summarizeBrief({ sourceType: "pdf", documentBytes });
 
       const command = mockSend.mock.calls[0][0];
       const userContent = command.input.messages[0].content;
       const docBlock = userContent.find((b) => b.document);
       expect(docBlock).toBeDefined();
       expect(docBlock.document.format).toBe("pdf");
+    });
+
+    test("sends Word files as docx documents", async () => {
+      mockSend.mockResolvedValueOnce(validToolUseResponse({
+        summary: "Word brief summary.",
+        suggested_campaign: { name: "Word Test" },
+      }));
+
+      await summarizeBrief({ sourceType: "docx", documentBytes: Buffer.from("fake-docx-bytes") });
+
+      const userContent = mockSend.mock.calls[0][0].input.messages[0].content;
+      expect(userContent.find((b) => b.document).document.format).toBe("docx");
     });
   });
 

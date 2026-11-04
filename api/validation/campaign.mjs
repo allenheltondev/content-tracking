@@ -34,8 +34,8 @@ const VALID_STATUSES = new Set(["draft", "active", "monitoring", "completed"]);
 // GA4 + Core Web Vitals off blog_url) or a YouTube video (tracked via the
 // YouTube Data API off youtube_url). The two are mutually exclusive.
 const VALID_DELIVERABLE_TYPES = new Set(["blog", "youtube"]);
-const NAME_MAX = 200;
-const SPONSOR_MAX = 200;
+export const NAME_MAX = 200;
+export const SPONSOR_MAX = 200;
 const BLOG_URL_MAX = 2048;
 const YOUTUBE_URL_MAX = 2048;
 const LINK_TRACKING_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;

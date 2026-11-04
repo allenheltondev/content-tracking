@@ -10,10 +10,12 @@ export interface SuggestedPayout {
   currency?: string;
 }
 
+export type BriefSourceType = 'pdf' | 'docx' | 'chat';
+
 export interface SuggestedCampaign {
   name?: string;
-  vendor?: { name_hint?: string };
-  vendor_id?: string;
+  // vendor_id is set only when the brief matched one of the user's vendors.
+  vendor?: { vendor_id?: string; name_hint?: string };
   startDate?: string;
   endDate?: string;
   deliverables?: Deliverable[];
@@ -25,10 +27,16 @@ export interface SuggestedCampaign {
 // the brief and it's stored on the campaign.
 export interface BriefResponse {
   campaign_id: string;
-  source_type: 'pdf' | 'chat';
+  source_type: BriefSourceType;
   summary: string;
   suggested_campaign: SuggestedCampaign;
   warnings: string[];
+}
+
+export interface StagedBriefUpload {
+  upload_id: string;
+  upload_url: string;
+  expires_at: string;
 }
 
 export interface UploadUrlResponse {
@@ -39,7 +47,7 @@ export interface UploadUrlResponse {
 
 // The brief attached to a campaign, as embedded in CampaignDetailResponse.
 export interface CampaignBrief {
-  source_type: 'pdf' | 'chat';
+  source_type: BriefSourceType;
   summary: string;
   suggested_campaign: SuggestedCampaign;
   warnings: string[];
@@ -206,6 +214,8 @@ export interface Campaign {
   name: string;
   sponsor: string | null;
   vendor_id: string | null;
+  // The content piece this campaign sponsors (1:1), if any.
+  content_id: string | null;
   startDate: string | null;
   endDate: string | null;
   status: CampaignStatus;

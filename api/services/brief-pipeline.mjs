@@ -1,21 +1,56 @@
 import { BadRequestError, NotFoundError } from "./errors.mjs";
+import { ulid } from "ulid";
 import { logger } from "./logger.mjs";
 import { reviewDraft, summarizeBrief } from "./bedrock/brief.mjs";
 import { fetchGoogleDocText } from "./google-docs.mjs";
-import { getBriefObjectBytes, putBriefTranscript } from "./s3.mjs";
+import {
+  briefFileKey,
+  getBriefObjectBytes,
+  moveBriefObject,
+  presignStagedBriefUpload,
+  putBriefTranscript,
+  stagedBriefKey,
+} from "./s3.mjs";
 import { conversationToTranscript } from "../validation/brief.mjs";
-import { findCampaign } from "../domain/campaign.mjs";
+import { NAME_MAX, SPONSOR_MAX, validateCampaignCreate } from "../validation/campaign.mjs";
+import { createCampaign, findCampaign } from "../domain/campaign.mjs";
 import { listVendors } from "../domain/vendor.mjs";
 import { getBriefForCampaign, saveBriefForCampaign } from "../domain/brief.mjs";
 import { getDraftForCampaign, saveDraftReview } from "../domain/draft.mjs";
 
-// The brief pipeline: turning a chat transcript or uploaded PDF into a
+// The brief pipeline: turning a chat transcript or uploaded file into a
 // stored, summarized brief, and reviewing a campaign's working draft
 // against it. Moved out of routes/campaigns.mjs so the route stays HTTP
 // glue and this flow is testable on its own.
 
+// Reads an uploaded brief file, turning a missing object into a 400. The caller
+// likely forgot to PUT the file before POSTing, or the upload URL expired.
+async function readBriefFile(s3Key) {
+  try {
+    return await getBriefObjectBytes(s3Key);
+  } catch (err) {
+    logger.warn("Brief file not found in S3", { s3Key, error: err?.message });
+    throw new BadRequestError("No uploaded brief found. Upload the file first.");
+  }
+}
+
+async function listVendorContext(tenantId) {
+  const { items } = await listVendors({ tenantId });
+  return (items ?? []).map((v) => ({ vendorId: v.vendorId, name: v.name }));
+}
+
+// Drops a vendor_id the model made up, so nothing downstream links the campaign
+// to a vendor that doesn't exist or isn't this tenant's.
+function withKnownVendor(toolInput, vendors) {
+  const suggested = toolInput.suggested_campaign;
+  const vendorId = suggested?.vendor?.vendor_id;
+  if (!vendorId || vendors.some((v) => v.vendorId === vendorId)) return toolInput;
+  const { vendor_id: _unknown, ...vendor } = suggested.vendor;
+  return { ...toolInput, suggested_campaign: { ...suggested, vendor } };
+}
+
 // Attaches a brief to the campaign. Accepts a validated submission of
-// source_type "chat" (with conversation) or "pdf" (after the upload-url
+// source_type "chat" (with conversation) or "pdf"/"docx" (after the upload-url
 // flow). Summarizes via Bedrock, stores the summary + suggested campaign
 // fields (replacing any prior brief), and returns what the route echoes
 // back. Bedrock/S3 errors propagate — the route runs inside
@@ -29,19 +64,8 @@ export async function attachBrief({ campaignId, tenantId, submission }) {
     s3Key = await putBriefTranscript({ campaignId, body: transcript });
     bedrockInput = { sourceType: "chat", text: transcript };
   } else {
-    s3Key = `uploads/${campaignId}.pdf`;
-    let pdfBytes;
-    try {
-      pdfBytes = await getBriefObjectBytes(s3Key);
-    } catch (err) {
-      // The caller likely forgot to PUT the PDF before POSTing, or the
-      // upload URL expired. Surface as 400 with the cause.
-      logger.warn("Brief PDF not found in S3", { campaignId, error: err?.message });
-      throw new BadRequestError(
-        `No PDF found at ${s3Key}. Upload to the presigned URL first.`,
-      );
-    }
-    bedrockInput = { sourceType: "pdf", pdfBytes };
+    s3Key = briefFileKey(campaignId, submission.source_type);
+    bedrockInput = { sourceType: submission.source_type, documentBytes: await readBriefFile(s3Key) };
   }
 
   // Give the model what we already know about the campaign and the
@@ -49,17 +73,14 @@ export async function attachBrief({ campaignId, tenantId, submission }) {
   // match the brief's vendor against an existing record rather than
   // fabricating a new spelling. Both are best-effort: empty list /
   // missing campaign just means the prompt has less context.
-  const [existingCampaign, vendorList] = await Promise.all([
+  const [existingCampaign, vendors] = await Promise.all([
     findCampaign(campaignId),
-    listVendors({ tenantId }),
+    listVendorContext(tenantId),
   ]);
   bedrockInput.existingCampaign = existingCampaign;
-  bedrockInput.vendors = (vendorList.items ?? []).map((v) => ({
-    vendorId: v.vendorId,
-    name: v.name,
-  }));
+  bedrockInput.vendors = vendors;
 
-  const toolInput = await summarizeBrief(bedrockInput);
+  const toolInput = withKnownVendor(await summarizeBrief(bedrockInput), vendors);
   const { summary, suggested_campaign } = toolInput;
   const warnings = Array.isArray(toolInput.warnings) ? [...toolInput.warnings] : [];
 
@@ -73,6 +94,62 @@ export async function attachBrief({ campaignId, tenantId, submission }) {
   });
 
   return { summary, suggested_campaign, warnings };
+}
+
+// Mints a presigned URL for a brief whose campaign doesn't exist yet. The file
+// waits under a staged key until createCampaignFromBrief claims it.
+export async function stageBriefUpload({ tenantId, format, contentType }) {
+  const uploadId = ulid();
+  const upload = await presignStagedBriefUpload({ tenantId, uploadId, format, contentType });
+  return { uploadId, ...upload };
+}
+
+function nameFromFile(fileName) {
+  return fileName?.replace(/\.[^.]+$/, "").trim() || "Untitled campaign";
+}
+
+// Creates a campaign from a staged brief. The campaign is written only after
+// the model has read the file, so a bad upload leaves nothing behind. Name,
+// sponsor, and vendor are saved here. Dates and payout stay suggestions until
+// the user reviews and applies them, since payout feeds revenue.
+export async function createCampaignFromBrief({ tenantId, uploadId, sourceType, fileName }) {
+  const stagedKey = stagedBriefKey(tenantId, uploadId, sourceType);
+  const documentBytes = await readBriefFile(stagedKey);
+  const vendors = await listVendorContext(tenantId);
+
+  const toolInput = withKnownVendor(await summarizeBrief({ sourceType, documentBytes, vendors }), vendors);
+  const { summary, suggested_campaign: suggested } = toolInput;
+  const warnings = Array.isArray(toolInput.warnings) ? [...toolInput.warnings] : [];
+
+  const fields = validateCampaignCreate({
+    name: (suggested?.name || nameFromFile(fileName)).slice(0, NAME_MAX),
+    sponsor: suggested?.vendor?.name_hint?.slice(0, SPONSOR_MAX),
+    vendor_id: suggested?.vendor?.vendor_id,
+  });
+  const campaign = await createCampaign({ ...fields, tenantId });
+
+  // The campaign can't be rolled back, and a thrown error here would make a
+  // retry create a second one. The user lands on the Brief tab either way and
+  // can upload again, so log and carry on.
+  try {
+    const s3Key = briefFileKey(campaign.campaignId, sourceType);
+    await moveBriefObject({ from: stagedKey, to: s3Key });
+    await saveBriefForCampaign({
+      campaignId: campaign.campaignId,
+      sourceType,
+      s3Key,
+      summary,
+      suggestedCampaign: suggested,
+      warnings,
+    });
+  } catch (err) {
+    logger.error("Campaign created but its brief was not saved", {
+      campaignId: campaign.campaignId,
+      error: err?.message,
+    });
+  }
+
+  return campaign;
 }
 
 // Reviews the campaign's working draft against its brief: pulls the

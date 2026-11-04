@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { useApiFetch, ApiError } from '../auth/useApiFetch';
 import { createCampaign, listCampaigns } from '../api/campaigns';
 import type { CampaignStatus, CreateCampaignRequest } from '../api/types';
@@ -21,11 +21,13 @@ export default function Campaigns(): ReactElement {
   const [serverError, setServerError] = useState<string | null>(null);
 
   const filters = statusFilter === 'all' ? {} : { status: statusFilter };
-  const { data, error: queryError } = useQuery({
+  const { data, error: queryError, hasNextPage, isFetchingNextPage, fetchNextPage } = useInfiniteQuery({
     queryKey: ['campaigns', filters],
-    queryFn: () => listCampaigns(apiFetch, filters),
+    queryFn: ({ pageParam }) => listCampaigns(apiFetch, { ...filters, startKey: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextStartKey,
   });
-  const campaigns = data?.campaigns ?? null;
+  const campaigns = data?.pages.flatMap((p) => p.campaigns) ?? null;
   const error = queryError ? (queryError as Error).message : null;
 
   const handleCreate = async (payload: CreateCampaignRequest): Promise<void> => {
@@ -109,6 +111,16 @@ export default function Campaigns(): ReactElement {
           </tbody>
         </table>
         </div>
+      )}
+      {hasNextPage && (
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => void fetchNextPage()}
+          disabled={isFetchingNextPage}
+        >
+          {isFetchingNextPage ? 'Loading…' : 'Load more'}
+        </button>
       )}
 
       <Modal

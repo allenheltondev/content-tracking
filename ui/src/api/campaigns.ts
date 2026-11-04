@@ -1,4 +1,5 @@
 import type { ApiFetch } from '../auth/useApiFetch';
+import { MAX_PAGE_SIZE, fetchAllPages } from './pagination';
 import type {
   Campaign,
   CampaignAnalyticsResponse,
@@ -33,6 +34,12 @@ export async function listCampaigns(
       startKey: options.startKey,
     },
   });
+}
+
+// Every campaign, for screens that are wrong with only some of them.
+export async function listAllCampaigns(apiFetch: ApiFetch): Promise<CampaignListResponse> {
+  const pages = await fetchAllPages((startKey) => listCampaigns(apiFetch, { limit: MAX_PAGE_SIZE, startKey }));
+  return { campaigns: pages.flatMap((p) => p.campaigns) };
 }
 
 export async function getCampaign(

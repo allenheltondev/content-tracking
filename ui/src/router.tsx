@@ -23,6 +23,7 @@ import ContentRadar from './routes/ContentRadar';
 import MediaKit from './routes/MediaKit';
 import Profile from './routes/Profile';
 import Settings from './routes/Settings';
+import RouteError, { NotFound } from './routes/RouteError';
 
 export const router = createBrowserRouter([
   {
@@ -46,6 +47,7 @@ export const router = createBrowserRouter([
         <CampaignReport />
       </ProtectedRoute>
     ),
+    errorElement: <RouteError />,
   },
   {
     path: '/',
@@ -54,7 +56,12 @@ export const router = createBrowserRouter([
         <App />
       </ProtectedRoute>
     ),
+    errorElement: <RouteError />,
     children: [
+      {
+        // Pathless so a crashing page renders inside the shell, nav included.
+        errorElement: <RouteError />,
+        children: [
       { index: true, element: <Home /> },
       { path: 'campaigns', element: <Campaigns /> },
       { path: 'campaigns/:campaignId', element: <CampaignDetail /> },
@@ -83,6 +90,9 @@ export const router = createBrowserRouter([
       { path: 'media-kit', element: <MediaKit /> },
       { path: 'profile', element: <Profile /> },
       { path: 'settings', element: <Settings /> },
+      { path: '*', element: <NotFound /> },
+        ],
+      },
     ],
   },
 ]);

@@ -25,10 +25,12 @@ import RegisterSocialPostForm from '../components/RegisterSocialPostForm';
 import RegisterContentPostForm from '../components/RegisterContentPostForm';
 import CampaignBriefSection from '../components/CampaignBriefSection';
 import CampaignDraftTab from '../components/CampaignDraftTab';
+import ConfirmModal from '../components/ConfirmModal';
 import CampaignReportsTab from '../components/CampaignReportsTab';
 import EngagementSection from '../components/EngagementSection';
 import EngagementRecommendationsSection from '../components/EngagementRecommendationsSection';
 import InstallExtensionModal from '../components/InstallExtensionModal';
+import CampaignContentLink from './campaign-detail/CampaignContentLink';
 import { AnalyticsDiagnostic, ClickBreakdowns, ClickLinkTable, ClickSummaryTiles } from './campaign-detail/ClickAnalytics';
 import { WebAnalyticsSection } from './campaign-detail/WebAnalytics';
 import {
@@ -108,6 +110,7 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
   const [showContentForm, setShowContentForm] = useState(false);
 
   const [extensionModalOpen, setExtensionModalOpen] = useState(false);
+  const [removingPost, setRemovingPost] = useState<{ bucket: 'social' | 'content'; postId: string; url: string } | null>(null);
 
   // Campaign metadata + links. Cheap; fires on mount.
   const bundleQuery = useQuery({
@@ -312,6 +315,8 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
               onCampaignChange={onCampaignChange}
             />
           </div>
+          {/* Embedded on the content page, the sponsorship card owns the link. */}
+          {!campaignIdProp && <CampaignContentLink campaign={campaign} onCampaignChange={onCampaignChange} />}
         </div>
         <div className="flex items-center gap-3">
           <StatusChipEditor
@@ -485,7 +490,7 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
                         <button
                           type="button"
                           className="btn-link text-error-600"
-                          onClick={() => void handleDeletePost(post.post_id)}
+                          onClick={() => setRemovingPost({ bucket: 'social', postId: post.post_id, url: post.url })}
                         >
                           Remove
                         </button>
@@ -576,7 +581,7 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
                         <button
                           type="button"
                           className="btn-link text-error-600"
-                          onClick={() => void handleDeleteContentPost(post.post_id)}
+                          onClick={() => setRemovingPost({ bucket: 'content', postId: post.post_id, url: post.url })}
                         >
                           Remove
                         </button>
@@ -726,6 +731,22 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
         open={extensionModalOpen}
         onClose={() => setExtensionModalOpen(false)}
       />
+
+      {removingPost && (
+        <ConfirmModal
+          title="Remove post"
+          confirmLabel="Remove"
+          busyLabel="Removing…"
+          onConfirm={() =>
+            removingPost.bucket === 'social'
+              ? handleDeletePost(removingPost.postId)
+              : handleDeleteContentPost(removingPost.postId)
+          }
+          onClose={() => setRemovingPost(null)}
+        >
+          Stop tracking <strong>{truncate(removingPost.url, 60)}</strong>? Its engagement numbers are deleted with it.
+        </ConfirmModal>
+      )}
     </section>
   );
 }

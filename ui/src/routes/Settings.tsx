@@ -22,6 +22,7 @@ import type {
   ProfileResponse,
   ProfileUpdateRequest,
 } from '../api/types';
+import ConfirmModal from '../components/ConfirmModal';
 import Modal from '../components/Modal';
 import {
   CROSSPOST_PLATFORM_LABELS,
@@ -397,6 +398,7 @@ function ExtensionTab(): ReactElement {
   const [justMinted, setJustMinted] = useState<CreateExtensionPairingResponse | null>(null);
 
   const [revoking, setRevoking] = useState<string | null>(null);
+  const [confirmingRevoke, setConfirmingRevoke] = useState<ExtensionPairing | null>(null);
   const [revokeError, setRevokeError] = useState<string | null>(null);
 
   const onGenerated = (res: CreateExtensionPairingResponse): void => {
@@ -517,7 +519,7 @@ function ExtensionTab(): ReactElement {
                     <button
                       type="button"
                       className="btn-link text-error-600"
-                      onClick={() => void revoke(p.jti)}
+                      onClick={() => setConfirmingRevoke(p)}
                       disabled={revoking === p.jti}
                     >
                       {revoking === p.jti ? 'Revoking...' : 'Revoke'}
@@ -541,6 +543,19 @@ function ExtensionTab(): ReactElement {
         result={justMinted}
         onClose={() => setJustMinted(null)}
       />
+
+      {confirmingRevoke && (
+        <ConfirmModal
+          title="Revoke device"
+          confirmLabel="Revoke"
+          busyLabel="Revoking…"
+          onConfirm={() => revoke(confirmingRevoke.jti)}
+          onClose={() => setConfirmingRevoke(null)}
+        >
+          Revoke <strong>{confirmingRevoke.label}</strong>? The extension stops capturing engagement on that device
+          until you pair it again.
+        </ConfirmModal>
+      )}
     </div>
   );
 }
@@ -713,6 +728,7 @@ function ApiKeysTab(): ReactElement {
   const [justMinted, setJustMinted] = useState<CreateApiKeyResponse | null>(null);
 
   const [revoking, setRevoking] = useState<string | null>(null);
+  const [confirmingRevoke, setConfirmingRevoke] = useState<ApiKey | null>(null);
   const [revokeError, setRevokeError] = useState<string | null>(null);
 
   const onGenerated = (res: CreateApiKeyResponse): void => {
@@ -813,7 +829,7 @@ function ApiKeysTab(): ReactElement {
                       <button
                         type="button"
                         className="btn-link text-error-600"
-                        onClick={() => void revoke(k.jti)}
+                        onClick={() => setConfirmingRevoke(k)}
                         disabled={revoking === k.jti}
                       >
                         {revoking === k.jti ? 'Revoking...' : 'Revoke'}
@@ -834,6 +850,19 @@ function ApiKeysTab(): ReactElement {
       />
 
       <NewApiKeyDialog result={justMinted} onClose={() => setJustMinted(null)} />
+
+      {confirmingRevoke && (
+        <ConfirmModal
+          title="Revoke API key"
+          confirmLabel="Revoke"
+          busyLabel="Revoking…"
+          onConfirm={() => revoke(confirmingRevoke.jti)}
+          onClose={() => setConfirmingRevoke(null)}
+        >
+          Revoke <strong>{confirmingRevoke.label}</strong>? Anything using this key stops working right away, and
+          it can't be restored.
+        </ConfirmModal>
+      )}
     </div>
   );
 }

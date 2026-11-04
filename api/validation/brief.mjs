@@ -1,11 +1,24 @@
 import { BadRequestError } from "../services/errors.mjs";
+import { requireUlid } from "./common.mjs";
 
 const VALID_ROLES = new Set(["vendor", "influencer", "user", "assistant"]);
 const MAX_CONVERSATION_ENTRIES = 200;
 const MAX_CONTENT_LEN = 10_000;
+const FILE_NAME_MAX = 255;
+const DEFAULT_CONTENT_TYPE = "application/pdf";
+
+// Uploadable brief files. The format doubles as the file extension, the brief's
+// source_type, and the Bedrock document format.
+const FORMAT_BY_CONTENT_TYPE = {
+  "application/pdf": "pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+};
+const FILE_FORMATS = new Set(Object.values(FORMAT_BY_CONTENT_TYPE));
 
 export function validateUploadUrlRequest(body) {
-  if (body === null || body === undefined) return {};
+  if (body === null || body === undefined) {
+    return { content_type: DEFAULT_CONTENT_TYPE, format: FORMAT_BY_CONTENT_TYPE[DEFAULT_CONTENT_TYPE] };
+  }
   if (typeof body !== "object" || Array.isArray(body)) {
     throw new BadRequestError("request body must be a JSON object");
   }
@@ -14,11 +27,29 @@ export function validateUploadUrlRequest(body) {
     if (typeof content_type !== "string") {
       throw new BadRequestError("content_type must be a string");
     }
-    if (content_type !== "application/pdf") {
-      throw new BadRequestError("content_type must be application/pdf");
+    if (!FORMAT_BY_CONTENT_TYPE[content_type]) {
+      throw new BadRequestError("content_type must be a PDF or a .docx Word document");
     }
   }
-  return { content_type: content_type || "application/pdf" };
+  const resolved = content_type || DEFAULT_CONTENT_TYPE;
+  return { content_type: resolved, format: FORMAT_BY_CONTENT_TYPE[resolved] };
+}
+
+// The body of POST /campaigns/from-brief, sent after the file is uploaded to
+// the staged URL.
+export function validateBriefImport(body) {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new BadRequestError("request body must be a JSON object");
+  }
+  const { upload_id, source_type, file_name } = body;
+  requireUlid(upload_id, "upload_id");
+  if (!FILE_FORMATS.has(source_type)) {
+    throw new BadRequestError("source_type must be 'pdf' or 'docx'");
+  }
+  if (file_name !== undefined && (typeof file_name !== "string" || file_name.length > FILE_NAME_MAX)) {
+    throw new BadRequestError(`file_name must be a string up to ${FILE_NAME_MAX} chars`);
+  }
+  return { uploadId: upload_id, sourceType: source_type, fileName: file_name };
 }
 
 export function validateBriefSubmission(body) {
@@ -29,10 +60,12 @@ export function validateBriefSubmission(body) {
   if (source_type === "chat") {
     return validateChatBrief(body);
   }
-  if (source_type === "pdf") {
-    return validatePdfBrief(body);
+  if (FILE_FORMATS.has(source_type)) {
+    // The file lives at uploads/{campaignId}.{format} (the campaign-scoped
+    // upload-url flow), so the submission body carries no id of its own.
+    return { source_type };
   }
-  throw new BadRequestError("source_type must be 'chat' or 'pdf'");
+  throw new BadRequestError("source_type must be 'chat', 'pdf', or 'docx'");
 }
 
 function validateChatBrief(body) {
@@ -66,12 +99,6 @@ function validateChatBrief(body) {
     normalized.push({ role, content });
   }
   return { source_type: "chat", conversation: normalized };
-}
-
-function validatePdfBrief() {
-  // The PDF lives at uploads/{campaignId}.pdf (the campaign-scoped
-  // upload-url flow), so the submission body carries no id of its own.
-  return { source_type: "pdf" };
 }
 
 // Serializes a validated conversation array into a single text block
