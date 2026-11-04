@@ -399,7 +399,6 @@ function ExtensionTab(): ReactElement {
 
   const [revoking, setRevoking] = useState<string | null>(null);
   const [confirmingRevoke, setConfirmingRevoke] = useState<ExtensionPairing | null>(null);
-  const [revokeError, setRevokeError] = useState<string | null>(null);
 
   const onGenerated = (res: CreateExtensionPairingResponse): void => {
     queryClient.setQueryData<ExtensionPairing[]>(['extension-pairings'], (prev) => [
@@ -412,7 +411,6 @@ function ExtensionTab(): ReactElement {
   };
 
   const revoke = async (jti: string): Promise<void> => {
-    setRevokeError(null);
     setRevoking(jti);
     try {
       await revokeExtensionPairing(apiFetch, jti);
@@ -420,8 +418,6 @@ function ExtensionTab(): ReactElement {
         (prev ?? []).filter((p) => p.jti !== jti),
       );
       void queryClient.invalidateQueries({ queryKey: ['extension-pairings'] });
-    } catch (err) {
-      setRevokeError(err instanceof ApiError ? err.message : (err as Error).message);
     } finally {
       setRevoking(null);
     }
@@ -491,7 +487,6 @@ function ExtensionTab(): ReactElement {
           extension holds for your account.
         </p>
         {loadError && <p className="form-error">Could not load pairings: {loadError}</p>}
-        {revokeError && <p className="form-error">{revokeError}</p>}
         {loading ? (
           <p className="text-muted-foreground">Loading...</p>
         ) : pairings.length === 0 ? (
@@ -729,7 +724,6 @@ function ApiKeysTab(): ReactElement {
 
   const [revoking, setRevoking] = useState<string | null>(null);
   const [confirmingRevoke, setConfirmingRevoke] = useState<ApiKey | null>(null);
-  const [revokeError, setRevokeError] = useState<string | null>(null);
 
   const onGenerated = (res: CreateApiKeyResponse): void => {
     const { key: _key, ...meta } = res;
@@ -740,7 +734,6 @@ function ApiKeysTab(): ReactElement {
   };
 
   const revoke = async (jti: string): Promise<void> => {
-    setRevokeError(null);
     setRevoking(jti);
     try {
       await revokeApiKey(apiFetch, jti);
@@ -748,8 +741,6 @@ function ApiKeysTab(): ReactElement {
         (prev ?? []).filter((k) => k.jti !== jti),
       );
       void queryClient.invalidateQueries({ queryKey: ['api-keys'] });
-    } catch (err) {
-      setRevokeError(err instanceof ApiError ? err.message : (err as Error).message);
     } finally {
       setRevoking(null);
     }
@@ -801,7 +792,6 @@ function ApiKeysTab(): ReactElement {
           row to cut that automation off immediately.
         </p>
         {loadError && <p className="form-error">Could not load keys: {loadError}</p>}
-        {revokeError && <p className="form-error">{revokeError}</p>}
         {loading ? (
           <p className="text-muted-foreground">Loading...</p>
         ) : keys.length === 0 ? (

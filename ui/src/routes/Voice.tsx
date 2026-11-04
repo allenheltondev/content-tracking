@@ -627,8 +627,6 @@ function SamplesList({ platform }: { platform: string }): ReactElement {
         (old) => (old ? { ...old, samples: old.samples.filter((s) => s.sample_id !== id) } : old),
       );
       void queryClient.invalidateQueries({ queryKey: ['voice'] });
-    } catch (err) {
-      setActionError((err as Error).message);
     } finally {
       setBusyId(null);
     }

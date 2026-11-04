@@ -205,17 +205,13 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
   const handleDeletePost = async (postId: string): Promise<void> => {
     if (!campaignId) return;
     setPostError(null);
-    try {
-      await deleteSocialPost(apiFetch, campaignId, postId);
-      queryClient.setQueryData<CampaignDetailResponse>(['campaign', campaignId], (prev) =>
-        prev
-          ? { ...prev, social_posts: prev.social_posts.filter((p) => p.post_id !== postId) }
-          : prev,
-      );
-      void queryClient.invalidateQueries({ queryKey: ['campaign', campaignId], exact: true });
-    } catch (err) {
-      setPostError(err instanceof ApiError ? err.message : (err as Error).message);
-    }
+    await deleteSocialPost(apiFetch, campaignId, postId);
+    queryClient.setQueryData<CampaignDetailResponse>(['campaign', campaignId], (prev) =>
+      prev
+        ? { ...prev, social_posts: prev.social_posts.filter((p) => p.post_id !== postId) }
+        : prev,
+    );
+    void queryClient.invalidateQueries({ queryKey: ['campaign', campaignId], exact: true });
   };
 
   const handleTrackContentPost = async (payload: CreateContentPostRequest): Promise<void> => {
@@ -239,17 +235,13 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
   const handleDeleteContentPost = async (postId: string): Promise<void> => {
     if (!campaignId) return;
     setContentError(null);
-    try {
-      await deleteContentPost(apiFetch, campaignId, postId);
-      queryClient.setQueryData<CampaignDetailResponse>(['campaign', campaignId], (prev) =>
-        prev
-          ? { ...prev, content_posts: prev.content_posts.filter((p) => p.post_id !== postId) }
-          : prev,
-      );
-      void queryClient.invalidateQueries({ queryKey: ['campaign', campaignId], exact: true });
-    } catch (err) {
-      setContentError(err instanceof ApiError ? err.message : (err as Error).message);
-    }
+    await deleteContentPost(apiFetch, campaignId, postId);
+    queryClient.setQueryData<CampaignDetailResponse>(['campaign', campaignId], (prev) =>
+      prev
+        ? { ...prev, content_posts: prev.content_posts.filter((p) => p.post_id !== postId) }
+        : prev,
+    );
+    void queryClient.invalidateQueries({ queryKey: ['campaign', campaignId], exact: true });
   };
 
   if (loadError) {

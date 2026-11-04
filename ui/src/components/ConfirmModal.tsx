@@ -6,7 +6,8 @@ interface Props {
   title: string;
   confirmLabel: string;
   busyLabel: string;
-  // Closes the dialog on success. A rejection stays open and shows the message.
+  // Closes the dialog on success. A rejection stays open and shows the message,
+  // so the action must let its failure reject. Catching it reads as success.
   onConfirm: () => Promise<void>;
   onClose: () => void;
   children: ReactNode;

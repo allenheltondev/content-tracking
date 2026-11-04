@@ -211,8 +211,6 @@ function PublicKitPanel({
     try {
       await unpublishMediaKit(apiFetch);
       onChange({ ...state, published: false, url: null, published_at: null });
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : (err as Error).message);
     } finally {
       setBusy(false);
     }
