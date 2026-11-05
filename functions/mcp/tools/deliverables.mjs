@@ -67,24 +67,26 @@ export function registerDeliverableTools(server, { tenantId }) {
     }),
   );
 
+  // Only notes are editable. The short link's redirect, src attribution, and
+  // expiry live in newsletter-service, which has no update API, so changing
+  // them on Booked's row would not change the live link.
   server.registerTool(
     "update_campaign_link",
     {
-      title: "Update tracked link",
-      description: "Edit a link's notes, src tag, or expiry. The destination and role cannot change.",
+      title: "Update tracked link notes",
+      description:
+        "Edit a tracked link's notes, which are kept in Booked only. The destination, role, src tag, and expiry are fixed when the link is minted; to change them, delete the link and add a new one.",
       inputSchema: z.object({
         campaign_id: id("campaign"),
         link_id: id("link"),
-        notes: z.string().nullable().optional(),
-        src: z.string().nullable().optional(),
-        expires_at: z.string().nullable().optional().describe("ISO date-time. null removes the expiry."),
+        notes: z.string().nullable().describe("null clears the notes."),
       }),
       outputSchema: z.object({ link: anyObject }),
       annotations: UPDATE,
     },
-    guarded(async ({ campaign_id: campaignId, link_id: linkId, ...body }) => {
+    guarded(async ({ campaign_id: campaignId, link_id: linkId, notes }) => {
       await owned(campaignId);
-      const fields = validateLinkUpdate(stripUndefined(body));
+      const fields = validateLinkUpdate({ notes });
       return { link: formatLink(await updateLink(campaignId, linkId, fields), { includeCampaignId: true }) };
     }),
   );
@@ -226,10 +228,4 @@ export function registerDeliverableTools(server, { tenantId }) {
       return { deleted: true, post_id: postId };
     }),
   );
-}
-
-// zod leaves omitted optional keys out, but be explicit: validateLinkUpdate
-// treats every present key as an edit.
-function stripUndefined(obj) {
-  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined));
 }

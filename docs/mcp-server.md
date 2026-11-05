@@ -72,7 +72,7 @@ as "not found".
 | Tool | What it does |
 | --- | --- |
 | `add_campaign_link` | Mint a tracked short link (`role`: main, cross_post, social_promo). |
-| `update_campaign_link` | Edit notes, src tag, or expiry. |
+| `update_campaign_link` | Edit the link's notes. The src tag and expiry are set when the link is minted and live in newsletter-service, which has no update API; delete and re-add the link to change them. |
 | `delete_campaign_link` | Delete the link and retire its short URL. |
 | `add_social_post` / `add_content_post` | Track a post. Platform is derived from the URL when omitted. |
 | `record_social_post_metrics` / `record_content_post_metrics` | Replace the post's metrics and write today's history point. |
@@ -144,6 +144,11 @@ they are absent from `tools/list` and calling one returns JSON-RPC error
 `-32602` ("Tool ... not found"). The server's `instructions` also say the key
 is read only. The annotation is the single source of truth: a new tool is
 available to read keys only if it is marked read-only.
+
+Campaign tools return the campaign's `payout` (fee, currency, paid state,
+invoice reference) to both levels; it is part of the campaign record. The
+revenue rollups behind `/revenue` have no MCP tool, so no key can read
+earnings totalled across campaigns.
 
 ## Auth and tenancy
 

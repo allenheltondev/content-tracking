@@ -38,7 +38,9 @@ describe("setCampaignStatus", () => {
     campaignDomain.assertCampaignOwned.mockResolvedValue({ campaignId: "C1", status: "active" });
     await setCampaignStatus(TENANT, "C1", "monitoring");
     expect(campaignDomain.assertCampaignOwned).toHaveBeenCalledWith("C1", TENANT);
-    expect(campaignDomain.updateCampaignFields).toHaveBeenCalledWith("C1", { status: "monitoring" });
+    expect(campaignDomain.updateCampaignFields).toHaveBeenCalledWith(
+      "C1", { status: "monitoring" }, { expectStatus: "active" },
+    );
   });
 
   test.each([
@@ -61,7 +63,7 @@ describe("setCampaignStatus", () => {
   ])("allows %s -> %s", async (from, to) => {
     campaignDomain.assertCampaignOwned.mockResolvedValue({ campaignId: "C1", status: from });
     await setCampaignStatus(TENANT, "C1", to);
-    expect(campaignDomain.updateCampaignFields).toHaveBeenCalledWith("C1", { status: to });
+    expect(campaignDomain.updateCampaignFields).toHaveBeenCalledWith("C1", { status: to }, { expectStatus: from });
   });
 
   test("treats the current status as a no-op", async () => {
@@ -74,7 +76,10 @@ describe("setCampaignStatus", () => {
   test("treats a legacy row with no status as active", async () => {
     campaignDomain.assertCampaignOwned.mockResolvedValue({ campaignId: "C1" });
     await setCampaignStatus(TENANT, "C1", "monitoring");
-    expect(campaignDomain.updateCampaignFields).toHaveBeenCalledWith("C1", { status: "monitoring" });
+    // The guard expects "no status attribute", not "active".
+    expect(campaignDomain.updateCampaignFields).toHaveBeenCalledWith(
+      "C1", { status: "monitoring" }, { expectStatus: undefined },
+    );
   });
 });
 

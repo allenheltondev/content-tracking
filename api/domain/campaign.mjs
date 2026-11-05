@@ -6,7 +6,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { ulid } from "ulid";
 import { TABLE_NAME, ddb, isConditionalCheckFailed } from "../services/ddb.mjs";
-import { NotFoundError } from "../services/errors.mjs";
+import { ConflictError, NotFoundError } from "../services/errors.mjs";
 import { findVendor } from "./vendor.mjs";
 
 // Campaign records live at:
@@ -308,7 +308,14 @@ export async function queryCampaignsByDateRange({ startDate, endDate, tenantId }
 // both rows in one transaction to keep the vendor's campaign list in sync.
 const MIRRORED_FIELDS = ["name", "status", "startDate", "endDate"];
 
-export async function updateCampaignFields(campaignId, fields) {
+//
+// `expectStatus`, when set, makes the write conditional on the campaign
+// still having that status (undefined means a legacy row with no status),
+// so a lifecycle check made on an earlier read can't be bypassed by a
+// concurrent change. A mismatch throws ConflictError and writes nothing;
+// the vendor mirror rides the same transaction, so it is covered too.
+export async function updateCampaignFields(campaignId, fields, options = {}) {
+  const guard = statusGuard("expectStatus" in options, options.expectStatus);
   const existing = await findCampaign(campaignId);
   if (!existing) {
     throw new NotFoundError("Campaign", campaignId);
@@ -324,24 +331,29 @@ export async function updateCampaignFields(campaignId, fields) {
     Object.prototype.hasOwnProperty.call(fields, "vendorId") &&
     (fields.vendorId ?? null) !== oldVendorId;
   if (vendorChanging) {
-    return reassignVendorAndUpdate(campaignId, existing, fields);
+    return guarded(campaignId, guard, () => reassignVendorAndUpdate(campaignId, existing, fields, guard));
   }
 
-  const { expression, names, values } = buildSetExpression(entries);
+  const built = buildSetExpression(entries);
+  const expression = built.expression;
+  const names = { ...built.names, ...guard.names };
+  const values = { ...built.values, ...guard.values };
 
   // No vendor companion row to keep in sync: a single conditional Update
   // is enough and lets us return the post-update item directly.
   if (!existing.vendorId) {
-    const result = await ddb.send(new UpdateCommand({
-      TableName: TABLE_NAME,
-      Key: campaignKey(campaignId),
-      UpdateExpression: expression,
-      ExpressionAttributeNames: names,
-      ExpressionAttributeValues: values,
-      ConditionExpression: "attribute_exists(pk)",
-      ReturnValues: "ALL_NEW",
-    }));
-    return result.Attributes;
+    return guarded(campaignId, guard, async () => {
+      const result = await ddb.send(new UpdateCommand({
+        TableName: TABLE_NAME,
+        Key: campaignKey(campaignId),
+        UpdateExpression: expression,
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values,
+        ConditionExpression: guard.condition,
+        ReturnValues: "ALL_NEW",
+      }));
+      return result.Attributes;
+    });
   }
 
   const transactItems = [{
@@ -351,7 +363,7 @@ export async function updateCampaignFields(campaignId, fields) {
       UpdateExpression: expression,
       ExpressionAttributeNames: names,
       ExpressionAttributeValues: values,
-      ConditionExpression: "attribute_exists(pk)",
+      ConditionExpression: guard.condition,
     },
   }];
 
@@ -370,7 +382,7 @@ export async function updateCampaignFields(campaignId, fields) {
     });
   }
 
-  await ddb.send(new TransactWriteCommand({ TransactItems: transactItems }));
+  await guarded(campaignId, guard, () => ddb.send(new TransactWriteCommand({ TransactItems: transactItems })));
   return { ...existing, ...fields };
 }
 
@@ -381,7 +393,7 @@ export async function updateCampaignFields(campaignId, fields) {
 // each vendor's campaign list stays in sync. The chosen vendor's name is
 // snapshotted into `sponsor` unless the caller supplied one, mirroring
 // createCampaign so the display name survives without an extra read.
-async function reassignVendorAndUpdate(campaignId, existing, fields) {
+async function reassignVendorAndUpdate(campaignId, existing, fields, guard = statusGuard(false)) {
   const newVendorId = fields.vendorId;
   const oldVendorId = existing.vendorId ?? null;
 
@@ -393,16 +405,16 @@ async function reassignVendorAndUpdate(campaignId, existing, fields) {
   const effectiveFields =
     fields.sponsor === undefined ? { ...fields, sponsor: vendor.name } : fields;
   const merged = { ...existing, ...effectiveFields };
-  const { expression, names, values } = buildSetExpression(Object.entries(effectiveFields));
+  const built = buildSetExpression(Object.entries(effectiveFields));
 
   const transactItems = [{
     Update: {
       TableName: TABLE_NAME,
       Key: campaignKey(campaignId),
-      UpdateExpression: expression,
-      ExpressionAttributeNames: names,
-      ExpressionAttributeValues: values,
-      ConditionExpression: "attribute_exists(pk)",
+      UpdateExpression: built.expression,
+      ExpressionAttributeNames: { ...built.names, ...guard.names },
+      ExpressionAttributeValues: { ...built.values, ...guard.values },
+      ConditionExpression: guard.condition,
     },
   }];
 
@@ -435,6 +447,53 @@ async function reassignVendorAndUpdate(campaignId, existing, fields) {
 
   await ddb.send(new TransactWriteCommand({ TransactItems: transactItems }));
   return merged;
+}
+
+// The campaign row's write condition. Always requires the row to exist;
+// with an expected status it also requires the stored status to match.
+function statusGuard(enabled, expectStatus) {
+  if (!enabled) {
+    return { enabled: false, condition: "attribute_exists(pk)", names: {}, values: {} };
+  }
+  if (expectStatus === undefined || expectStatus === null) {
+    return {
+      enabled: true,
+      condition: "attribute_exists(pk) AND attribute_not_exists(#status)",
+      names: { "#status": "status" },
+      values: {},
+    };
+  }
+  return {
+    enabled: true,
+    condition: "attribute_exists(pk) AND #status = :expectedStatus",
+    names: { "#status": "status" },
+    values: { ":expectedStatus": expectStatus },
+  };
+}
+
+// Runs a guarded write and turns a failed status condition into a
+// ConflictError (or NotFoundError if the campaign vanished). Unguarded
+// writes pass errors through unchanged, as before.
+async function guarded(campaignId, guard, write) {
+  try {
+    return await write();
+  } catch (err) {
+    if (!guard.enabled || !isCampaignConditionFailure(err)) throw err;
+    const current = await findCampaign(campaignId);
+    if (!current) throw new NotFoundError("Campaign", campaignId);
+    throw new ConflictError(
+      `Campaign ${campaignId} changed to ${current.status ?? "active"} while this update ran. Read it again and retry.`,
+    );
+  }
+}
+
+// A plain Update fails with ConditionalCheckFailedException; a transaction
+// fails with TransactionCanceledException whose first reason (the campaign
+// row) is ConditionalCheckFailed.
+function isCampaignConditionFailure(err) {
+  if (isConditionalCheckFailed(err)) return true;
+  return err?.name === "TransactionCanceledException" &&
+    err?.CancellationReasons?.[0]?.Code === "ConditionalCheckFailed";
 }
 
 function buildSetExpression(entries) {

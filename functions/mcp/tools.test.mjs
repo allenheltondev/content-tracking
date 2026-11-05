@@ -158,10 +158,21 @@ describe("deliverable tools", () => {
     expect(linkDomain.createLink).not.toHaveBeenCalled();
   });
 
-  test("update_campaign_link passes only the fields given", async () => {
+  test("update_campaign_link edits notes only", async () => {
     linkDomain.updateLink.mockResolvedValue({ linkId: "L1", campaignId: "C1", createdAt: at });
     await callTool("update_campaign_link", { campaign_id: "C1", link_id: "L1", notes: "pinned" });
     expect(linkDomain.updateLink).toHaveBeenCalledWith("C1", "L1", { notes: "pinned" });
+  });
+
+  test("update_campaign_link does not offer src or expiry, which newsletter-service owns", async () => {
+    const { rpc } = mcpClient(handler);
+    const { body } = await rpc({ method: "tools/list" });
+    const tool = body.result.tools.find((t) => t.name === "update_campaign_link");
+    expect(Object.keys(tool.inputSchema.properties).sort()).toEqual(["campaign_id", "link_id", "notes"]);
+
+    linkDomain.updateLink.mockResolvedValue({ linkId: "L1", campaignId: "C1", createdAt: at });
+    await callTool("update_campaign_link", { campaign_id: "C1", link_id: "L1", notes: null, src: "x" });
+    expect(linkDomain.updateLink).toHaveBeenCalledWith("C1", "L1", { notes: null });
   });
 
   test("delete tools report what they removed", async () => {

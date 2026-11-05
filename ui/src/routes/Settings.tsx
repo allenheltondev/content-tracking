@@ -759,14 +759,17 @@ function ApiKeysTab(): ReactElement {
         <h2 className="text-lg font-semibold text-foreground">What a key can do</h2>
         <p className="text-muted-foreground">
           <span className="font-medium text-foreground">Read only</span> keys can list and read
-          campaigns, vendors, analytics, and reports through the MCP server. They cannot change
-          anything.
+          campaigns, vendors, analytics, and reports through the MCP server. Campaign details include
+          each campaign's fee and whether it has been paid. Read only keys cannot change anything.
         </p>
         <p className="text-muted-foreground">
           <span className="font-medium text-foreground">Read and write</span> keys can also publish
           content and use every MCP tool: create and edit campaigns and vendors, mark payments, and add
-          or delete links and posts. Revenue, deleting campaigns or vendors, and creating keys still
-          require signing in here.
+          or delete links and posts.
+        </p>
+        <p className="text-muted-foreground">
+          No key can open the revenue reports that total your earnings across campaigns, delete
+          campaigns or vendors, or create keys. Those still require signing in here.
         </p>
         <p className="text-muted-foreground">
           The access level is fixed when you create a key. To change it, create a new key and revoke

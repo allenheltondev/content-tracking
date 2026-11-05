@@ -37,14 +37,17 @@ export async function createTenantCampaign(tenantId, fields) {
 
 // Moves a campaign along its lifecycle (CAMPAIGN_STATUS_TRANSITIONS).
 // Rejects moves the map does not allow; moving to the current status is a
-// no-op that returns the campaign unchanged.
+// no-op that returns the campaign unchanged. The write only lands if the
+// status is still the one the check saw, so two concurrent moves can't
+// combine into one the map forbids (say active -> completed racing
+// active -> draft): the loser gets ConflictError and can re-read.
 export async function setCampaignStatus(tenantId, campaignId, status) {
   const campaign = await assertCampaignOwned(campaignId, tenantId);
   assertStatusTransition(campaign.status, status);
   if ((campaign.status ?? "active") === status) {
     return campaign;
   }
-  return updateCampaignFields(campaignId, { status });
+  return updateCampaignFields(campaignId, { status }, { expectStatus: campaign.status });
 }
 
 // Marks a campaign's payout as paid. paid_at defaults to today (UTC) when

@@ -227,7 +227,9 @@ describe("update_campaign_status", () => {
     campaignDomain.updateCampaignFields.mockResolvedValue(row({ status: "completed" }));
     const { body } = await callTool("update_campaign_status", { campaign_id: "C1", status: "completed" });
     expect(campaignDomain.assertCampaignOwned).toHaveBeenCalledWith("C1", SUB);
-    expect(campaignDomain.updateCampaignFields).toHaveBeenCalledWith("C1", { status: "completed" });
+    expect(campaignDomain.updateCampaignFields).toHaveBeenCalledWith(
+      "C1", { status: "completed" }, { expectStatus: "monitoring" },
+    );
     expect(body.result.structuredContent.campaign.status).toBe("completed");
   });
 

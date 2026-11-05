@@ -57,7 +57,7 @@ write into your own tenant's data.
 
 | Access | Can call |
 | --- | --- |
-| `read` | The read-only MCP tools: list and get campaigns and vendors, campaign analytics, web analytics, and report links. Nothing that changes data. |
+| `read` | The read-only MCP tools: list and get campaigns and vendors, campaign analytics, web analytics, and report links. Nothing that changes data. Campaign responses include that campaign's `payout` (fee, currency, paid state). |
 | `write` | Everything `read` can, plus the content publish endpoints below and every MCP tool. |
 
 Write keys reach these REST endpoints (a read key gets `403`):
@@ -73,7 +73,9 @@ Write keys reach these REST endpoints (a read key gets `403`):
 Every other route still requires dashboard sign-in. Through the MCP tools a
 write key can read and change campaigns, vendors, links, posts, briefs,
 drafts, and reports, and delete a campaign's links and posts. No key can
-delete campaigns or vendors, read revenue, or mint more keys. Keys minted
+reach the `/revenue` endpoints (earnings totalled across campaigns), delete
+campaigns or vendors, or mint more keys. Per-campaign payout is visible to
+both levels because it is part of the campaign record. Keys minted
 before access levels existed are `write`. The level is fixed for the key's
 life; mint a new key to change it. Treat a key like a password and revoke a
 leaked one right away.
