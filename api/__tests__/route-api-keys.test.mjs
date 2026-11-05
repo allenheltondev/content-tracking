@@ -61,6 +61,28 @@ describe("POST /api-keys", () => {
     expect(mintPairing).toHaveBeenCalledWith(expect.objectContaining({ label: "API key", source: "apikey" }));
   });
 
+  test("defaults a new key to write access", async () => {
+    mintPairing.mockResolvedValue({ pairing: { jti: "J3" }, token: "t" });
+    await routes["POST /api-keys"](ctx({ body: { label: "ci" } }));
+    expect(mintPairing).toHaveBeenCalledWith(expect.objectContaining({ access: "write" }));
+  });
+
+  test("mints a read-only key", async () => {
+    mintPairing.mockResolvedValue({ pairing: { jti: "J4", access: "read" }, token: "t" });
+    const res = await routes["POST /api-keys"](ctx({ body: { label: "muse", access: "read" } }));
+    expect(mintPairing).toHaveBeenCalledWith(expect.objectContaining({ label: "muse", access: "read" }));
+    expect(JSON.parse(res.body).access).toBe("read");
+  });
+
+  test("rejects an unknown access level", async () => {
+    await expect(routes["POST /api-keys"](ctx({ body: { access: "admin" } }))).rejects.toThrow(/access must be one of read, write/);
+    expect(mintPairing).not.toHaveBeenCalled();
+  });
+
+  test("rejects an over-long label", async () => {
+    await expect(routes["POST /api-keys"](ctx({ body: { label: "x".repeat(61) } }))).rejects.toThrow(/60 characters/);
+  });
+
   test("rejects an API key trying to mint another (non-cognito caller)", async () => {
     await expect(routes["POST /api-keys"](ctx({ authSource: "apikey" }))).rejects.toThrow(/dashboard sign-in/);
     expect(mintPairing).not.toHaveBeenCalled();

@@ -97,6 +97,48 @@ describe("mcp transport", () => {
     }
   });
 
+  test("a read-only key sees only the read tools", async () => {
+    const res = await handler(event({ method: "tools/list", access: "read" }));
+    const tools = JSON.parse(res.body).result.tools;
+    expect(tools.map((t) => t.name).sort()).toEqual([
+      "get_campaign",
+      "get_campaign_analytics",
+      "get_campaign_web_analytics",
+      "get_vendor",
+      "list_campaign_reports",
+      "list_campaigns",
+      "list_vendors",
+    ]);
+    expect(tools.every((t) => t.annotations.readOnlyHint === true)).toBe(true);
+  });
+
+  test("a read-only key cannot call a write tool", async () => {
+    const res = await handler(
+      event({
+        method: "tools/call",
+        name: "create_campaign",
+        access: "read",
+        params: { name: "create_campaign", arguments: { name: "Sneaky" } },
+      }),
+    );
+    // Not registered for this key, so the SDK answers unknown-tool.
+    expect(JSON.parse(res.body).error).toEqual({ code: -32602, message: "Tool create_campaign not found" });
+    expect(campaignDomain.createCampaign).not.toHaveBeenCalled();
+  });
+
+  test("a read-only key can still read", async () => {
+    campaignDomain.listCampaigns.mockResolvedValue({ items: [row()], lastEvaluatedKey: undefined });
+    const res = await handler(
+      event({ method: "tools/call", name: "list_campaigns", access: "read", params: { name: "list_campaigns", arguments: {} } }),
+    );
+    expect(JSON.parse(res.body).result.structuredContent.campaigns).toHaveLength(1);
+  });
+
+  test("server/discover tells a read-only client it is read only", async () => {
+    const res = await handler(event({ method: "server/discover", access: "read" }));
+    expect(JSON.parse(res.body).result.instructions).toMatch(/read only/);
+  });
+
   test("rejects the Chrome extension auth source with 401", async () => {
     const res = await handler(event({ method: "tools/list", authSource: "extension" }));
     expect(res.statusCode).toBe(401);

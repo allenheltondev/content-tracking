@@ -18,7 +18,9 @@ stateless fallback.
 ## Connecting Muse
 
 1. In the dashboard, open **Settings > API keys** and mint a key labelled
-   for the agent (for example `muse`). Copy it. It is shown once.
+   for the agent (for example `muse`). Choose **Read only** if the agent
+   should only look things up, or **Read and write** to let it manage
+   campaigns. Copy the key. It is shown once.
 2. Add a remote MCP server in Muse with the `McpServerUrl` value and a
    static header `Authorization: Bearer <key>`.
 3. Revoke the key from the same settings tab to cut the agent off. The
@@ -132,12 +134,25 @@ delete tools are safe to repeat as they are.
 - Engagement recommendations and daily metric history charts.
 - Vendor reports, revenue, and the media kit.
 
+## Read-only keys
+
+A key minted with `read` access sees only the tools annotated
+`readOnlyHint`: `list_campaigns`, `get_campaign`, `list_vendors`,
+`get_vendor`, `get_campaign_analytics`, `get_campaign_web_analytics`, and
+`list_campaign_reports`. Write tools are not registered for that key, so
+they are absent from `tools/list` and calling one returns JSON-RPC error
+`-32602` ("Tool ... not found"). The server's `instructions` also say the key
+is read only. The annotation is the single source of truth: a new tool is
+available to read keys only if it is marked read-only.
+
 ## Auth and tenancy
 
 `BookedAuthorizer` verifies the key before the function runs, exactly as for
-the REST routes. The handler then calls `requireAgentTenantId`, which accepts
-an API key or a dashboard token and rejects Chrome extension tokens with
-`401`. The tenant comes only from the verified token and is bound into every
+the REST routes, and passes the key's access level along. The handler then
+calls `requireAgentTenantId`, which accepts an API key or a dashboard token
+and rejects Chrome extension tokens with `401`, and `resolveAccess`, which
+gives dashboard tokens and pre-level keys write access and fails closed to
+read for anything unexpected. The tenant comes only from the verified token and is bound into every
 tool when the server is built. No tool takes a tenant argument.
 
 API keys are minted in the dashboard rather than through an OAuth

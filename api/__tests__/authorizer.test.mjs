@@ -43,8 +43,26 @@ describe("authorizer HMAC path", () => {
 
     const res = await handler({ authorizationToken: `Bearer ${hmacToken()}`, methodArn: METHOD_ARN });
 
-    expect(res.context).toEqual({ sub: "user-1", authSource: "apikey", jti: "J1" });
+    expect(res.context).toEqual({ sub: "user-1", authSource: "apikey", jti: "J1", access: "write" });
     expect(res.policyDocument.Statement[0].Effect).toBe("Allow");
+  });
+
+  test("passes a read-only API key's access level through", async () => {
+    verifyToken.mockReturnValue({ sub: "user-1", jti: "J2" });
+    touchPairing.mockResolvedValue({ jti: "J2", source: "apikey", access: "read" });
+
+    const res = await handler({ authorizationToken: `Bearer ${hmacToken()}`, methodArn: METHOD_ARN });
+
+    expect(res.context.access).toBe("read");
+  });
+
+  test("leaves access off extension tokens", async () => {
+    verifyToken.mockReturnValue({ sub: "user-1", jti: "J3" });
+    touchPairing.mockResolvedValue({ jti: "J3", source: "extension" });
+
+    const res = await handler({ authorizationToken: hmacToken(), methodArn: METHOD_ARN });
+
+    expect(res.context).not.toHaveProperty("access");
   });
 
   test("treats a sourceless (legacy) pairing as an extension token", async () => {

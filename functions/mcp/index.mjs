@@ -1,6 +1,6 @@
 import { createMcpHandler, originValidationResponse } from "@modelcontextprotocol/server";
 import { UnauthorizedError } from "../../api/services/errors.mjs";
-import { requireAgentTenantId } from "../../api/services/identity.mjs";
+import { requireAgentTenantId, resolveAccess } from "../../api/services/identity.mjs";
 import { logger } from "../../api/services/logger.mjs";
 import { publicReportLinkUrl } from "../../api/domain/campaign-report-link.mjs";
 import { buildServer } from "./server.mjs";
@@ -59,6 +59,7 @@ export const handler = async (event) => {
       scopes: [],
       extra: {
         tenantId,
+        access: resolveAccess(event),
         // Same host and stage prefix as this request, so report links match
         // the ones the dashboard hands out.
         publicReportUrl: (token) => publicReportLinkUrl(event, token),

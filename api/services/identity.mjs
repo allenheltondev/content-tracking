@@ -1,4 +1,4 @@
-import { UnauthorizedError } from "./errors.mjs";
+import { ForbiddenError, UnauthorizedError } from "./errors.mjs";
 
 // Resolves the calling tenant from the authorizer context. The tenantId
 // is the Cognito `sub` the Lambda authorizer already verified; it is
@@ -41,6 +41,8 @@ export function resolveTenantId(event) {
 // content creation. Like requireTenantId, the sub is read only from the
 // verified authorizer context, so an API key can only ever write into its own
 // tenant partition.
+//
+// Publishing is a write, so a read-only API key is refused with 403.
 export function requirePublisherTenantId(event) {
   const auth = event?.requestContext?.authorizer ?? {};
   if (auth.authSource !== "cognito" && auth.authSource !== "apikey") {
@@ -49,7 +51,22 @@ export function requirePublisherTenantId(event) {
   if (!auth.sub) {
     throw new UnauthorizedError("Missing caller identity.");
   }
+  if (resolveAccess(event) !== "write") {
+    throw new ForbiddenError("This API key is read only.");
+  }
   return auth.sub;
+}
+
+// The caller's access level: "write" for a dashboard sign-in, the key's
+// level for an API key. An API key with no level predates levels and keeps
+// write access. Any other value fails closed to "read".
+export function resolveAccess(event) {
+  const auth = event?.requestContext?.authorizer ?? {};
+  if (auth.authSource === "cognito") return "write";
+  if (auth.authSource === "apikey") {
+    if (auth.access === undefined || auth.access === null || auth.access === "write") return "write";
+  }
+  return "read";
 }
 
 // Resolves the calling tenant for the MCP endpoint (POST /mcp), which an

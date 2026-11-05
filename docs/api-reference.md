@@ -53,8 +53,14 @@ same Lambda authorizer as dashboard tokens; the server always derives the
 tenant from the key, never from the request body, so an API key can only ever
 write into your own tenant's data.
 
-**Scope.** An API key is accepted only on the content **publish** endpoints
-and the MCP server:
+**Access levels.** Every key is minted as `read` or `write`:
+
+| Access | Can call |
+| --- | --- |
+| `read` | The read-only MCP tools: list and get campaigns and vendors, campaign analytics, web analytics, and report links. Nothing that changes data. |
+| `write` | Everything `read` can, plus the content publish endpoints below and every MCP tool. |
+
+Write keys reach these REST endpoints (a read key gets `403`):
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -65,19 +71,24 @@ and the MCP server:
 | `POST /mcp` | MCP tools for full campaign management. See [mcp-server.md](mcp-server.md). |
 
 Every other route still requires dashboard sign-in. Through the MCP tools a
-key can read and change campaigns, vendors, links, posts, briefs, drafts, and
-reports, and delete a campaign's links and posts. It cannot delete campaigns
-or vendors, read revenue, or mint more keys. Treat a key like a password and
-revoke a leaked one right away.
+write key can read and change campaigns, vendors, links, posts, briefs,
+drafts, and reports, and delete a campaign's links and posts. No key can
+delete campaigns or vendors, read revenue, or mint more keys. Keys minted
+before access levels existed are `write`. The level is fixed for the key's
+life; mint a new key to change it. Treat a key like a password and revoke a
+leaked one right away.
 
 **Minting** (requires dashboard sign-in — an API key cannot mint more keys):
 
 ```
 POST /api-keys
-{ "label": "writing-repo publish" }
+{ "label": "writing-repo publish", "access": "write" }
 
-201 → { "key": "<the key — shown once>", "jti": "...", "label": "...", "created_at": "...", "last_used_at": null }
+201 → { "key": "<the key, shown once>", "jti": "...", "label": "...", "access": "write", "created_at": "...", "last_used_at": null }
 ```
+
+`access` is `read` or `write` and defaults to `write`. The dashboard's create
+dialog preselects `read`.
 
 Copy the `key` value into a secret in the writing repo (e.g. `BOOKED_API_KEY`).
 It is returned only at mint time and is never retrievable afterward. The
@@ -100,7 +111,7 @@ workflow safe — it won't create a duplicate.
 **Listing / revoking:**
 
 ```
-GET    /api-keys          → { "keys": [ { "jti": "...", "label": "...", ... } ] }
+GET    /api-keys          → { "keys": [ { "jti": "...", "label": "...", "access": "read", ... } ] }
 DELETE /api-keys/{jti}     → 204
 ```
 

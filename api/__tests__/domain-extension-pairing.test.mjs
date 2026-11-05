@@ -91,6 +91,24 @@ describe("domain/extension-pairing", () => {
       // Still shares the EXTTOKEN# prefix so the authorizer's revocation
       // lookup needs only sub + jti.
       expect(item.sk).toMatch(/^EXTTOKEN#/);
+      // No level given: the key gets write access, as keys always had.
+      expect(item.access).toBe("write");
+    });
+
+    test("records a read-only API key's access level", async () => {
+      mockSend.mockResolvedValueOnce({});
+      const { pairing } = await mintPairing({
+        sub: SUB, label: "muse", signingSecret: SECRET, source: "apikey", access: "read",
+      });
+      expect(mockSend.mock.calls[0][0].input.Item.access).toBe("read");
+      expect(pairing.access).toBe("read");
+    });
+
+    test("never stores an access level on extension pairings", async () => {
+      mockSend.mockResolvedValueOnce({});
+      const { pairing } = await mintPairing({ sub: SUB, label: "Laptop", signingSecret: SECRET, access: "read" });
+      expect(mockSend.mock.calls[0][0].input.Item).not.toHaveProperty("access");
+      expect(pairing).not.toHaveProperty("access");
     });
   });
 
@@ -146,6 +164,17 @@ describe("domain/extension-pairing", () => {
 
       const ext = await listPairings({ sub: SUB, source: "extension" });
       expect(ext.map((p) => p.jti)).toEqual(["a", "b"]);
+    });
+
+    test("reports API key access, reading a key without a level as write", async () => {
+      mockSend.mockResolvedValue({
+        Items: [
+          { sk: "EXTTOKEN#r", jti: "r", label: "Muse", source: "apikey", access: "read", created_at: "t", last_used_at: null },
+          { sk: "EXTTOKEN#l", jti: "l", label: "CI", source: "apikey", created_at: "t", last_used_at: null },
+        ],
+      });
+      const keys = await listPairings({ sub: SUB, source: "apikey" });
+      expect(keys.map((k) => k.access)).toEqual(["read", "write"]);
     });
 
     test("never echoes the partition keys back to the caller", async () => {

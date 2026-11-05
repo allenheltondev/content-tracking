@@ -662,9 +662,14 @@ export interface CreateExtensionPairingResponse {
 
 // Automation API keys. Same one-time-view rule as pairing tokens: the secret
 // is only present on the create response; GET returns metadata only.
+// "read" keys get the read-only MCP tools only. "write" keys can also
+// publish content and change campaigns.
+export type ApiKeyAccess = 'read' | 'write';
+
 export interface ApiKey {
   jti: string;
   label: string;
+  access: ApiKeyAccess;
   created_at: string;
   last_used_at: string | null;
 }
@@ -675,6 +680,7 @@ export interface ListApiKeysResponse {
 
 export interface CreateApiKeyRequest {
   label?: string;
+  access?: ApiKeyAccess;
 }
 
 export interface CreateApiKeyResponse extends ApiKey {

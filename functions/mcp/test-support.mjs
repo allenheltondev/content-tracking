@@ -23,7 +23,7 @@ const META = {
 
 // An API Gateway REST proxy event for one JSON-RPC call, as BookedAuthorizer
 // would hand it over for an API key.
-export function rpcEvent({ method, params = {}, name, headers = {}, authSource = "apikey", body } = {}) {
+export function rpcEvent({ method, params = {}, name, headers = {}, authSource = "apikey", access, body } = {}) {
   const allHeaders = {
     Host: "api.example.com",
     "Content-Type": "application/json",
@@ -43,7 +43,7 @@ export function rpcEvent({ method, params = {}, name, headers = {}, authSource =
     requestContext: {
       domainName: "api.example.com",
       path: "/v1/mcp",
-      authorizer: { authSource, sub: SUB, jti: "key-1" },
+      authorizer: { authSource, sub: SUB, jti: "key-1", ...(access ? { access } : {}) },
     },
   };
 }
