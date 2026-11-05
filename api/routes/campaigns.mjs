@@ -10,7 +10,12 @@ import {
   stageBriefUpload,
 } from "../services/brief-pipeline.mjs";
 import { presignBriefDownload, presignBriefUpload } from "../services/s3.mjs";
-import { formatCampaign, validateCampaignCreate, validateCampaignUpdate } from "../validation/campaign.mjs";
+import {
+  CAMPAIGN_STATUSES,
+  formatCampaign,
+  validateCampaignCreate,
+  validateCampaignUpdate,
+} from "../validation/campaign.mjs";
 import {
   validateBriefImport,
   validateBriefSubmission,
@@ -22,19 +27,19 @@ import { requireUlid } from "../validation/common.mjs";
 import { formatLink } from "../validation/link.mjs";
 import {
   assertCampaignOwned,
-  createCampaign,
   getCampaignWithLinks,
   listCampaigns,
   updateCampaignFields,
 } from "../domain/campaign.mjs";
 import { requireTenantId } from "../services/identity.mjs";
 import { trackActivity } from "../services/activity.mjs";
+import { createTenantCampaign } from "../services/campaign-actions.mjs";
 import { assertVendorOwned } from "../domain/vendor.mjs";
 import { getDraftForCampaign, saveDraftForCampaign } from "../domain/draft.mjs";
 import { formatSocialPost } from "../validation/social-post.mjs";
 import { formatContentPost } from "../validation/content-post.mjs";
 
-const VALID_STATUSES = new Set(["draft", "active", "monitoring", "completed"]);
+const VALID_STATUSES = new Set(CAMPAIGN_STATUSES);
 
 const formatBrief = (row, downloadUrl) => ({
   source_type: row.sourceType,
@@ -59,20 +64,9 @@ export function registerCampaignRoutes(app) {
     const tenantId = requireTenantId(event);
     const body = parseBody(event);
     const fields = validateCampaignCreate(body);
-    // A vendor link writes a row under the vendor's partition and surfaces in
-    // its /vendors/:id/campaigns list, so confirm the vendor is the caller's
-    // before accepting it — otherwise a guessed id would let a user pollute
-    // another tenant's vendor. 404s a missing/foreign vendor.
-    if (fields.vendorId) {
-      await assertVendorOwned(fields.vendorId, tenantId);
-    }
-    const item = await createCampaign({ ...fields, tenantId });
-    // Gamification: a created campaign is the "Deal Maker" activity (and feeds
-    // the higher campaign-count tiers). Idempotent per campaign so a retry with
-    // the same Idempotency-Key can't double-count.
-    await trackActivity(tenantId, "campaign.created", {
-      id: `campaign.created#${tenantId}#${item.campaignId}`,
-    });
+    // Vendor ownership check + the "Deal Maker" activity live in the shared
+    // service so the MCP create_campaign tool runs the same steps.
+    const item = await createTenantCampaign(tenantId, fields);
     return jsonResponse(201, formatCampaign(item));
   }));
 

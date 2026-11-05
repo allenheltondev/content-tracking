@@ -711,6 +711,59 @@ Resources:
             Auth:
               Authorizer: NONE
 
+  # The Booked MCP server (spec 2026-07-28, Streamable HTTP, stateless).
+  # Agents such as Muse POST JSON-RPC to /mcp with an API key as the bearer
+  # token. The explicit /mcp resource takes precedence over ApiFunction's
+  # /{proxy+}, and BookedAuthorizer (the API default) verifies the key before
+  # this function runs. ANY so GET/DELETE reach the handler, which answers
+  # 405 as the spec asks. No streaming is needed (every tool answers in one
+  # JSON body), so REST API buffering is fine and no Function URL or web
+  # adapter is involved.
+  McpFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        <<: *esbuild-properties
+        EntryPoints:
+          - index.mjs
+    Properties:
+      CodeUri: functions/mcp
+      Handler: index.handler
+      # Below API Gateway's 29s integration limit; tools are single-item
+      # DynamoDB reads and writes.
+      Timeout: 15
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: 2012-10-17
+          Statement:
+            # Campaign + vendor reads/writes, the vendor-mirror transaction,
+            # and the idempotency records (Put/Update/Delete on the
+            # IDEMPOTENCY partition). Main table and its indexes only.
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:Query
+                - dynamodb:TransactWriteItems
+                - dynamodb:ConditionCheckItem
+              Resource:
+                - !GetAtt ContentTrackingTable.Arn
+                - !Sub "${ContentTrackingTable.Arn}/index/*"
+            # The "Deal Maker" activity on campaign create. Default bus only.
+            - Effect: Allow
+              Action: events:PutEvents
+              Resource: !Sub "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default"
+      Events:
+        Mcp:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /mcp
+            Method: ANY
+
   # Custom Lambda authorizer that accepts either Cognito id tokens
   # (dashboard) or HMAC-signed extension pairing tokens. Lives in the
   # same api/ CodeUri as the main router but has its own esbuild entry
@@ -2099,6 +2152,15 @@ Outputs:
       - DeployCustomDomain
       - !Sub "https://api.booked.${BaseCustomDomain}"
       - !Sub "https://${ContentTrackingApi}.execute-api.${AWS::Region}.amazonaws.com/v1"
+
+  McpServerUrl:
+    Description: |
+      Streamable HTTP endpoint for the Booked MCP server. Configure MCP
+      clients (Muse) with this URL and an API key as the bearer token.
+    Value: !If
+      - DeployCustomDomain
+      - !Sub "https://api.booked.${BaseCustomDomain}/mcp"
+      - !Sub "https://${ContentTrackingApi}.execute-api.${AWS::Region}.amazonaws.com/v1/mcp"
 
   DashboardBucketName:
     Description: S3 bucket holding the dashboard static bundle

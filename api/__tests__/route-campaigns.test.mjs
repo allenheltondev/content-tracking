@@ -27,6 +27,7 @@ jest.unstable_mockModule("../domain/campaign.mjs", () => ({
   getCampaignWithLinks: jest.fn(),
   listCampaigns: jest.fn(),
   updateCampaignFields: jest.fn(),
+  updateCampaignPayout: jest.fn(),
 }));
 jest.unstable_mockModule("../domain/vendor.mjs", () => ({
   assertVendorOwned: jest.fn(),

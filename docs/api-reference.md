@@ -53,7 +53,8 @@ same Lambda authorizer as dashboard tokens; the server always derives the
 tenant from the key, never from the request body, so an API key can only ever
 write into your own tenant's data.
 
-**Scope.** An API key is accepted only on the content **publish** endpoints:
+**Scope.** An API key is accepted only on the content **publish** endpoints
+and the MCP server:
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -61,10 +62,12 @@ write into your own tenant's data.
 | `POST /content` | Register any published content item |
 | `POST /content/{contentId}/publish` | Record a publish variant (per platform) |
 | `POST /content/{contentId}/crosspost` | Cross-post to dev.to / Medium / Hashnode |
+| `POST /mcp` | MCP tools: list campaigns and vendors, create campaigns, update status, mark paid. See [mcp-server.md](mcp-server.md). |
 
-Every other route (reads, edits, deletes, campaigns, revenue, …) still
-requires dashboard sign-in, so a leaked API key can only add content — it
-cannot read or destroy anything.
+Every other route (edits, deletes, revenue, …) still requires dashboard
+sign-in. A leaked API key can add content and, through the MCP tools, read
+campaigns and vendors, create campaigns, and change a campaign's status or
+paid state. It cannot delete anything. Revoke a leaked key right away.
 
 **Minting** (requires dashboard sign-in — an API key cannot mint more keys):
 

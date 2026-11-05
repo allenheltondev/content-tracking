@@ -51,3 +51,21 @@ export function requirePublisherTenantId(event) {
   }
   return auth.sub;
 }
+
+// Resolves the calling tenant for the MCP endpoint (POST /mcp), which an
+// agent such as Muse reaches with an API key as a bearer token. A dashboard
+// Cognito token is also accepted so a signed-in user can exercise the server
+// directly. The Chrome extension is excluded for the same reason as
+// requirePublisherTenantId: its pairing tokens are scoped to the working-set
+// feeds. The sub comes only from the verified authorizer context, so every
+// tool call is pinned to the caller's own tenant partition.
+export function requireAgentTenantId(event) {
+  const auth = event?.requestContext?.authorizer ?? {};
+  if (auth.authSource !== "cognito" && auth.authSource !== "apikey") {
+    throw new UnauthorizedError("This endpoint requires an API key.");
+  }
+  if (!auth.sub) {
+    throw new UnauthorizedError("Missing caller identity.");
+  }
+  return auth.sub;
+}

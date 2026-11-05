@@ -1,7 +1,8 @@
 import { BadRequestError } from "../services/errors.mjs";
 import { extractYoutubeVideoId } from "../services/youtube.mjs";
 import { formatPayout, validatePayoutPayload } from "./payout.mjs";
-import { VENDOR_ID_RE } from "./vendor.mjs";
+import { VENDOR_ID_RE } from "./vendor.mjs";
+
 import { ISO_DATE_RE } from "./common.mjs";
 
 // Shapes a stored campaign row into the snake_case API response. Lives here
@@ -29,7 +30,8 @@ export function formatCampaign(row) {
   };
 }
 
-const VALID_STATUSES = new Set(["draft", "active", "monitoring", "completed"]);
+export const CAMPAIGN_STATUSES = ["draft", "active", "monitoring", "completed"];
+const VALID_STATUSES = new Set(CAMPAIGN_STATUSES);
 // A campaign's main deliverable is either a published blog post (tracked via
 // GA4 + Core Web Vitals off blog_url) or a YouTube video (tracked via the
 // YouTube Data API off youtube_url). The two are mutually exclusive.

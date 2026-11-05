@@ -60,3 +60,29 @@ export function withIdempotency(fn) {
     dataIndexArgument: 0,
   });
 }
+
+// Idempotency for non-HTTP callers (the MCP tools), keyed on an explicit
+// key the caller supplies instead of a request header. The wrapped function
+// takes a single object carrying `tenantId` and `idempotencyKey`; both feed
+// the hash so two tenants that pick the same key never share a record.
+//
+// Only wrap calls that actually carry a key. The tenantId alone would hash
+// to the same record on every call, so a keyless call must skip the wrapper
+// and run directly.
+const keyedConfig = new IdempotencyConfig({
+  eventKeyJmesPath: "[tenantId, idempotencyKey]",
+  // Reusing a key with different arguments raises
+  // IdempotencyValidationError instead of silently returning the first
+  // call's result.
+  payloadValidationJmesPath: "fields",
+  throwOnNoIdempotencyKey: true,
+  expiresAfterSeconds: 24 * 60 * 60,
+});
+
+export function withKeyedIdempotency(fn) {
+  return makeIdempotent(fn, {
+    persistenceStore: persistence,
+    config: keyedConfig,
+    dataIndexArgument: 0,
+  });
+}

@@ -1,4 +1,4 @@
-import { requirePublisherTenantId, requireTenantId } from "../services/identity.mjs";
+import { requireAgentTenantId, requirePublisherTenantId, requireTenantId } from "../services/identity.mjs";
 
 const cognitoEvent = (sub) => ({ requestContext: { authorizer: { authSource: "cognito", sub } } });
 const authEvent = (authSource, sub) => ({ requestContext: { authorizer: { authSource, sub } } });
@@ -44,5 +44,23 @@ describe("services/identity requirePublisherTenantId", () => {
 
   test("rejects a missing authorizer context", () => {
     expect(() => requirePublisherTenantId({})).toThrow(/dashboard sign-in or an API key/);
+  });
+});
+
+describe("services/identity requireAgentTenantId", () => {
+  test("returns the sub for an API-key caller", () => {
+    expect(requireAgentTenantId(authEvent("apikey", "sub-abc"))).toBe("sub-abc");
+  });
+
+  test("returns the sub for a Cognito (dashboard) caller", () => {
+    expect(requireAgentTenantId(authEvent("cognito", "sub-abc"))).toBe("sub-abc");
+  });
+
+  test("rejects the Chrome extension (extension) auth source", () => {
+    expect(() => requireAgentTenantId(authEvent("extension", "sub-abc"))).toThrow(/requires an API key/);
+  });
+
+  test("rejects a missing sub even for an allowed source", () => {
+    expect(() => requireAgentTenantId(authEvent("apikey"))).toThrow(/caller identity/);
   });
 });
