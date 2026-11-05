@@ -730,16 +730,17 @@ Resources:
     Properties:
       CodeUri: functions/mcp
       Handler: index.handler
-      # Below API Gateway's 29s integration limit; tools are single-item
-      # DynamoDB reads and writes.
-      Timeout: 15
+      # Brief summaries and draft reviews call Bedrock and report generation
+      # renders and stores HTML, so allow the same 30s as ApiFunction. API
+      # Gateway's 29s integration limit is the effective cap.
+      Timeout: 30
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: 2012-10-17
           Statement:
-            # Campaign + vendor reads/writes, the vendor-mirror transaction,
-            # and the idempotency records (Put/Update/Delete on the
-            # IDEMPOTENCY partition). Main table and its indexes only.
+            # Campaigns, vendors, links, posts, briefs, drafts, report
+            # records, and the idempotency rows. Main table and its indexes
+            # only. No Scan.
             - Effect: Allow
               Action:
                 - dynamodb:GetItem
@@ -752,6 +753,45 @@ Resources:
               Resource:
                 - !GetAtt ContentTrackingTable.Arn
                 - !Sub "${ContentTrackingTable.Arn}/index/*"
+            # Reads only: newsletter-service URLs (short links, click
+            # analytics) and the booked-owned GA4 / CrUX / YouTube keys.
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+                - ssm:GetParameters
+              Resource:
+                - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/newsletter-service/${Environment}/*"
+                - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/booked/${Environment}/*"
+            # Decrypt those SecureStrings, only through SSM.
+            - Effect: Allow
+              Action: kms:Decrypt
+              Resource: "*"
+              Condition:
+                StringEquals:
+                  kms:ViaService: !Sub "ssm.${AWS::Region}.amazonaws.com"
+            # Brief summaries and draft reviews.
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:Converse
+              Resource:
+                - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
+                - !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/*"
+            # Text briefs are archived as transcripts in the briefs bucket.
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:GetObject
+              Resource:
+                - !Sub "${BriefsBucket.Arn}/*"
+            # Campaign report HTML: write new reports, read and rewrite older
+            # ones for the "newer version available" banner.
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:GetObject
+              Resource:
+                - !Sub "${VendorReportsBucket.Arn}/*"
             # The "Deal Maker" activity on campaign create. Default bus only.
             - Effect: Allow
               Action: events:PutEvents

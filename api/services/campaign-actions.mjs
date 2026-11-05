@@ -5,6 +5,7 @@ import {
   updateCampaignPayout,
 } from "../domain/campaign.mjs";
 import { assertVendorOwned } from "../domain/vendor.mjs";
+import { assertStatusTransition } from "../validation/campaign.mjs";
 import {
   AGGREGATION_CURRENCY,
   applyPaidAtDefault,
@@ -34,10 +35,15 @@ export async function createTenantCampaign(tenantId, fields) {
   return item;
 }
 
-// Moves a campaign to a new status. The status must already be validated
-// against the campaign status set.
+// Moves a campaign along its lifecycle (CAMPAIGN_STATUS_TRANSITIONS).
+// Rejects moves the map does not allow; moving to the current status is a
+// no-op that returns the campaign unchanged.
 export async function setCampaignStatus(tenantId, campaignId, status) {
-  await assertCampaignOwned(campaignId, tenantId);
+  const campaign = await assertCampaignOwned(campaignId, tenantId);
+  assertStatusTransition(campaign.status, status);
+  if ((campaign.status ?? "active") === status) {
+    return campaign;
+  }
   return updateCampaignFields(campaignId, { status });
 }
 
@@ -69,5 +75,30 @@ export async function markCampaignPaid(
   if (fields.amount !== undefined && fields.currency === undefined && !campaign.payout?.currency) {
     fields.currency = AGGREGATION_CURRENCY;
   }
+  return updateCampaignPayout(campaignId, fields);
+}
+
+// Applies validated edits (validateCampaignUpdate output) to a campaign.
+// Re-linking a vendor has the same cross-tenant exposure as create, so the
+// vendor must be the caller's. A payout in the edit replaces the stored one
+// wholesale. Status is written as given; callers that need lifecycle rules
+// go through setCampaignStatus instead.
+export async function updateTenantCampaign(tenantId, campaignId, fields) {
+  await assertCampaignOwned(campaignId, tenantId);
+  if (fields.vendorId) {
+    await assertVendorOwned(fields.vendorId, tenantId);
+  }
+  applyPaidAtDefault(fields.payout);
+  return updateCampaignFields(campaignId, fields);
+}
+
+// Partial payout update (validatePayoutPayload(..., { partial: true })
+// output). Toggling paid carries paid_at with it (applyPaidAtDefault).
+export async function updateTenantCampaignPayout(tenantId, campaignId, fields) {
+  if (Object.keys(fields).length === 0) {
+    throw new BadRequestError("request body must contain at least one payout field");
+  }
+  await assertCampaignOwned(campaignId, tenantId);
+  applyPaidAtDefault(fields);
   return updateCampaignPayout(campaignId, fields);
 }

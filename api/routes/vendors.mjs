@@ -12,16 +12,7 @@ import { withIdempotency } from "../services/idempotency.mjs";
 import { decodeCursor, encodeCursor, parseLimit } from "../services/pagination.mjs";
 import { emptyResponse, jsonResponse, parseBody } from "../services/http-handler.mjs";
 import { BadRequestError } from "../services/errors.mjs";
-import { formatVendor, validateVendorPayload } from "../validation/vendor.mjs";
-
-const formatVendorCampaign = (row) => ({
-  campaign_id: row.campaignId,
-  name: row.name,
-  status: row.status,
-  startDate: row.startDate ?? null,
-  endDate: row.endDate ?? null,
-  created_at: row.createdAt,
-});
+import { formatVendor, formatVendorCampaign, validateVendorPayload } from "../validation/vendor.mjs";
 
 export function registerVendorRoutes(app) {
   app.post("/vendors", withIdempotency(async ({ event }) => {

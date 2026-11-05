@@ -13,6 +13,7 @@ import { presignBriefDownload, presignBriefUpload } from "../services/s3.mjs";
 import {
   CAMPAIGN_STATUSES,
   formatCampaign,
+  formatCampaignDetail,
   validateCampaignCreate,
   validateCampaignUpdate,
 } from "../validation/campaign.mjs";
@@ -21,43 +22,19 @@ import {
   validateBriefSubmission,
   validateUploadUrlRequest,
 } from "../validation/brief.mjs";
-import { validateDraftSubmission } from "../validation/draft.mjs";
-import { applyPaidAtDefault } from "../validation/payout.mjs";
+import { formatDraft, validateDraftSubmission } from "../validation/draft.mjs";
 import { requireUlid } from "../validation/common.mjs";
-import { formatLink } from "../validation/link.mjs";
 import {
   assertCampaignOwned,
   getCampaignWithLinks,
   listCampaigns,
-  updateCampaignFields,
 } from "../domain/campaign.mjs";
 import { requireTenantId } from "../services/identity.mjs";
 import { trackActivity } from "../services/activity.mjs";
-import { createTenantCampaign } from "../services/campaign-actions.mjs";
-import { assertVendorOwned } from "../domain/vendor.mjs";
+import { createTenantCampaign, updateTenantCampaign } from "../services/campaign-actions.mjs";
 import { getDraftForCampaign, saveDraftForCampaign } from "../domain/draft.mjs";
-import { formatSocialPost } from "../validation/social-post.mjs";
-import { formatContentPost } from "../validation/content-post.mjs";
 
 const VALID_STATUSES = new Set(CAMPAIGN_STATUSES);
-
-const formatBrief = (row, downloadUrl) => ({
-  source_type: row.sourceType,
-  summary: row.summary,
-  suggested_campaign: row.suggestedCampaign ?? {},
-  warnings: row.warnings ?? [],
-  raw: downloadUrl ? { download_url: downloadUrl } : null,
-  created_at: row.createdAt,
-});
-
-const formatDraft = (row) => ({
-  url: row.url,
-  doc_id: row.docId ?? null,
-  review: row.review ?? null,
-  reviewed_at: row.reviewedAt ?? null,
-  created_at: row.createdAt,
-  updated_at: row.updatedAt ?? row.createdAt,
-});
 
 export function registerCampaignRoutes(app) {
   app.post("/campaigns", withIdempotency(async ({ event }) => {
@@ -133,20 +110,9 @@ export function registerCampaignRoutes(app) {
     const { campaignId } = params;
     const tenantId = requireTenantId(event);
     await assertCampaignOwned(campaignId, tenantId);
-    const { metadata, links, socialPosts, contentPosts, brief, draft } = await getCampaignWithLinks(campaignId);
-    const briefDownloadUrl = brief?.s3Key ? await presignBriefDownload(brief.s3Key) : null;
-    return jsonResponse(200, {
-      campaign: formatCampaign(metadata),
-      links: links.map(formatLink).sort((a, b) => a.created_at.localeCompare(b.created_at)),
-      social_posts: socialPosts
-        .map(formatSocialPost)
-        .sort((a, b) => a.created_at.localeCompare(b.created_at)),
-      content_posts: contentPosts
-        .map(formatContentPost)
-        .sort((a, b) => a.created_at.localeCompare(b.created_at)),
-      brief: brief ? formatBrief(brief, briefDownloadUrl) : null,
-      draft: draft ? formatDraft(draft) : null,
-    });
+    const detail = await getCampaignWithLinks(campaignId);
+    const briefDownloadUrl = detail.brief?.s3Key ? await presignBriefDownload(detail.brief.s3Key) : null;
+    return jsonResponse(200, formatCampaignDetail(detail, { briefDownloadUrl }));
   });
 
   // PATCH /campaigns/:campaignId
@@ -156,16 +122,10 @@ export function registerCampaignRoutes(app) {
   app.patch("/campaigns/:campaignId", async ({ event, params }) => {
     const { campaignId } = params;
     const tenantId = requireTenantId(event);
-    await assertCampaignOwned(campaignId, tenantId);
-    const body = parseBody(event);
-    const fields = validateCampaignUpdate(body);
-    // Re-linking to a vendor has the same cross-tenant exposure as create, so
-    // verify the caller owns any vendor they're pointing the campaign at.
-    if (fields.vendorId) {
-      await assertVendorOwned(fields.vendorId, tenantId);
-    }
-    applyPaidAtDefault(fields.payout);
-    const updated = await updateCampaignFields(campaignId, fields);
+    const fields = validateCampaignUpdate(parseBody(event));
+    // The dashboard's status picker is a manual override, so this route
+    // writes status as given (no lifecycle check, unlike the MCP tools).
+    const updated = await updateTenantCampaign(tenantId, campaignId, fields);
     return jsonResponse(200, formatCampaign(updated));
   });
 

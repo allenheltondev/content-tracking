@@ -155,3 +155,15 @@ export function formatVendor(row) {
     updated_at: row.updatedAt,
   };
 }
+
+// Shapes a CampaignByVendor companion row (the vendor's campaign list).
+export function formatVendorCampaign(row) {
+  return {
+    campaign_id: row.campaignId,
+    name: row.name,
+    status: row.status,
+    startDate: row.startDate ?? null,
+    endDate: row.endDate ?? null,
+    created_at: row.createdAt,
+  };
+}

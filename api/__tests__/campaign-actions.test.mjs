@@ -34,9 +34,46 @@ describe("createTenantCampaign", () => {
 });
 
 describe("setCampaignStatus", () => {
-  test("checks ownership before writing", async () => {
+  test("checks ownership before writing an allowed move", async () => {
+    campaignDomain.assertCampaignOwned.mockResolvedValue({ campaignId: "C1", status: "active" });
     await setCampaignStatus(TENANT, "C1", "monitoring");
     expect(campaignDomain.assertCampaignOwned).toHaveBeenCalledWith("C1", TENANT);
+    expect(campaignDomain.updateCampaignFields).toHaveBeenCalledWith("C1", { status: "monitoring" });
+  });
+
+  test.each([
+    ["draft", "monitoring"],
+    ["draft", "completed"],
+    ["monitoring", "draft"],
+    ["completed", "active"],
+  ])("rejects %s -> %s without writing", async (from, to) => {
+    campaignDomain.assertCampaignOwned.mockResolvedValue({ campaignId: "C1", status: from });
+    await expect(setCampaignStatus(TENANT, "C1", to)).rejects.toThrow(`Cannot move a campaign from ${from} to ${to}`);
+    expect(campaignDomain.updateCampaignFields).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ["draft", "active"],
+    ["active", "draft"],
+    ["active", "completed"],
+    ["monitoring", "active"],
+    ["monitoring", "completed"],
+  ])("allows %s -> %s", async (from, to) => {
+    campaignDomain.assertCampaignOwned.mockResolvedValue({ campaignId: "C1", status: from });
+    await setCampaignStatus(TENANT, "C1", to);
+    expect(campaignDomain.updateCampaignFields).toHaveBeenCalledWith("C1", { status: to });
+  });
+
+  test("treats the current status as a no-op", async () => {
+    const campaign = { campaignId: "C1", status: "completed" };
+    campaignDomain.assertCampaignOwned.mockResolvedValue(campaign);
+    await expect(setCampaignStatus(TENANT, "C1", "completed")).resolves.toBe(campaign);
+    expect(campaignDomain.updateCampaignFields).not.toHaveBeenCalled();
+  });
+
+  test("treats a legacy row with no status as active", async () => {
+    campaignDomain.assertCampaignOwned.mockResolvedValue({ campaignId: "C1" });
+    await setCampaignStatus(TENANT, "C1", "monitoring");
     expect(campaignDomain.updateCampaignFields).toHaveBeenCalledWith("C1", { status: "monitoring" });
   });
 });

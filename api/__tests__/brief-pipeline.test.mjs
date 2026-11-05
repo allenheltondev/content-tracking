@@ -3,7 +3,7 @@ import { jest } from "@jest/globals";
 process.env.TABLE_NAME = "test-booked";
 
 jest.unstable_mockModule("../services/bedrock/brief.mjs", () => ({ reviewDraft: jest.fn(), summarizeBrief: jest.fn() }));
-jest.unstable_mockModule("../services/google-docs.mjs", () => ({ fetchGoogleDocText: jest.fn() }));
+jest.unstable_mockModule("../services/google-docs.mjs", () => ({ extractGoogleDocId: jest.fn(), fetchGoogleDocText: jest.fn() }));
 jest.unstable_mockModule("../services/s3.mjs", () => ({
   briefFileKey: (campaignId, format) => `uploads/${campaignId}.${format}`,
   getBriefObjectBytes: jest.fn(),

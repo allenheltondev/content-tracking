@@ -27,3 +27,16 @@ export function validateDraftSubmission(body) {
 
   return { url, docId: extractGoogleDocId(url) };
 }
+
+// Shapes a stored draft row (the working-draft link plus its latest review)
+// for responses.
+export function formatDraft(row) {
+  return {
+    url: row.url,
+    doc_id: row.docId ?? null,
+    review: row.review ?? null,
+    reviewed_at: row.reviewedAt ?? null,
+    created_at: row.createdAt,
+    updated_at: row.updatedAt ?? row.createdAt,
+  };
+}

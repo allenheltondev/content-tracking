@@ -62,12 +62,13 @@ and the MCP server:
 | `POST /content` | Register any published content item |
 | `POST /content/{contentId}/publish` | Record a publish variant (per platform) |
 | `POST /content/{contentId}/crosspost` | Cross-post to dev.to / Medium / Hashnode |
-| `POST /mcp` | MCP tools: list campaigns and vendors, create campaigns, update status, mark paid. See [mcp-server.md](mcp-server.md). |
+| `POST /mcp` | MCP tools for full campaign management. See [mcp-server.md](mcp-server.md). |
 
-Every other route (edits, deletes, revenue, …) still requires dashboard
-sign-in. A leaked API key can add content and, through the MCP tools, read
-campaigns and vendors, create campaigns, and change a campaign's status or
-paid state. It cannot delete anything. Revoke a leaked key right away.
+Every other route still requires dashboard sign-in. Through the MCP tools a
+key can read and change campaigns, vendors, links, posts, briefs, drafts, and
+reports, and delete a campaign's links and posts. It cannot delete campaigns
+or vendors, read revenue, or mint more keys. Treat a key like a password and
+revoke a leaked one right away.
 
 **Minting** (requires dashboard sign-in — an API key cannot mint more keys):
 

@@ -2,7 +2,8 @@ import { createMcpHandler, originValidationResponse } from "@modelcontextprotoco
 import { UnauthorizedError } from "../../api/services/errors.mjs";
 import { requireAgentTenantId } from "../../api/services/identity.mjs";
 import { logger } from "../../api/services/logger.mjs";
-import { buildServer } from "./tools.mjs";
+import { publicReportLinkUrl } from "../../api/domain/campaign-report-link.mjs";
+import { buildServer } from "./server.mjs";
 
 // The Booked MCP server (POST /mcp on the REST API). Implements the
 // 2026-07-28 Streamable HTTP transport statelessly: every request carries
@@ -29,7 +30,7 @@ const ALLOWED_ORIGIN_HOSTS = (process.env.MCP_ALLOWED_ORIGIN_HOSTS ?? "")
 
 // The default "auto" response mode answers with a single JSON body; it only
 // upgrades to SSE when a tool emits a mid-call notification, and none do.
-const mcp = createMcpHandler(({ authInfo }) => buildServer(authInfo?.extra?.tenantId), {
+const mcp = createMcpHandler(({ authInfo }) => buildServer(authInfo?.extra ?? {}), {
   maxRequestBodySize: MAX_BODY_BYTES,
   onerror: (error) => logger.warn("MCP request rejected", { error: error.message }),
 });
@@ -56,7 +57,12 @@ export const handler = async (event) => {
       token: "",
       clientId: event.requestContext?.authorizer?.jti ?? "dashboard",
       scopes: [],
-      extra: { tenantId },
+      extra: {
+        tenantId,
+        // Same host and stage prefix as this request, so report links match
+        // the ones the dashboard hands out.
+        publicReportUrl: (token) => publicReportLinkUrl(event, token),
+      },
     },
   });
   return toProxyResult(response);

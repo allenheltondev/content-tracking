@@ -3,7 +3,8 @@ import { BadRequestError } from "../services/errors.mjs";
 // Link validation + response shaping, following the per-entity layout the
 // rest of validation/ uses. Moved out of routes/links.mjs.
 
-const VALID_ROLES = new Set(["main", "cross_post", "social_promo"]);
+export const LINK_ROLES = ["main", "cross_post", "social_promo"];
+const VALID_ROLES = new Set(LINK_ROLES);
 
 const EDITABLE_FIELDS = {
   notes: "notes",

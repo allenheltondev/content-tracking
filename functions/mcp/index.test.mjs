@@ -2,23 +2,24 @@ import { jest } from "@jest/globals";
 
 process.env.TABLE_NAME = "test-booked";
 
-jest.unstable_mockModule("../../api/domain/campaign.mjs", () => ({
-  assertCampaignOwned: jest.fn(),
-  createCampaign: jest.fn(),
-  listCampaigns: jest.fn(),
-  updateCampaignFields: jest.fn(),
-  updateCampaignPayout: jest.fn(),
-}));
-jest.unstable_mockModule("../../api/domain/vendor.mjs", () => ({
-  assertVendorOwned: jest.fn(),
-  listVendors: jest.fn(),
-}));
-jest.unstable_mockModule("../../api/services/activity.mjs", () => ({ trackActivity: jest.fn() }));
+const { autoMock } = await import("./test-support.mjs");
+const mockDomain = (path) => jest.unstable_mockModule(path, autoMock(path, import.meta.url));
+mockDomain("../../api/domain/campaign.mjs");
+mockDomain("../../api/domain/vendor.mjs");
+mockDomain("../../api/domain/link.mjs");
+mockDomain("../../api/domain/social-post.mjs");
+mockDomain("../../api/domain/content-post.mjs");
+mockDomain("../../api/domain/draft.mjs");
+mockDomain("../../api/services/activity.mjs");
+mockDomain("../../api/services/brief-pipeline.mjs");
+mockDomain("../../api/services/campaign-analytics.mjs");
+mockDomain("../../api/services/campaign-reports.mjs");
+mockDomain("../../api/services/campaign-web-analytics.mjs");
 const keyedCalls = [];
 jest.unstable_mockModule("../../api/services/idempotency.mjs", () => ({
-  withKeyedIdempotency: (fn) => (args) => {
-    keyedCalls.push(args);
-    return fn(args);
+  runOnce: (args) => {
+    if (args.idempotencyKey) keyedCalls.push(args);
+    return args.run();
   },
 }));
 
@@ -28,13 +29,9 @@ const { trackActivity } = await import("../../api/services/activity.mjs");
 const { NotFoundError } = await import("../../api/services/errors.mjs");
 const { handler } = await import("./index.mjs");
 
-const SUB = "tenant-1";
-const VERSION = "2026-07-28";
-const META = {
-  "io.modelcontextprotocol/protocolVersion": VERSION,
-  "io.modelcontextprotocol/clientCapabilities": {},
-  "io.modelcontextprotocol/clientInfo": { name: "muse", version: "1.0.0" },
-};
+const { SUB, VERSION, mcpClient, rpcEvent: event } = await import("./test-support.mjs");
+const { rpc, callTool: call } = mcpClient(handler);
+const callTool = async (name, args) => ({ body: { result: await call(name, args) } });
 
 const row = (overrides = {}) => ({
   campaignId: "01J0000000000000000000000C",
@@ -43,34 +40,6 @@ const row = (overrides = {}) => ({
   createdAt: "2026-11-01T00:00:00.000Z",
   ...overrides,
 });
-
-function event({ method, params = {}, name, headers = {}, authSource = "apikey", body } = {}) {
-  const allHeaders = {
-    Host: "api.example.com",
-    "Content-Type": "application/json",
-    Accept: "application/json, text/event-stream",
-    "MCP-Protocol-Version": VERSION,
-    "Mcp-Method": method,
-    ...(name ? { "Mcp-Name": name } : {}),
-    ...headers,
-  };
-  return {
-    httpMethod: "POST",
-    path: "/mcp",
-    headers: allHeaders,
-    multiValueHeaders: Object.fromEntries(Object.entries(allHeaders).map(([k, v]) => [k, [v]])),
-    body: body ?? JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: { ...params, _meta: META } }),
-    isBase64Encoded: false,
-    requestContext: { authorizer: { authSource, sub: SUB, jti: "key-1" } },
-  };
-}
-
-async function rpc(opts) {
-  const res = await handler(event(opts));
-  return { status: res.statusCode, body: JSON.parse(res.body) };
-}
-
-const callTool = (name, args) => rpc({ method: "tools/call", name, params: { name, arguments: args } });
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -90,12 +59,42 @@ describe("mcp transport", () => {
   test("tools/list exposes the campaign tools", async () => {
     const { body } = await rpc({ method: "tools/list" });
     expect(body.result.tools.map((t) => t.name).sort()).toEqual([
+      "add_campaign_link",
+      "add_content_post",
+      "add_social_post",
+      "attach_campaign_brief",
       "create_campaign",
+      "create_vendor",
+      "delete_campaign_link",
+      "delete_content_post",
+      "delete_social_post",
+      "generate_campaign_report",
+      "get_campaign",
+      "get_campaign_analytics",
+      "get_campaign_web_analytics",
+      "get_vendor",
+      "list_campaign_reports",
       "list_campaigns",
       "list_vendors",
       "mark_campaign_paid",
+      "record_content_post_metrics",
+      "record_social_post_metrics",
+      "review_campaign_draft",
+      "save_campaign_draft",
+      "update_campaign",
+      "update_campaign_link",
+      "update_campaign_payout",
       "update_campaign_status",
+      "update_vendor",
     ]);
+  });
+
+  test("every tool declares annotations, and deletes are marked destructive", async () => {
+    const { body } = await rpc({ method: "tools/list" });
+    for (const tool of body.result.tools) {
+      expect(tool.annotations).toBeDefined();
+      expect(tool.annotations.destructiveHint === true).toBe(tool.name.startsWith("delete_"));
+    }
   });
 
   test("rejects the Chrome extension auth source with 401", async () => {
@@ -160,7 +159,9 @@ describe("create_campaign", () => {
     await callTool("create_campaign", { name: "Once" });
     expect(keyedCalls).toHaveLength(0);
     await callTool("create_campaign", { name: "Once", idempotency_key: "k-1" });
-    expect(keyedCalls).toEqual([expect.objectContaining({ tenantId: SUB, idempotencyKey: "k-1" })]);
+    expect(keyedCalls).toEqual([
+      expect.objectContaining({ operation: "create_campaign", tenantId: SUB, idempotencyKey: "k-1" }),
+    ]);
   });
 
   test("returns validation failures as a tool error", async () => {
@@ -180,6 +181,7 @@ describe("create_campaign", () => {
 
 describe("update_campaign_status", () => {
   test("checks ownership then updates the status", async () => {
+    campaignDomain.assertCampaignOwned.mockResolvedValue(row({ status: "monitoring" }));
     campaignDomain.updateCampaignFields.mockResolvedValue(row({ status: "completed" }));
     const { body } = await callTool("update_campaign_status", { campaign_id: "C1", status: "completed" });
     expect(campaignDomain.assertCampaignOwned).toHaveBeenCalledWith("C1", SUB);
