@@ -109,7 +109,7 @@ describe('a failed confirmed action keeps its dialog open', () => {
 
   it('revoking an API key', async () => {
     const user = userEvent.setup();
-    vi.mocked(listApiKeys).mockResolvedValue({ keys: [device] });
+    vi.mocked(listApiKeys).mockResolvedValue({ keys: [{ ...device, access: 'write' }] });
     vi.mocked(revokeApiKey).mockRejectedValue(new Error(FAILURE));
     renderAt('/settings?tab=api', '/settings', <Settings />);
 

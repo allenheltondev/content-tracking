@@ -1,8 +1,7 @@
-import { BadRequestError } from "../services/errors.mjs";
 import { jsonResponse, parseBody } from "../services/http-handler.mjs";
-import { assertCampaignOwned, updateCampaignPayout } from "../domain/campaign.mjs";
+import { updateTenantCampaignPayout } from "../services/campaign-actions.mjs";
 import { requireTenantId } from "../services/identity.mjs";
-import { applyPaidAtDefault, formatPayout, validatePayoutPayload } from "../validation/payout.mjs";
+import { formatPayout, validatePayoutPayload } from "../validation/payout.mjs";
 
 const formatCampaign = (row) => ({
   campaign_id: row.campaignId,
@@ -28,17 +27,8 @@ export function registerPayoutRoutes(app) {
   app.patch("/campaigns/:campaignId/payout", async ({ event, params }) => {
     const { campaignId } = params;
     const tenantId = requireTenantId(event);
-    await assertCampaignOwned(campaignId, tenantId);
-    const body = parseBody(event);
-    const fields = validatePayoutPayload(body, { partial: true });
-
-    if (Object.keys(fields).length === 0) {
-      throw new BadRequestError("request body must contain at least one payout field");
-    }
-
-    applyPaidAtDefault(fields);
-
-    const updated = await updateCampaignPayout(campaignId, fields);
+    const fields = validatePayoutPayload(parseBody(event), { partial: true });
+    const updated = await updateTenantCampaignPayout(tenantId, campaignId, fields);
     return jsonResponse(200, formatCampaign(updated));
   });
 }

@@ -17,7 +17,7 @@ import { TABLE_NAME } from "./ddb.mjs";
 // re-executing side effects. The header is optional: requests without
 // it just execute normally with no idempotency record written.
 
-const persistence = new DynamoDBPersistenceLayer({
+const persistenceOptions = {
   tableName: TABLE_NAME,
   // staticPkValue + sortKeyAttr together mean: pk is fixed to
   // "IDEMPOTENCY", and the idempotency hash goes into the sk attribute.
@@ -29,7 +29,9 @@ const persistence = new DynamoDBPersistenceLayer({
   statusAttr: "status",
   dataAttr: "data",
   validationKeyAttr: "validation",
-});
+};
+
+const persistence = new DynamoDBPersistenceLayer(persistenceOptions);
 
 const config = new IdempotencyConfig({
   // JMESPath against the wrapped Router reqCtx (the first argument of
@@ -59,4 +61,37 @@ export function withIdempotency(fn) {
     config,
     dataIndexArgument: 0,
   });
+}
+
+// Idempotency for non-HTTP callers (the MCP tools), keyed on an explicit
+// key the caller supplies instead of a request header. The wrapped function
+// takes one object: `operation` (the tool name), `tenantId`, and
+// `idempotencyKey` form the key, so tools and tenants never share a record;
+// `fields` is the validated input, hashed for payload validation; `run` is
+// the work to do once. Reusing a key with different fields raises
+// IdempotencyValidationError instead of silently returning the first
+// result.
+//
+// Only call it when the caller supplied a key: without one the hash would
+// collapse to (operation, tenant) and dedupe every call. A persistence layer
+// keeps the first config it is configured with, so this path gets its own
+// instance rather than sharing the header-keyed one above.
+const keyedPersistence = new DynamoDBPersistenceLayer(persistenceOptions);
+
+const keyedConfig = new IdempotencyConfig({
+  eventKeyJmesPath: "[operation, tenantId, idempotencyKey]",
+  payloadValidationJmesPath: "fields",
+  throwOnNoIdempotencyKey: true,
+  expiresAfterSeconds: 24 * 60 * 60,
+});
+
+const runKeyed = makeIdempotent(({ run }) => run(), {
+  persistenceStore: keyedPersistence,
+  config: keyedConfig,
+  dataIndexArgument: 0,
+});
+
+export function runOnce({ operation, tenantId, idempotencyKey, fields, run }) {
+  if (!idempotencyKey) return run();
+  return runKeyed({ operation, tenantId, idempotencyKey, fields, run });
 }

@@ -40,7 +40,9 @@ function pairingKey(sub, jti) {
   return { pk: `USER#${sub}`, sk: `${SK_PREFIX}${jti}` };
 }
 
-export async function mintPairing({ sub, label, signingSecret, source = DEFAULT_SOURCE }) {
+// `access` ("read" | "write") is recorded on API keys only; the authorizer
+// passes it on so routes and MCP tools can refuse writes from read keys.
+export async function mintPairing({ sub, label, signingSecret, source = DEFAULT_SOURCE, access }) {
   if (!sub) {
     throw new Error("mintPairing requires sub.");
   }
@@ -56,6 +58,7 @@ export async function mintPairing({ sub, label, signingSecret, source = DEFAULT_
     jti,
     sub,
     label: label?.trim() || "Unnamed device",
+    ...(source === "apikey" ? { access: access ?? "write" } : {}),
     created_at: now,
     last_used_at: null,
   };
@@ -127,10 +130,13 @@ export async function touchPairing({ sub, jti }) {
 }
 
 // Strip internal partition keys before sending to the dashboard.
+// API keys also report their access level; keys minted before access
+// levels existed read as "write", matching what the authorizer grants them.
 function toPublic(item) {
   return {
     jti: item.jti,
     label: item.label,
+    ...(item.source === "apikey" ? { access: item.access ?? "write" } : {}),
     created_at: item.created_at,
     last_used_at: item.last_used_at,
   };

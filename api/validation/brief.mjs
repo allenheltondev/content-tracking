@@ -108,3 +108,16 @@ export function conversationToTranscript(conversation) {
     .map((entry) => `${entry.role}: ${entry.content}`)
     .join("\n\n");
 }
+
+// Shapes a stored brief row for responses. `downloadUrl` is a presigned link
+// to the original file, when the caller minted one.
+export function formatBrief(row, downloadUrl = null) {
+  return {
+    source_type: row.sourceType,
+    summary: row.summary,
+    suggested_campaign: row.suggestedCampaign ?? {},
+    warnings: row.warnings ?? [],
+    raw: downloadUrl ? { download_url: downloadUrl } : null,
+    created_at: row.createdAt,
+  };
+}

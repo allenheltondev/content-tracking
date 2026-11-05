@@ -84,11 +84,14 @@ async function authorizeHmacToken(token, methodArn) {
   // Source lives on the persisted row, not the token, so the same signed
   // shape covers both flavours. Rows minted before the tag existed are
   // treated as extension tokens.
-  return allow({
-    principalId: sub,
-    methodArn,
-    context: { sub, authSource: pairing.source ?? "extension", jti },
-  });
+  const authSource = pairing.source ?? "extension";
+  const context = { sub, authSource, jti };
+  // API keys carry an access level ("read" | "write"). Keys minted before
+  // levels existed have none and keep the write access they always had.
+  if (authSource === "apikey") {
+    context.access = pairing.access ?? "write";
+  }
+  return allow({ principalId: sub, methodArn, context });
 }
 
 // Decodes only the header — used to dispatch which verification path to

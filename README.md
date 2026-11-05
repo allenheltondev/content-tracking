@@ -339,6 +339,9 @@ public, and it deliberately omits rate-card pricing.
   Actions, OIDC role setup.
 - [`docs/api-reference.md`](docs/api-reference.md) - every route, every
   schema, status codes and example payloads.
+- [`docs/mcp-server.md`](docs/mcp-server.md) - the MCP server agents such as
+  Muse use to manage campaigns end to end: tools, the status lifecycle,
+  auth, and why it runs as a plain Lambda behind the REST API.
 - [`docs/voice-recency.md`](docs/voice-recency.md) - the recency-weighted
   voice model: why exponential publish-date decay, where the weighting
   applies, and how to tune it.

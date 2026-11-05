@@ -1,8 +1,14 @@
 import { BadRequestError } from "../services/errors.mjs";
 import { extractYoutubeVideoId } from "../services/youtube.mjs";
 import { formatPayout, validatePayoutPayload } from "./payout.mjs";
-import { VENDOR_ID_RE } from "./vendor.mjs";
+import { VENDOR_ID_RE } from "./vendor.mjs";
+
 import { ISO_DATE_RE } from "./common.mjs";
+import { formatBrief } from "./brief.mjs";
+import { formatContentPost } from "./content-post.mjs";
+import { formatDraft } from "./draft.mjs";
+import { formatLink } from "./link.mjs";
+import { formatSocialPost } from "./social-post.mjs";
 
 // Shapes a stored campaign row into the snake_case API response. Lives here
 // (rather than the route module) so both the campaign routes and the content
@@ -29,7 +35,57 @@ export function formatCampaign(row) {
   };
 }
 
-const VALID_STATUSES = new Set(["draft", "active", "monitoring", "completed"]);
+export const CAMPAIGN_STATUSES = ["draft", "active", "monitoring", "completed"];
+const VALID_STATUSES = new Set(CAMPAIGN_STATUSES);
+
+// Shapes getCampaignWithLinks output into the campaign detail response used
+// by GET /campaigns/{campaignId} and the MCP get_campaign tool. Children are
+// ordered oldest first.
+export function formatCampaignDetail(
+  { metadata, links, socialPosts, contentPosts, brief, draft },
+  { briefDownloadUrl = null } = {},
+) {
+  const byCreated = (a, b) => a.created_at.localeCompare(b.created_at);
+  return {
+    campaign: formatCampaign(metadata),
+    links: links.map((l) => formatLink(l)).sort(byCreated),
+    social_posts: socialPosts.map(formatSocialPost).sort(byCreated),
+    content_posts: contentPosts.map(formatContentPost).sort(byCreated),
+    brief: brief ? formatBrief(brief, briefDownloadUrl) : null,
+    draft: draft ? formatDraft(draft) : null,
+  };
+}
+
+// The campaign lifecycle: draft -> active -> monitoring -> completed.
+// active can drop back to draft (the deal paused before anything shipped)
+// and monitoring can reopen to active (another deliverable is due).
+// completed is terminal for agents; the dashboard's status picker stays a
+// free-form override, so this map is enforced only where it is asked for
+// (the MCP tools).
+export const CAMPAIGN_STATUS_TRANSITIONS = {
+  draft: ["active"],
+  active: ["draft", "monitoring", "completed"],
+  monitoring: ["active", "completed"],
+  completed: [],
+};
+
+// Throws BadRequestError when `from -> to` is not an allowed move. Moving to
+// the current status is a no-op and allowed. A legacy row with no status is
+// treated as active, the create default.
+export function assertStatusTransition(from, to) {
+  if (!VALID_STATUSES.has(to)) {
+    throw new BadRequestError(`status must be one of ${CAMPAIGN_STATUSES.join(", ")}`);
+  }
+  const current = from ?? "active";
+  if (current === to) return;
+  const allowed = CAMPAIGN_STATUS_TRANSITIONS[current] ?? [];
+  if (!allowed.includes(to)) {
+    const options = allowed.length > 0 ? allowed.join(", ") : "none (completed is final)";
+    throw new BadRequestError(
+      `Cannot move a campaign from ${current} to ${to}. Allowed from ${current}: ${options}.`,
+    );
+  }
+}
 // A campaign's main deliverable is either a published blog post (tracked via
 // GA4 + Core Web Vitals off blog_url) or a YouTube video (tracked via the
 // YouTube Data API off youtube_url). The two are mutually exclusive.

@@ -10,69 +10,40 @@ import {
   stageBriefUpload,
 } from "../services/brief-pipeline.mjs";
 import { presignBriefDownload, presignBriefUpload } from "../services/s3.mjs";
-import { formatCampaign, validateCampaignCreate, validateCampaignUpdate } from "../validation/campaign.mjs";
+import {
+  CAMPAIGN_STATUSES,
+  formatCampaign,
+  formatCampaignDetail,
+  validateCampaignCreate,
+  validateCampaignUpdate,
+} from "../validation/campaign.mjs";
 import {
   validateBriefImport,
   validateBriefSubmission,
   validateUploadUrlRequest,
 } from "../validation/brief.mjs";
-import { validateDraftSubmission } from "../validation/draft.mjs";
-import { applyPaidAtDefault } from "../validation/payout.mjs";
+import { formatDraft, validateDraftSubmission } from "../validation/draft.mjs";
 import { requireUlid } from "../validation/common.mjs";
-import { formatLink } from "../validation/link.mjs";
 import {
   assertCampaignOwned,
-  createCampaign,
   getCampaignWithLinks,
   listCampaigns,
-  updateCampaignFields,
 } from "../domain/campaign.mjs";
 import { requireTenantId } from "../services/identity.mjs";
 import { trackActivity } from "../services/activity.mjs";
-import { assertVendorOwned } from "../domain/vendor.mjs";
+import { createTenantCampaign, updateTenantCampaign } from "../services/campaign-actions.mjs";
 import { getDraftForCampaign, saveDraftForCampaign } from "../domain/draft.mjs";
-import { formatSocialPost } from "../validation/social-post.mjs";
-import { formatContentPost } from "../validation/content-post.mjs";
 
-const VALID_STATUSES = new Set(["draft", "active", "monitoring", "completed"]);
-
-const formatBrief = (row, downloadUrl) => ({
-  source_type: row.sourceType,
-  summary: row.summary,
-  suggested_campaign: row.suggestedCampaign ?? {},
-  warnings: row.warnings ?? [],
-  raw: downloadUrl ? { download_url: downloadUrl } : null,
-  created_at: row.createdAt,
-});
-
-const formatDraft = (row) => ({
-  url: row.url,
-  doc_id: row.docId ?? null,
-  review: row.review ?? null,
-  reviewed_at: row.reviewedAt ?? null,
-  created_at: row.createdAt,
-  updated_at: row.updatedAt ?? row.createdAt,
-});
+const VALID_STATUSES = new Set(CAMPAIGN_STATUSES);
 
 export function registerCampaignRoutes(app) {
   app.post("/campaigns", withIdempotency(async ({ event }) => {
     const tenantId = requireTenantId(event);
     const body = parseBody(event);
     const fields = validateCampaignCreate(body);
-    // A vendor link writes a row under the vendor's partition and surfaces in
-    // its /vendors/:id/campaigns list, so confirm the vendor is the caller's
-    // before accepting it — otherwise a guessed id would let a user pollute
-    // another tenant's vendor. 404s a missing/foreign vendor.
-    if (fields.vendorId) {
-      await assertVendorOwned(fields.vendorId, tenantId);
-    }
-    const item = await createCampaign({ ...fields, tenantId });
-    // Gamification: a created campaign is the "Deal Maker" activity (and feeds
-    // the higher campaign-count tiers). Idempotent per campaign so a retry with
-    // the same Idempotency-Key can't double-count.
-    await trackActivity(tenantId, "campaign.created", {
-      id: `campaign.created#${tenantId}#${item.campaignId}`,
-    });
+    // Vendor ownership check + the "Deal Maker" activity live in the shared
+    // service so the MCP create_campaign tool runs the same steps.
+    const item = await createTenantCampaign(tenantId, fields);
     return jsonResponse(201, formatCampaign(item));
   }));
 
@@ -139,20 +110,9 @@ export function registerCampaignRoutes(app) {
     const { campaignId } = params;
     const tenantId = requireTenantId(event);
     await assertCampaignOwned(campaignId, tenantId);
-    const { metadata, links, socialPosts, contentPosts, brief, draft } = await getCampaignWithLinks(campaignId);
-    const briefDownloadUrl = brief?.s3Key ? await presignBriefDownload(brief.s3Key) : null;
-    return jsonResponse(200, {
-      campaign: formatCampaign(metadata),
-      links: links.map(formatLink).sort((a, b) => a.created_at.localeCompare(b.created_at)),
-      social_posts: socialPosts
-        .map(formatSocialPost)
-        .sort((a, b) => a.created_at.localeCompare(b.created_at)),
-      content_posts: contentPosts
-        .map(formatContentPost)
-        .sort((a, b) => a.created_at.localeCompare(b.created_at)),
-      brief: brief ? formatBrief(brief, briefDownloadUrl) : null,
-      draft: draft ? formatDraft(draft) : null,
-    });
+    const detail = await getCampaignWithLinks(campaignId);
+    const briefDownloadUrl = detail.brief?.s3Key ? await presignBriefDownload(detail.brief.s3Key) : null;
+    return jsonResponse(200, formatCampaignDetail(detail, { briefDownloadUrl }));
   });
 
   // PATCH /campaigns/:campaignId
@@ -162,16 +122,10 @@ export function registerCampaignRoutes(app) {
   app.patch("/campaigns/:campaignId", async ({ event, params }) => {
     const { campaignId } = params;
     const tenantId = requireTenantId(event);
-    await assertCampaignOwned(campaignId, tenantId);
-    const body = parseBody(event);
-    const fields = validateCampaignUpdate(body);
-    // Re-linking to a vendor has the same cross-tenant exposure as create, so
-    // verify the caller owns any vendor they're pointing the campaign at.
-    if (fields.vendorId) {
-      await assertVendorOwned(fields.vendorId, tenantId);
-    }
-    applyPaidAtDefault(fields.payout);
-    const updated = await updateCampaignFields(campaignId, fields);
+    const fields = validateCampaignUpdate(parseBody(event));
+    // The dashboard's status picker is a manual override, so this route
+    // writes status as given (no lifecycle check, unlike the MCP tools).
+    const updated = await updateTenantCampaign(tenantId, campaignId, fields);
     return jsonResponse(200, formatCampaign(updated));
   });
 

@@ -16,6 +16,7 @@ import {
 } from '../api/apiKeys';
 import type {
   ApiKey,
+  ApiKeyAccess,
   CreateApiKeyResponse,
   CreateExtensionPairingResponse,
   ExtensionPairing,
@@ -749,26 +750,38 @@ function ApiKeysTab(): ReactElement {
   return (
     <div className="space-y-6">
       <p className="text-sm text-muted-foreground">
-        API keys let automation — like a GitHub Actions workflow in your writing repo — publish to
-        Booked without a dashboard sign-in. Each key is a long-lived, revocable credential scoped
-        to your account.
+        API keys let automation and agents use Booked without a dashboard sign-in. A GitHub Actions
+        workflow can publish content, and an agent such as Muse can manage campaigns through the MCP
+        server. Each key is a long-lived, revocable credential scoped to your account.
       </p>
 
       <div className="card card-body space-y-3 text-sm text-foreground">
         <h2 className="text-lg font-semibold text-foreground">What a key can do</h2>
         <p className="text-muted-foreground">
-          API keys are accepted only on the content <span className="font-medium">publish</span>{' '}
-          endpoints — creating a blog or content item, recording a publish, and cross-posting.
-          Everything else (reading, editing, deleting, campaigns, revenue) still requires signing
-          in here, so a leaked key can only ever add content.
+          <span className="font-medium text-foreground">Read only</span> keys can list and read
+          campaigns, vendors, analytics, and reports through the MCP server. Campaign details include
+          each campaign's fee and whether it has been paid. Read only keys cannot change anything.
         </p>
         <p className="text-muted-foreground">
-          Send it as an <code className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">Authorization</code>{' '}
-          header on your request, e.g.{' '}
+          <span className="font-medium text-foreground">Read and write</span> keys can also publish
+          content and use every MCP tool: create and edit campaigns and vendors, mark payments, and add
+          or delete links and posts.
+        </p>
+        <p className="text-muted-foreground">
+          No key can open the revenue reports that total your earnings across campaigns, delete
+          campaigns or vendors, or create keys. Those still require signing in here.
+        </p>
+        <p className="text-muted-foreground">
+          The access level is fixed when you create a key. To change it, create a new key and revoke
+          the old one.
+        </p>
+        <p className="text-muted-foreground">
+          Send the key as an <code className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">Authorization</code>{' '}
+          header, for example{' '}
           <code className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">
             Authorization: Bearer &lt;key&gt;
           </code>
-          . Include an{' '}
+          . When publishing, include an{' '}
           <code className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">Idempotency-Key</code>{' '}
           (your commit SHA works well) so a re-run won't create duplicates.
         </p>
@@ -802,6 +815,7 @@ function ApiKeysTab(): ReactElement {
               <thead>
                 <tr>
                   <th>Label</th>
+                  <th>Access</th>
                   <th>Created</th>
                   <th>Last used</th>
                   <th />
@@ -811,6 +825,11 @@ function ApiKeysTab(): ReactElement {
                 {keys.map((k) => (
                   <tr key={k.jti}>
                     <td>{k.label}</td>
+                    <td>
+                      <span className={`status-pill ${k.access === 'read' ? 'status-draft' : 'status-active'}`}>
+                        {API_KEY_ACCESS_LABELS[k.access]}
+                      </span>
+                    </td>
                     <td className="text-muted-foreground">{k.created_at.slice(0, 10)}</td>
                     <td className="text-muted-foreground">
                       {k.last_used_at ? new Date(k.last_used_at).toLocaleString() : 'never'}
@@ -857,6 +876,11 @@ function ApiKeysTab(): ReactElement {
   );
 }
 
+const API_KEY_ACCESS_LABELS: Record<ApiKeyAccess, string> = {
+  read: 'Read only',
+  write: 'Read and write',
+};
+
 function GenerateApiKeyDialog({
   open,
   onClose,
@@ -868,12 +892,14 @@ function GenerateApiKeyDialog({
 }): ReactElement | null {
   const apiFetch = useApiFetch();
   const [label, setLabel] = useState('');
+  const [access, setAccess] = useState<ApiKeyAccess>('read');
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) {
       setLabel('');
+      setAccess('read');
       setError(null);
       setGenerating(false);
     }
@@ -885,7 +911,7 @@ function GenerateApiKeyDialog({
     setError(null);
     setGenerating(true);
     try {
-      const res = await createApiKey(apiFetch, { label: label.trim() || undefined });
+      const res = await createApiKey(apiFetch, { label: label.trim() || undefined, access });
       onGenerated(res);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : (err as Error).message);
@@ -913,6 +939,23 @@ function GenerateApiKeyDialog({
             autoFocus
           />
           <span className="field-hint">Shown only on this page so you can identify it later.</span>
+        </label>
+        <label className="block">
+          <span className="field-label">Access</span>
+          <select
+            className="input"
+            value={access}
+            onChange={(e) => setAccess(e.target.value as ApiKeyAccess)}
+            disabled={generating}
+          >
+            <option value="read">{API_KEY_ACCESS_LABELS.read}</option>
+            <option value="write">{API_KEY_ACCESS_LABELS.write}</option>
+          </select>
+          <span className="field-hint">
+            {access === 'read'
+              ? 'Reads campaigns, vendors, analytics, and reports. Changes nothing.'
+              : 'Also publishes content and creates, edits, and deletes campaign data.'}
+          </span>
         </label>
         {error && <p className="form-error">{error}</p>}
         <div className="flex justify-end gap-2">
