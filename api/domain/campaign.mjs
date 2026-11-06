@@ -529,27 +529,45 @@ export async function updateCampaignPayout(campaignId, fields) {
     }
   }
 
+  // DynamoDB rejects an expression whose paths overlap, so `SET #payout =
+  // if_not_exists(...)` cannot share a statement with `SET #payout.#x = ...`.
+  // Write the nested fields first (requires the map to exist); when the
+  // campaign has no payout map yet, create it in its own update and retry.
   const expressionParts = [];
-  let setClause = "SET #payout = if_not_exists(#payout, :empty)";
   if (setClauses.length > 0) {
-    setClause += `, ${setClauses.join(", ")}`;
+    expressionParts.push(`SET ${setClauses.join(", ")}`);
   }
-  expressionParts.push(setClause);
   if (removeClauses.length > 0) {
     expressionParts.push(`REMOVE ${removeClauses.join(", ")}`);
   }
-  values[":empty"] = {};
+
+  const send = (extra) => ddb.send(new UpdateCommand({
+    TableName: TABLE_NAME,
+    Key: campaignKey(campaignId),
+    UpdateExpression: expressionParts.join(" "),
+    ExpressionAttributeNames: names,
+    ...(Object.keys(values).length > 0 ? { ExpressionAttributeValues: values } : {}),
+    ConditionExpression: "attribute_exists(pk) AND attribute_exists(#payout)",
+    ReturnValues: "ALL_NEW",
+    ...extra,
+  }));
 
   try {
-    const result = await ddb.send(new UpdateCommand({
-      TableName: TABLE_NAME,
-      Key: campaignKey(campaignId),
-      UpdateExpression: expressionParts.join(" "),
-      ExpressionAttributeNames: names,
-      ExpressionAttributeValues: values,
-      ConditionExpression: "attribute_exists(pk)",
-      ReturnValues: "ALL_NEW",
-    }));
+    let result;
+    try {
+      result = await send();
+    } catch (err) {
+      if (!isConditionalCheckFailed(err)) throw err;
+      await ddb.send(new UpdateCommand({
+        TableName: TABLE_NAME,
+        Key: campaignKey(campaignId),
+        UpdateExpression: "SET #payout = if_not_exists(#payout, :empty)",
+        ExpressionAttributeNames: { "#payout": "payout" },
+        ExpressionAttributeValues: { ":empty": {} },
+        ConditionExpression: "attribute_exists(pk)",
+      }));
+      result = await send();
+    }
     return result.Attributes;
   } catch (err) {
     if (isConditionalCheckFailed(err)) {

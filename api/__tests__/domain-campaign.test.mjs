@@ -326,8 +326,21 @@ describe("domain/campaign", () => {
       mockSend.mockResolvedValue({ Attributes: { campaignId: "C1" } });
       await updateCampaignPayout("C1", { amount: 5000, currency: "USD" });
       const input = mockSend.mock.calls[0][0].input;
-      expect(input.UpdateExpression).toMatch(/SET #payout = if_not_exists/);
       expect(input.UpdateExpression).toMatch(/#payout\.#amount = :amount/);
+      // Overlapping paths are rejected by DynamoDB.
+      expect(input.UpdateExpression).not.toMatch(/SET #payout =/);
+      expect(input.ConditionExpression).toMatch(/attribute_exists\(#payout\)/);
+    });
+
+    test("creates the payout map and retries when it is missing", async () => {
+      const err = new Error();
+      err.name = "ConditionalCheckFailedException";
+      mockSend.mockRejectedValueOnce(err);
+      mockSend.mockResolvedValueOnce({});
+      mockSend.mockResolvedValueOnce({ Attributes: { campaignId: "C1" } });
+      await updateCampaignPayout("C1", { paid: true });
+      expect(mockSend).toHaveBeenCalledTimes(3);
+      expect(mockSend.mock.calls[1][0].input.UpdateExpression).toBe("SET #payout = if_not_exists(#payout, :empty)");
     });
 
     test("null paid_at moves to REMOVE", async () => {
