@@ -49,21 +49,31 @@ records a pending request and returns it in `refresh_requests` on the next
 working-set load. The worker checks that list after every feed refresh, which
 happens every 15 minutes while Chrome is open. For each requested campaign it
 sweeps the posts through the same queue and "Booked" tab group as **Sync now**.
-It skips posts already synced after the request time and posts that already have
-a live scrape tab. Posts with no scrape page, such as Hashnode, are left out.
+It skips posts already synced after the request time. A post that already has a
+scrape tab open or queued joins the sweep, and the sweep waits for it. Hashnode
+posts sync through the direct API query and the sweep waits for that too.
 
-When every queued post has synced, timed out, or failed to open, the worker calls
-`POST /monitoring/campaigns/{campaignId}/sweep-complete` once. The API clears the
-request and regenerates the report. If nothing needs scraping, the call happens
-right away. A campaign never gets a second sweep while one is in flight. Posts that
-cannot be scraped time out after 60 seconds, so the call is made anyway.
+Every post leaves the sweep with an outcome. It succeeded if its stats reached
+the API. A timeout after 60 seconds, a tab that failed to open, a failed write,
+or a post that cannot be scraped is a failure. A post in a sweep is written even
+when its numbers are unchanged, so its `last_fetched` moves forward.
+
+When every post has an outcome, the worker calls
+`POST /monitoring/campaigns/{campaignId}/sweep-complete` once. If all posts
+succeeded, the API clears the request and regenerates the report. If any failed,
+the call carries `partial: true`. The API then keeps the request and regenerates
+the report only if some post did sync. The request comes back in the next working
+set and the failed posts are swept again. After three partial results the worker
+reports the sweep complete anyway, so one broken post cannot hold a request open.
+If nothing needs scraping, the call happens right away. A campaign never gets a
+second sweep while one is in flight.
 
 ### Scheduled sweep
 
 On a schedule the worker sweeps every monitored post across all monitoring
 campaigns. It checks on the 15-minute alarm and at startup. Posts synced within
 the last half interval are skipped. It calls `sweep-complete` for each campaign
-that had at least one post swept. The popup has a **Refresh all posts** setting:
+that had at least one post swept, with `partial: true` if any post failed. The popup has a **Refresh all posts** setting:
 Off, Every 6 hours, Every 12 hours, or Once a day. Once a day is the default, and
 `sweepIntervalHours` in `src/config.js` sets it. The setting is per browser. An
 always-on machine can sweep every 6 hours while a laptop is set to Off.
@@ -72,11 +82,12 @@ always-on machine can sweep every 6 hours while a laptop is set to Off.
 
 Chrome can stop the service worker at any time, and the sync queue lives in memory.
 In-flight sweeps are saved to `chrome.storage.local` (`booked_sweeps`) as the set
-of posts still pending per campaign. When the worker starts, it reloads them and
-requeues the pending posts from the cached feed. Every sweep also has a deadline.
-If one is still open past it, the next alarm tick completes it anyway. A failed
-`sweep-complete` call heals itself: the request stays in the working set, finds
-nothing stale, and completes on the next tick. Tabs opened before a restart are
+of posts still pending and the posts that failed, per campaign. When the worker
+starts, it reloads them and requeues the pending posts from the cached feed. Every
+sweep also has a deadline. If one is still open past it, the next alarm tick
+finishes it and counts the outstanding posts as failures. A failed `sweep-complete`
+call heals itself: the request stays in the working set, finds nothing stale, and
+completes on the next tick. Tabs opened before a restart are
 no longer tracked, so the new worker will not close them.
 The sweep logic lives in `src/sweeps.js`.
 

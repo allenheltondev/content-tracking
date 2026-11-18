@@ -48,9 +48,25 @@ export function normalizeRefreshRequests(raw) {
   return [...byCampaign.values()];
 }
 
+// A requested sweep that keeps failing reports in as complete after this many
+// attempts, so one unscrapable post cannot hold a request open forever.
+export const MAX_REQUESTED_SWEEP_ATTEMPTS = 3;
+
+// Decide what a finished sweep tells the server. A sweep with failed posts is
+// partial: the server keeps the pending request and the next tick retries.
+// `attempts` counts earlier partial results for the same requested sweep.
+export function sweepCompletion({ source, failedCount, attempts = 0 }) {
+  if (!failedCount) return { partial: false, attempts: 0 };
+  if (source !== "requested") return { partial: true, attempts: 0 };
+  const next = attempts + 1;
+  if (next >= MAX_REQUESTED_SWEEP_ATTEMPTS) return { partial: false, attempts: 0 };
+  return { partial: true, attempts: next };
+}
+
 // Posts of the requested campaign that still need a scrape: not already synced
-// after the request was made, and not busy (live scrape tab or already queued).
-export function selectRequestedPosts(feed, request, { busyPostIds = new Set() } = {}) {
+// after the request was made. Posts that are already being scraped are kept,
+// so the sweep waits for them instead of finishing ahead of their stats.
+export function selectRequestedPosts(feed, request) {
   const requestedMs = toMs(request?.requested_at);
   const seen = new Set();
   const out = [];
@@ -58,7 +74,6 @@ export function selectRequestedPosts(feed, request, { busyPostIds = new Set() } 
     if (p.campaign_id !== request?.campaign_id) continue;
     if (seen.has(p.post_id)) continue;
     seen.add(p.post_id);
-    if (busyPostIds.has(p.post_id)) continue;
     const fetchedMs = toMs(p.last_fetched);
     if (fetchedMs !== null && requestedMs !== null && fetchedMs > requestedMs) continue;
     out.push(p);
@@ -78,11 +93,7 @@ export function isFreshForSweep(post, intervalHours, now = Date.now()) {
 export function selectScheduledPosts(
   feed,
   now = Date.now(),
-  {
-    intervalHours = DEFAULT_SWEEP_INTERVAL_HOURS,
-    busyPostIds = new Set(),
-    skipCampaignIds = new Set(),
-  } = {},
+  { intervalHours = DEFAULT_SWEEP_INTERVAL_HOURS, skipCampaignIds = new Set() } = {},
 ) {
   const byCampaign = new Map();
   const seen = new Set();
@@ -90,7 +101,6 @@ export function selectScheduledPosts(
     if (!p.campaign_id || seen.has(p.post_id)) continue;
     seen.add(p.post_id);
     if (skipCampaignIds.has(p.campaign_id)) continue;
-    if (busyPostIds.has(p.post_id)) continue;
     if (isFreshForSweep(p, intervalHours, now)) continue;
     if (!byCampaign.has(p.campaign_id)) byCampaign.set(p.campaign_id, []);
     byCampaign.get(p.campaign_id).push(p);
@@ -119,9 +129,10 @@ export function sweepDeadline(startedAt, count, maxConcurrent = 5) {
 // A campaign has at most one sweep. `begin` reserves the campaign synchronously
 // (so two concurrent ticks cannot both start one); `seal` fixes the pending set.
 // Only sealed sweeps can drain, and `finish` removes a sweep so the caller
-// reports completion exactly once.
+// reports completion exactly once. Each post leaves with an outcome; posts
+// whose stats did not reach the API are kept as `failed`.
 export function createSweepTracker({ maxConcurrent = 5 } = {}) {
-  const sweeps = new Map(); // campaignId -> { source, startedAt, deadline, pending:Set, sealed }
+  const sweeps = new Map(); // campaignId -> { source, startedAt, deadline, pending:Set, failed:Set, sealed }
 
   return {
     has: (campaignId) => sweeps.has(campaignId),
@@ -134,6 +145,7 @@ export function createSweepTracker({ maxConcurrent = 5 } = {}) {
         startedAt: now,
         deadline: now,
         pending: new Set(),
+        failed: new Set(),
         sealed: false,
       });
       return true;
@@ -147,17 +159,31 @@ export function createSweepTracker({ maxConcurrent = 5 } = {}) {
       s.sealed = true;
     },
 
-    // A post left the scrape pipeline (synced, timed out, tab failed). Returns
-    // the campaigns whose sweeps are now fully drained. They stay tracked until
-    // `finish` so a failed completion call can be reasoned about by the caller.
-    markDone(postId) {
+    // A post left the scrape pipeline. `ok` is true only when its stats
+    // reached the API; a timeout, a failed tab, or a failed write is false.
+    // Returns the campaigns whose sweeps are now fully drained. They stay
+    // tracked until `finish` so the caller can read their outcome first.
+    markDone(postId, ok = true) {
       const drained = [];
       for (const [campaignId, s] of sweeps) {
-        if (s.sealed && s.pending.delete(postId) && s.pending.size === 0) {
-          drained.push(campaignId);
-        }
+        if (!s.sealed || !s.pending.delete(postId)) continue;
+        if (!ok) s.failed.add(postId);
+        if (s.pending.size === 0) drained.push(campaignId);
       }
       return drained;
+    },
+
+    // True while some sealed sweep is still waiting on this post.
+    isPending(postId) {
+      for (const s of sweeps.values()) if (s.sealed && s.pending.has(postId)) return true;
+      return false;
+    },
+
+    // Posts that did not sync: recorded failures plus anything still pending
+    // (an overdue sweep is finished with posts outstanding).
+    failedPostIds(campaignId) {
+      const s = sweeps.get(campaignId);
+      return s ? [...new Set([...s.failed, ...s.pending])] : [];
     },
 
     // Remove the sweep. True only for the caller that actually removed it.
@@ -174,7 +200,12 @@ export function createSweepTracker({ maxConcurrent = 5 } = {}) {
       const out = {};
       for (const [id, s] of sweeps) {
         if (!s.sealed) continue;
-        out[id] = { source: s.source, startedAt: s.startedAt, pending: [...s.pending] };
+        out[id] = {
+          source: s.source,
+          startedAt: s.startedAt,
+          pending: [...s.pending],
+          failed: [...s.failed],
+        };
       }
       return out;
     },
@@ -192,6 +223,7 @@ export function createSweepTracker({ maxConcurrent = 5 } = {}) {
           startedAt: toMs(s.startedAt) ?? now,
           deadline: sweepDeadline(now, s.pending.length, maxConcurrent),
           pending: new Set(s.pending),
+          failed: new Set(Array.isArray(s.failed) ? s.failed : []),
           sealed: true,
         });
         restored.push(id);

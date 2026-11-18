@@ -68,10 +68,12 @@ export async function getMonitoringWorkingSet() {
 }
 
 // Tells the API a campaign's posts have been swept. The server clears the
-// pending refresh request and regenerates the sponsor report.
-export async function completeSweep(campaignId) {
+// pending refresh request and regenerates the sponsor report. `partial` says
+// some posts failed to sync, so the server keeps the request for a retry.
+export async function completeSweep(campaignId, { partial = false } = {}) {
   return apiFetch(`/monitoring/campaigns/${encodeURIComponent(campaignId)}/sweep-complete`, {
     method: "POST",
+    ...(partial ? { body: { partial: true } } : {}),
   });
 }
 

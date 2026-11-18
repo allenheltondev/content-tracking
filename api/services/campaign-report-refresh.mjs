@@ -97,19 +97,29 @@ async function shouldRegenerate(campaignId, newestRecord) {
 // mints one), and only when a request was pending or a post synced after
 // the newest report. A pending request is cleared once handled, so a failed
 // generation leaves it for the extension's next sweep.
-export async function completeMonitoringSweep({ tenantId, campaignId, latestUrlFor }) {
+//
+// `partial` means some posts failed to sync. The request is then not
+// handled yet: it stays pending for the extension's retry, and only posts
+// that did sync can regenerate the report.
+export async function completeMonitoringSweep({
+  tenantId,
+  campaignId,
+  latestUrlFor,
+  partial = false,
+}) {
   const [pending, token] = await Promise.all([
     getRefreshRequest(tenantId, campaignId),
     getCampaignReportLinkToken(campaignId),
   ]);
+  const handled = Boolean(pending) && !partial;
 
   let regenerated = false;
-  if (token && (pending || (await hasPostsSyncedSinceNewestReport(campaignId)))) {
+  if (token && (handled || (await hasPostsSyncedSinceNewestReport(campaignId)))) {
     await generateCampaignReport({ campaignId, latestUrlFor });
     regenerated = true;
   }
 
-  if (pending) await clearRefreshRequest(tenantId, campaignId, pending.requestedAt);
+  if (handled) await clearRefreshRequest(tenantId, campaignId, pending.requestedAt);
   return { regenerated };
 }
 

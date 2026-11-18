@@ -89,16 +89,34 @@ describe("routes/monitoring", () => {
       publicReportLinkUrl.mockReturnValue("https://api.example.com/public/campaign-reports/TOKEN");
 
       const res = await postSweepComplete({
-        event: { ...EXTENSION_EVENT, body: "{not json" },
+        event: EXTENSION_EVENT,
         params: { campaignId: CAMPAIGN_ID },
       });
 
       expect(assertCampaignOwned).toHaveBeenCalledWith(CAMPAIGN_ID, "tenant-1");
       const args = completeMonitoringSweep.mock.calls[0][0];
-      expect(args).toMatchObject({ tenantId: "tenant-1", campaignId: CAMPAIGN_ID });
+      expect(args).toMatchObject({ tenantId: "tenant-1", campaignId: CAMPAIGN_ID, partial: false });
       expect(args.latestUrlFor("TOKEN")).toBe("https://api.example.com/public/campaign-reports/TOKEN");
       expect(res.statusCode).toBe(200);
       expect(JSON.parse(res.body)).toEqual({ campaign_id: CAMPAIGN_ID, regenerated: true });
+    });
+
+    test("passes partial: true through from the body", async () => {
+      await postSweepComplete({
+        event: { ...EXTENSION_EVENT, body: JSON.stringify({ partial: true }) },
+        params: { campaignId: CAMPAIGN_ID },
+      });
+      expect(completeMonitoringSweep.mock.calls[0][0]).toMatchObject({ partial: true });
+    });
+
+    test("400 when partial is not a boolean", async () => {
+      await expect(
+        postSweepComplete({
+          event: { ...EXTENSION_EVENT, body: JSON.stringify({ partial: "yes" }) },
+          params: { campaignId: CAMPAIGN_ID },
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+      expect(completeMonitoringSweep).not.toHaveBeenCalled();
     });
 
     test("reports regenerated: false when there was nothing to do", async () => {

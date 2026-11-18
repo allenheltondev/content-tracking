@@ -1,5 +1,7 @@
 import {
   createSweepTracker,
+  MAX_REQUESTED_SWEEP_ATTEMPTS,
+  sweepCompletion,
   isScheduledSweepDue,
   normalizeRefreshRequests,
   selectScheduledPosts,
@@ -43,10 +45,10 @@ describe("selectRequestedPosts", () => {
     expect(selectRequestedPosts(feed, request).map((p) => p.post_id)).toEqual(["a", "c"]);
   });
 
-  test("skips busy posts and duplicates", () => {
+  test("drops duplicates and keeps posts that are already being scraped", () => {
+    // "b" may have a live tab; the sweep must wait for it, so it is selected.
     const feed = [post("a", "c1", null), post("a", "c1", null), post("b", "c1", null)];
-    const out = selectRequestedPosts(feed, request, { busyPostIds: new Set(["b"]) });
-    expect(out.map((p) => p.post_id)).toEqual(["a"]);
+    expect(selectRequestedPosts(feed, request).map((p) => p.post_id)).toEqual(["a", "b"]);
   });
 
   test("returns nothing when every post is fresh", () => {
@@ -90,11 +92,8 @@ describe("scheduled sweep", () => {
       post("c", "c2", null),
       post("d", "c3", "2026-11-10T00:00:00Z"),
     ];
-    const out = selectScheduledPosts(feed, NOW, {
-      busyPostIds: new Set(["c"]),
-      skipCampaignIds: new Set(["c3"]),
-    });
-    expect([...out.keys()]).toEqual(["c1"]);
+    const out = selectScheduledPosts(feed, NOW, { skipCampaignIds: new Set(["c3"]) });
+    expect([...out.keys()]).toEqual(["c1", "c2"]);
     expect(out.get("c1").map((p) => p.post_id)).toEqual(["b"]);
   });
 });
@@ -113,12 +112,44 @@ describe("createSweepTracker", () => {
     expect(t.markDone("b")).toEqual([]);
   });
 
-  test("a timed-out post counts as done so the sweep still completes", () => {
+  test("a timed-out post drains the sweep and is recorded as failed", () => {
     const t = createSweepTracker();
     t.begin("c1", "requested", NOW);
     t.seal("c1", ["a", "stuck"], NOW);
-    t.markDone("a");
-    expect(t.markDone("stuck")).toEqual(["c1"]); // the timeout path calls markDone
+    t.markDone("a", true);
+    expect(t.failedPostIds("c1")).toEqual(["stuck"]); // still pending counts as not synced
+    expect(t.markDone("stuck", false)).toEqual(["c1"]); // the timeout path
+    expect(t.failedPostIds("c1")).toEqual(["stuck"]);
+  });
+
+  test("a clean sweep has no failed posts", () => {
+    const t = createSweepTracker();
+    t.begin("c1", "requested", NOW);
+    t.seal("c1", ["a", "b"], NOW);
+    t.markDone("a", true);
+    expect(t.markDone("b", true)).toEqual(["c1"]);
+    expect(t.failedPostIds("c1")).toEqual([]);
+  });
+
+  test("isPending tracks posts a sealed sweep still waits on", () => {
+    const t = createSweepTracker();
+    t.begin("c1", "requested", NOW);
+    expect(t.isPending("a")).toBe(false); // not sealed yet
+    t.seal("c1", ["a"], NOW);
+    expect(t.isPending("a")).toBe(true);
+    t.markDone("a", true);
+    expect(t.isPending("a")).toBe(false);
+  });
+
+  test("failures survive a snapshot round trip", () => {
+    const t = createSweepTracker();
+    t.begin("c1", "requested", NOW);
+    t.seal("c1", ["a", "b"], NOW);
+    t.markDone("a", false);
+    const t2 = createSweepTracker();
+    t2.restore(JSON.parse(JSON.stringify(t.snapshot())), NOW);
+    expect(t2.markDone("b", true)).toEqual(["c1"]);
+    expect(t2.failedPostIds("c1")).toEqual(["a"]);
   });
 
   test("an unsealed sweep cannot drain", () => {
@@ -156,6 +187,35 @@ describe("createSweepTracker", () => {
     t.begin("c1", "requested", NOW);
     expect(t.restore({ c1: { source: "daily", pending: ["x"] } })).toEqual([]);
     expect(t.source("c1")).toBe("requested");
+  });
+});
+
+describe("sweepCompletion", () => {
+  test("a clean sweep is complete and resets the attempt count", () => {
+    expect(sweepCompletion({ source: "requested", failedCount: 0, attempts: 2 })).toEqual({
+      partial: false,
+      attempts: 0,
+    });
+  });
+
+  test("a requested sweep with failures is partial until the attempts run out", () => {
+    let attempts = 0;
+    for (let i = 1; i < MAX_REQUESTED_SWEEP_ATTEMPTS; i += 1) {
+      const out = sweepCompletion({ source: "requested", failedCount: 1, attempts });
+      expect(out).toEqual({ partial: true, attempts: i });
+      attempts = out.attempts;
+    }
+    expect(sweepCompletion({ source: "requested", failedCount: 1, attempts })).toEqual({
+      partial: false,
+      attempts: 0,
+    });
+  });
+
+  test("a scheduled sweep with failures is always partial", () => {
+    expect(sweepCompletion({ source: "daily", failedCount: 2, attempts: 5 })).toEqual({
+      partial: true,
+      attempts: 0,
+    });
   });
 });
 
@@ -200,10 +260,15 @@ describe("api client", () => {
 
   test("completeSweep POSTs to the sweep-complete path", async () => {
     global.fetch = async (url, init) => {
-      calls.push([url, init.method]);
+      calls.push([url, init.method, init.body]);
       return { ok: true, text: async () => JSON.stringify({ campaign_id: "c1", regenerated: true }) };
     };
+    const url = "https://api.test/v1/monitoring/campaigns/c1/sweep-complete";
     await expect(completeSweep("c1")).resolves.toEqual({ campaign_id: "c1", regenerated: true });
-    expect(calls).toEqual([["https://api.test/v1/monitoring/campaigns/c1/sweep-complete", "POST"]]);
+    await completeSweep("c1", { partial: true });
+    expect(calls).toEqual([
+      [url, "POST", undefined],
+      [url, "POST", JSON.stringify({ partial: true })],
+    ]);
   });
 });

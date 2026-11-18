@@ -71,6 +71,21 @@ describe("services/campaign-report-refresh completeMonitoringSweep", () => {
     expect(getCampaignWithLinks).not.toHaveBeenCalled();
   });
 
+  test("a partial sweep keeps the request and regenerates only for newly synced posts", async () => {
+    const pending = { campaignId: CAMPAIGN_ID, requestedAt: "2026-11-18T11:00:00.000Z" };
+    const partialSweep = () =>
+      completeMonitoringSweep({ tenantId: TENANT, campaignId: CAMPAIGN_ID, latestUrlFor, partial: true });
+
+    arrange({ pending, posts: [{ lastFetched: "2026-11-18T09:00:00.000Z" }] });
+    await expect(partialSweep()).resolves.toEqual({ regenerated: false });
+    expect(generateCampaignReport).not.toHaveBeenCalled();
+    expect(clearRefreshRequest).not.toHaveBeenCalled();
+
+    arrange({ pending, posts: [{ lastFetched: "2026-11-18T11:30:00.000Z" }] });
+    await expect(partialSweep()).resolves.toEqual({ regenerated: true });
+    expect(clearRefreshRequest).not.toHaveBeenCalled();
+  });
+
   test("posts synced after the newest report regenerate without a request", async () => {
     arrange({
       posts: [

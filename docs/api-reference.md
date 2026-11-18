@@ -1913,16 +1913,21 @@ Every social post, content post and cross-post link of the caller's
 ### POST /monitoring/campaigns/{campaignId}/sweep-complete
 
 The extension calls this after it finishes scraping a campaign's posts.
-The body is ignored. Clears the campaign's pending refresh request. Then
-regenerates the sponsor report when the campaign already has a stable
-link (one is never minted here) and either a request was pending or a
-post's `last_fetched` is newer than the newest report. Repeating the call
-is harmless.
+Clears the campaign's pending refresh request. Then regenerates the
+sponsor report when the campaign already has a stable link (one is never
+minted here) and either a request was pending or a post's `last_fetched`
+is newer than the newest report. Repeating the call is harmless.
+
+**Request body** (optional):
+
+- `partial` (boolean) - `true` when some posts failed to sync. The pending
+  request is kept so the extension retries. The report regenerates only
+  when a post's `last_fetched` is newer than the newest report.
 
 **Responses:**
 
 - `200 OK` - `{ "campaign_id": "...", "regenerated": true }`.
-- `400 Bad Request` - malformed campaign id.
+- `400 Bad Request` - malformed campaign id or body.
 - `404 Not Found` - campaign does not exist for the caller.
 - `500 Internal Server Error` - regeneration failed. The pending request
   stays for the next sweep.

@@ -1,4 +1,4 @@
-import { jsonResponse } from "../services/http-handler.mjs";
+import { jsonResponse, parseBody } from "../services/http-handler.mjs";
 import { resolveTenantId } from "../services/identity.mjs";
 import { assertCampaignOwned } from "../domain/campaign.mjs";
 import { listMonitoringWorkingSet } from "../domain/social-post.mjs";
@@ -8,7 +8,7 @@ import { listPendingRefreshRequests } from "../domain/campaign-refresh-request.m
 import { completeMonitoringSweep } from "../services/campaign-report-refresh.mjs";
 import { formatSocialPost } from "../validation/social-post.mjs";
 import { formatContentPost } from "../validation/content-post.mjs";
-import { formatRefreshRequest } from "../validation/refresh-request.mjs";
+import { formatRefreshRequest, validateSweepComplete } from "../validation/refresh-request.mjs";
 import { requireCampaignId } from "../validation/common.mjs";
 
 const formatCrossPostLink = (row) => ({
@@ -64,17 +64,21 @@ export function registerMonitoringRoutes(app) {
   //
   // The extension calls this after it finishes scraping a campaign's posts.
   // Clears the campaign's pending refresh request and regenerates its
-  // sponsor report when there is something new to show. The body is
-  // ignored. Not wrapped in withIdempotency: the extension sends no
-  // idempotency key, and a repeat call finds nothing pending and no posts
-  // newer than the report it just generated, so it is a no-op.
+  // sponsor report when there is something new to show. An optional
+  // `{ partial: true }` body says some posts failed to sync: the report
+  // still picks up whatever did sync, and the request stays pending so the
+  // extension retries. Not wrapped in withIdempotency: the extension sends
+  // no idempotency key, and a repeat call finds nothing pending and no
+  // posts newer than the report it just generated, so it is a no-op.
   app.post("/monitoring/campaigns/:campaignId/sweep-complete", async ({ event, params }) => {
     const campaignId = requireCampaignId(params.campaignId);
     const tenantId = resolveTenantId(event);
+    const { partial } = validateSweepComplete(parseBody(event, { optional: true }));
     await assertCampaignOwned(campaignId, tenantId);
     const { regenerated } = await completeMonitoringSweep({
       tenantId,
       campaignId,
+      partial,
       latestUrlFor: (token) => publicReportLinkUrl(event, token),
     });
     return jsonResponse(200, { campaign_id: campaignId, regenerated });
