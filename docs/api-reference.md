@@ -1851,6 +1851,84 @@ Example success body:
 
 ---
 
+## Public campaign report link
+
+Each campaign gets one stable sponsor link once its first report is
+generated: `/public/campaign-reports/{token}`. The token is 22 base64url
+characters and is the only credential. These are the only routes without
+an `Authorization` header (the API Gateway events set `Authorizer: NONE`).
+Both answer with a redirect or a small HTML page, never JSON.
+
+### GET /public/campaign-reports/{token}
+
+Redirects to a freshly signed URL for the newest report that is still
+retained.
+
+**Responses:**
+
+- `302 Found` - `Location` is the signed snapshot URL.
+- `404 Not Found` - unknown token. HTML "no longer available" page.
+- `410 Gone` - every report has aged out. Same HTML page.
+
+### POST /public/campaign-reports/{token}/refresh
+
+The "Refresh stats" form on a report. Sent as a plain HTML form
+navigation, so the body is ignored.
+
+- Regenerates the report so clicks, GA4 and YouTube stats update. A report
+  generated less than 10 minutes ago is reused instead, and a conditional
+  claim on the link keeps concurrent submits to one generation.
+- When the campaign status is `monitoring`, records a pending refresh
+  request for the Chrome extension. An existing request keeps its original
+  `requested_at`. Requests expire after 3 days.
+- Never regenerates once every report has aged out.
+
+**Responses:**
+
+- `303 See Other` - `Location` is the signed URL of the newest snapshot
+  plus a fragment the page reads: `#refresh=requested` when a request is
+  pending for extension-sourced stats, `#refresh=done` otherwise. No
+  fragment when regeneration failed and the previous snapshot is served.
+- `404 Not Found` - unknown token. HTML page.
+- `410 Gone` - every report has aged out. HTML page.
+
+---
+
+## Monitoring
+
+Feeds and callbacks for the Chrome extension. Both routes accept a
+dashboard sign-in or an extension pairing token.
+
+### GET /monitoring/working-set
+
+Every social post, content post and cross-post link of the caller's
+`monitoring` campaigns, plus the pending sponsor refresh requests.
+
+**Responses:**
+
+- `200 OK` -
+  `{ "social_posts": [...], "content_posts": [...], "cross_post_links": [...], "refresh_requests": [{ "campaign_id": "...", "requested_at": "<ISO date-time>" }] }`.
+  `refresh_requests` is always present and oldest first.
+
+### POST /monitoring/campaigns/{campaignId}/sweep-complete
+
+The extension calls this after it finishes scraping a campaign's posts.
+The body is ignored. Clears the campaign's pending refresh request. Then
+regenerates the sponsor report when the campaign already has a stable
+link (one is never minted here) and either a request was pending or a
+post's `last_fetched` is newer than the newest report. Repeating the call
+is harmless.
+
+**Responses:**
+
+- `200 OK` - `{ "campaign_id": "...", "regenerated": true }`.
+- `400 Bad Request` - malformed campaign id.
+- `404 Not Found` - campaign does not exist for the caller.
+- `500 Internal Server Error` - regeneration failed. The pending request
+  stays for the next sweep.
+
+---
+
 ## Planned endpoints
 
 The following routes are referenced in open issues and are not part of

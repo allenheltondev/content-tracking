@@ -180,6 +180,29 @@
       color: var(--ink);
     }
 
+    /* Freshness line and the "Refresh stats" form under the meta grid. */
+    .refresh-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px 16px;
+      margin: 18px 0 0;
+    }
+    .freshness { margin: 0; font-size: 13px; color: var(--muted); }
+    .refresh-form { margin: 0 0 0 auto; }
+    .refresh-form .btn { margin-left: 0; }
+    .refresh-form .btn[disabled] { cursor: default; opacity: 0.6; }
+    .refresh-notice {
+      margin: 14px 0 0;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: var(--ink-2);
+      background: var(--accent-soft);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
     /* Sections */
     .section {
       padding: 32px 40px;
@@ -414,6 +437,18 @@
       <p class="eyebrow">Campaign report</p>
       <h1 class="campaign-name" id="campaign-name"></h1>
       <dl class="meta" id="meta"></dl>
+      <div class="refresh-row no-print" id="refresh-row" hidden>
+        <p class="freshness" id="freshness" hidden></p>
+        <form class="refresh-form" id="refresh-form" method="post" hidden>
+          <button type="submit" class="btn" id="refresh-button">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3"/>
+            </svg>
+            <span id="refresh-label">Refresh stats</span>
+          </button>
+        </form>
+      </div>
+      <div class="refresh-notice no-print" id="refresh-notice" role="status" hidden></div>
     </section>
 
     <section class="section">
@@ -774,6 +809,89 @@
         var footNote = document.getElementById("footer-note");
         footNote.textContent = "Figures are frozen at generation time. Latest version: ";
         footNote.appendChild(extLink(latestUrl, shortUrl(latestUrl)));
+      }
+
+      // ---- Freshness and refresh ----
+      // Social and content post stats come from the creator's browser
+      // extension, so they are only as fresh as its last sync. The line
+      // reports the oldest sync among the posts that have one, relative to
+      // when the page is viewed. The "Refresh stats" form posts to the
+      // stable link, which regenerates the report and redirects back to the
+      // newest snapshot with a #refresh= fragment naming the notice to show.
+      renderFreshness();
+      function renderFreshness() {
+        var posts = socialPosts.concat(contentPosts);
+        var line = document.getElementById("freshness");
+        if (!posts.length) return;
+        var oldestMs = null;
+        posts.forEach(function (p) {
+          var ms = p && typeof p.lastFetched === "string" ? Date.parse(p.lastFetched) : NaN;
+          if (!isNaN(ms) && (oldestMs === null || ms < oldestMs)) oldestMs = ms;
+        });
+        if (oldestMs === null) {
+          line.textContent = "Social stats have not synced yet.";
+        } else {
+          line.textContent = "Social stats synced " + relativeTime(oldestMs) + ".";
+          line.title = new Date(oldestMs).toLocaleString("en-US", {
+            year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit"
+          });
+        }
+        line.hidden = false;
+        document.getElementById("refresh-row").hidden = false;
+      }
+
+      function relativeTime(ms) {
+        var minutes = Math.floor((Date.now() - ms) / 60000);
+        if (minutes < 1) return "just now";
+        if (minutes < 60) return minutes + (minutes === 1 ? " minute ago" : " minutes ago");
+        var hours = Math.floor(minutes / 60);
+        if (hours < 24) return hours + (hours === 1 ? " hour ago" : " hours ago");
+        var days = Math.floor(hours / 24);
+        return days + (days === 1 ? " day ago" : " days ago");
+      }
+
+      if (latestUrl) {
+        var refreshForm = document.getElementById("refresh-form");
+        var refreshBase = latestUrl;
+        while (refreshBase.charAt(refreshBase.length - 1) === "/") refreshBase = refreshBase.slice(0, -1);
+        refreshForm.action = refreshBase + "/refresh";
+        refreshForm.hidden = false;
+        document.getElementById("refresh-row").hidden = false;
+        refreshForm.addEventListener("submit", function () {
+          // One submit per page view. The server spaces regenerations out
+          // anyway; this just keeps a double click from sending two.
+          var button = document.getElementById("refresh-button");
+          setTimeout(function () { button.disabled = true; }, 0);
+          document.getElementById("refresh-label").textContent = "Refreshing…";
+        });
+        // Coming back through the history cache restores the disabled state.
+        window.addEventListener("pageshow", function () {
+          document.getElementById("refresh-button").disabled = false;
+          document.getElementById("refresh-label").textContent = "Refresh stats";
+        });
+      }
+
+      showRefreshNotice();
+      function showRefreshNotice() {
+        var hash = window.location.hash || "";
+        var text = null;
+        if (hash === "#refresh=requested") {
+          text = "Refresh requested. Views, clicks and video stats are current. " +
+            "Social stats usually update within the hour.";
+        } else if (hash === "#refresh=done") {
+          text = "Stats are up to date as of now.";
+        }
+        if (!text) return;
+        var notice = document.getElementById("refresh-notice");
+        notice.textContent = text;
+        notice.hidden = false;
+        // Drop the fragment so a reload or a shared copy of the URL does not
+        // repeat the notice. The signed query string stays untouched.
+        try {
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
+        } catch (e) {
+          /* the notice still shows */
+        }
       }
 
       // ---- KPI strips ----
