@@ -2,7 +2,7 @@
 // popup just renders status, captures the pairing-code paste, and
 // forwards button intents.
 
-import { getConfig } from "./config.js";
+import { getConfig, setConfigValue } from "./config.js";
 import { normalizeDiscoveredFeeds, sameFeed } from "./feeds.js";
 
 const content = document.getElementById("content");
@@ -358,6 +358,29 @@ function renderPaired(status) {
   actions.append(sync, refresh);
   content.appendChild(actions);
   content.appendChild(syncNote);
+
+  // Scheduled auto sweep: once a day by default; the worker reads the
+  // interval each tick, so a change applies without a reload.
+  const sweepLabel = document.createElement("label");
+  sweepLabel.className = "muted small";
+  const sweepSelect = document.createElement("select");
+  for (const [hours, text] of [
+    [0, "Off"],
+    [6, "Every 6 hours"],
+    [12, "Every 12 hours"],
+    [24, "Once a day"],
+  ]) {
+    const option = document.createElement("option");
+    option.value = String(hours);
+    option.textContent = text;
+    sweepSelect.appendChild(option);
+  }
+  sweepSelect.value = String(status.sweepIntervalHours ?? 24);
+  sweepSelect.addEventListener("change", () => {
+    void setConfigValue("sweepIntervalHours", Number(sweepSelect.value));
+  });
+  sweepLabel.append("Refresh all posts: ", sweepSelect);
+  content.appendChild(sweepLabel);
 
   content.appendChild(renderRadarSection());
 

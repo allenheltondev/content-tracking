@@ -22,10 +22,15 @@ behind a separate analytics/stats page, so for those the worker opens that
 page in a background tab, syncs, and closes it — your current tab is left
 alone. This is also what the dashboard's **Refresh Stats** button drives.
 
-Hashnode is passive only. Its public GraphQL API now requires a Pro plan, so
-the extension captures stats from the traffic Hashnode's own dashboard loads
-while you're logged in. Open your Hashnode dashboard analytics to sync;
-**Sync now** and **Refresh Stats** don't open Hashnode tabs.
+Hashnode has no stats page to open, so it syncs two other ways. **Sync now**,
+**Refresh Stats**, and sweeps ask Hashnode's GraphQL API (`gql.hashnode.com`)
+for each tracked post by its blog host and slug, with no tab. Custom domains
+work because the query uses the host from the post URL. Hashnode answers these
+queries only for publications on a Pro plan. For any other publication the
+query fails with `FORBIDDEN` and is logged in the service worker console. Those
+posts still sync passively: open your Hashnode dashboard while logged in, and
+the extension reads the post counts from the dashboard's own GraphQL traffic.
+Hashnode stats are views, reactions, comments, and replies.
 
 ### Sync now
 
@@ -36,6 +41,55 @@ opens each one's capture page in background tabs collected under a fresh
 browser isn't swamped) and each closes itself the moment its stats sync, so the
 group drains and disappears once the sweep finishes. Nothing is left open and
 you never have to visit each post by hand.
+
+### Requested refresh
+
+Sponsors can press **Refresh stats** on a shared campaign report. The API
+records a pending request and returns it in `refresh_requests` on the next
+working-set load. The worker checks that list after every feed refresh, which
+happens every 15 minutes while Chrome is open. For each requested campaign it
+sweeps the posts through the same queue and "Booked" tab group as **Sync now**.
+It skips posts already synced after the request time. A post that already has a
+scrape tab open or queued joins the sweep, and the sweep waits for it. Hashnode
+posts sync through the direct API query and the sweep waits for that too.
+
+Every post leaves the sweep with an outcome. It succeeded if its stats reached
+the API. A timeout after 60 seconds, a tab that failed to open, a failed write,
+or a post that cannot be scraped is a failure. A post in a sweep is written even
+when its numbers are unchanged, so its `last_fetched` moves forward.
+
+When every post has an outcome, the worker calls
+`POST /monitoring/campaigns/{campaignId}/sweep-complete` once. If all posts
+succeeded, the API clears the request and regenerates the report. If any failed,
+the call carries `partial: true`. The API then keeps the request and regenerates
+the report only if some post did sync. The request comes back in the next working
+set and the failed posts are swept again. After three partial results the worker
+reports the sweep complete anyway, so one broken post cannot hold a request open.
+If nothing needs scraping, the call happens right away. A campaign never gets a
+second sweep while one is in flight.
+
+### Scheduled sweep
+
+On a schedule the worker sweeps every monitored post across all monitoring
+campaigns. It checks on the 15-minute alarm and at startup. Posts synced within
+the last half interval are skipped. It calls `sweep-complete` for each campaign
+that had at least one post swept, with `partial: true` if any post failed. The popup has a **Refresh all posts** setting:
+Off, Every 6 hours, Every 12 hours, or Once a day. Once a day is the default, and
+`sweepIntervalHours` in `src/config.js` sets it. The setting is per browser. An
+always-on machine can sweep every 6 hours while a laptop is set to Off.
+
+### Surviving worker restarts
+
+Chrome can stop the service worker at any time, and the sync queue lives in memory.
+In-flight sweeps are saved to `chrome.storage.local` (`booked_sweeps`) as the set
+of posts still pending and the posts that failed, per campaign. When the worker
+starts, it reloads them and requeues the pending posts from the cached feed. Every
+sweep also has a deadline. If one is still open past it, the next alarm tick
+finishes it and counts the outstanding posts as failures. A failed `sweep-complete`
+call heals itself: the request stays in the working set, finds nothing stale, and
+completes on the next tick. Tabs opened before a restart are
+no longer tracked, so the new worker will not close them.
+The sweep logic lives in `src/sweeps.js`.
 
 ## How it works
 

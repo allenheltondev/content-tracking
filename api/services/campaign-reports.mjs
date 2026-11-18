@@ -2,6 +2,7 @@ import { ulid } from "ulid";
 import { buildCampaignReportSnapshot } from "../domain/campaign-report.mjs";
 import {
   claimCampaignReportSupersede,
+  findNewestCampaignReportRecord,
   getCampaignReportRecord,
   listCampaignReportRecords,
   releaseCampaignReportSupersede,
@@ -145,6 +146,26 @@ export async function listCampaignReports({ campaignId, latestUrlFor }) {
     .filter(Boolean);
 
   return { latestUrl: latestUrlFor(linkToken), reports };
+}
+
+// A report is only handed out while its object has more than this long left,
+// so a sponsor never lands on a link that dies mid-view.
+const MIN_SERVABLE_SECONDS = 60;
+
+// The newest report still worth serving from the stable sponsor link, with
+// a URL signed for exactly as long as its object lives. Null when every
+// report has aged out. Newest-first and paged, so the result is the actual
+// latest report even when the campaign's records span several pages.
+export async function findNewestServableCampaignReport(campaignId) {
+  const nowMs = Date.now();
+  const remainingSeconds = (r) => Math.floor((reportObjectExpiresAtMs(r) - nowMs) / 1000);
+  const record = await findNewestCampaignReportRecord(
+    campaignId,
+    (r) => remainingSeconds(r) > MIN_SERVABLE_SECONDS,
+  );
+  if (!record) return null;
+  const { url } = signReportUrl(record.key, { expiresInSeconds: remainingSeconds(record) });
+  return { record, url };
 }
 
 // Most superseded rewrites one POST will do. Every retained older report is

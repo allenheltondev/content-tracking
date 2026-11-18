@@ -6,10 +6,12 @@ const send = jest.fn();
 jest.unstable_mockModule("../services/ddb.mjs", () => ({
   TABLE_NAME: "test-booked",
   ddb: { send },
+  isConditionalCheckFailed: (err) => err?.name === "ConditionalCheckFailedException",
 }));
 
 const {
   ensureCampaignReportLinkToken,
+  claimCampaignReportRefresh,
   resolveCampaignReportLinkToken,
   publicReportLinkUrl,
   REPORT_LINK_TOKEN_RE,
@@ -42,6 +44,34 @@ describe("domain/campaign-report-link", () => {
         .mockRejectedValueOnce(cancelled)
         .mockResolvedValueOnce({ Item: { token: "WINNER" } });
       await expect(ensureCampaignReportLinkToken("C1")).resolves.toBe("WINNER");
+    });
+  });
+
+  describe("claimCampaignReportRefresh", () => {
+    test("stamps the claim on the campaign's link item, guarded by the cooldown", async () => {
+      send.mockResolvedValueOnce({});
+      const before = Date.now();
+      await expect(claimCampaignReportRefresh("C1", { cooldownMs: 600000 })).resolves.toBe(true);
+
+      const input = send.mock.calls[0][0].input;
+      expect(input.Key).toEqual({ pk: "CAMPAIGN#C1", sk: "REPORTLINK" });
+      expect(input.ConditionExpression).toBe(
+        "attribute_exists(pk) AND (attribute_not_exists(refreshClaimedAt) OR refreshClaimedAt <= :cutoff)",
+      );
+      const now = Date.parse(input.ExpressionAttributeValues[":now"]);
+      const cutoff = Date.parse(input.ExpressionAttributeValues[":cutoff"]);
+      expect(now).toBeGreaterThanOrEqual(before);
+      expect(now - cutoff).toBe(600000);
+    });
+
+    test("returns false when a claim inside the cooldown already exists", async () => {
+      send.mockRejectedValueOnce(Object.assign(new Error("x"), { name: "ConditionalCheckFailedException" }));
+      await expect(claimCampaignReportRefresh("C1", { cooldownMs: 600000 })).resolves.toBe(false);
+    });
+
+    test("rethrows other errors", async () => {
+      send.mockRejectedValueOnce(new Error("throttled"));
+      await expect(claimCampaignReportRefresh("C1", { cooldownMs: 1 })).rejects.toThrow("throttled");
     });
   });
 

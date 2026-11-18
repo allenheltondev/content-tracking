@@ -61,7 +61,20 @@ export async function getMonitoringWorkingSet() {
     socialPosts: res?.social_posts ?? [],
     contentPosts: res?.content_posts ?? [],
     crossPostLinks: res?.cross_post_links ?? [],
+    // Pending "Refresh stats" requests from public sponsor reports. An older
+    // API omits the field, so default to none.
+    refreshRequests: Array.isArray(res?.refresh_requests) ? res.refresh_requests : [],
   };
+}
+
+// Tells the API a campaign's posts have been swept. The server clears the
+// pending refresh request and regenerates the sponsor report. `partial` says
+// some posts failed to sync, so the server keeps the request for a retry.
+export async function completeSweep(campaignId, { partial = false } = {}) {
+  return apiFetch(`/monitoring/campaigns/${encodeURIComponent(campaignId)}/sweep-complete`, {
+    method: "POST",
+    ...(partial ? { body: { partial: true } } : {}),
+  });
 }
 
 // Used by the worker to write captured engagement back. Bucket selects

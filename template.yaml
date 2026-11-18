@@ -699,15 +699,25 @@ Resources:
             RestApiId: !Ref ContentTrackingApi
             Path: /
             Method: ANY
-        # A campaign's stable sponsor report link. The only unauthenticated
-        # route: the unguessable token in the path is the credential, and
-        # the handler only ever redirects to a signed report URL.
+        # A campaign's stable sponsor report link and its "Refresh stats"
+        # form. The only unauthenticated routes: the unguessable token in the
+        # path is the credential, and both handlers only ever redirect to a
+        # signed report URL. The refresh POST regenerates at most once per
+        # cooldown window (services/campaign-report-refresh.mjs).
         PublicCampaignReport:
           Type: Api
           Properties:
             RestApiId: !Ref ContentTrackingApi
             Path: /public/campaign-reports/{token}
             Method: GET
+            Auth:
+              Authorizer: NONE
+        PublicCampaignReportRefresh:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ContentTrackingApi
+            Path: /public/campaign-reports/{token}/refresh
+            Method: POST
             Auth:
               Authorizer: NONE
 

@@ -1,9 +1,15 @@
-import { jsonResponse } from "../services/http-handler.mjs";
+import { jsonResponse, parseBody } from "../services/http-handler.mjs";
 import { resolveTenantId } from "../services/identity.mjs";
+import { assertCampaignOwned } from "../domain/campaign.mjs";
 import { listMonitoringWorkingSet } from "../domain/social-post.mjs";
 import { listMonitoringContentPosts } from "../domain/content-post.mjs";
+import { publicReportLinkUrl } from "../domain/campaign-report-link.mjs";
+import { listPendingRefreshRequests } from "../domain/campaign-refresh-request.mjs";
+import { completeMonitoringSweep } from "../services/campaign-report-refresh.mjs";
 import { formatSocialPost } from "../validation/social-post.mjs";
 import { formatContentPost } from "../validation/content-post.mjs";
+import { formatRefreshRequest, validateSweepComplete } from "../validation/refresh-request.mjs";
+import { requireCampaignId } from "../validation/common.mjs";
 
 const formatCrossPostLink = (row) => ({
   campaign_id: row.campaignId,
@@ -25,12 +31,15 @@ export function registerMonitoringRoutes(app) {
   // whose status is "monitoring". Each item is pre-joined to its campaign
   // so the extension can render the campaign name without a second round
   // trip. Social and content posts run as parallel queries because the
-  // two are written / consumed independently.
+  // two are written / consumed independently. `refresh_requests` lists the
+  // campaigns a sponsor asked to refresh from the report page, so the
+  // extension can re-scrape them ahead of its usual schedule.
   app.get("/monitoring/working-set", async ({ event }) => {
     const tenantId = resolveTenantId(event);
-    const [{ socialPosts, crossPostLinks }, contentPosts] = await Promise.all([
+    const [{ socialPosts, crossPostLinks }, contentPosts, refreshRequests] = await Promise.all([
       listMonitoringWorkingSet(tenantId),
       listMonitoringContentPosts(tenantId),
+      listPendingRefreshRequests(tenantId),
     ]);
     return jsonResponse(200, {
       social_posts: socialPosts.map(({ campaign, post }) => ({
@@ -47,6 +56,31 @@ export function registerMonitoringRoutes(app) {
         campaign_name: campaign.name,
         ...formatCrossPostLink(link),
       })),
+      refresh_requests: refreshRequests.map(formatRefreshRequest),
     });
+  });
+
+  // POST /monitoring/campaigns/:campaignId/sweep-complete
+  //
+  // The extension calls this after it finishes scraping a campaign's posts.
+  // Clears the campaign's pending refresh request and regenerates its
+  // sponsor report when there is something new to show. An optional
+  // `{ partial: true }` body says some posts failed to sync: the report
+  // still picks up whatever did sync, and the request stays pending so the
+  // extension retries. Not wrapped in withIdempotency: the extension sends
+  // no idempotency key, and a repeat call finds nothing pending and no
+  // posts newer than the report it just generated, so it is a no-op.
+  app.post("/monitoring/campaigns/:campaignId/sweep-complete", async ({ event, params }) => {
+    const campaignId = requireCampaignId(params.campaignId);
+    const tenantId = resolveTenantId(event);
+    const { partial } = validateSweepComplete(parseBody(event, { optional: true }));
+    await assertCampaignOwned(campaignId, tenantId);
+    const { regenerated } = await completeMonitoringSweep({
+      tenantId,
+      campaignId,
+      partial,
+      latestUrlFor: (token) => publicReportLinkUrl(event, token),
+    });
+    return jsonResponse(200, { campaign_id: campaignId, regenerated });
   });
 }

@@ -16,6 +16,9 @@ export const DEFAULTS = {
   dashboardBaseUrl: "__BOOKED_DASHBOARD_URL__",
   // How often (minutes) to refresh the monitoring working set.
   feedRefreshMinutes: 15,
+  // How often (hours) to sweep every monitored post so sponsor reports stay
+  // fresh: 0 (off), 6, 12 or 24. The popup setting overrides this per install.
+  sweepIntervalHours: 24,
 };
 
 const CONFIG_KEY = "booked_config";
@@ -23,6 +26,11 @@ const CONFIG_KEY = "booked_config";
 export async function getConfig() {
   const stored = await chrome.storage.local.get(CONFIG_KEY);
   return { ...DEFAULTS, ...(stored[CONFIG_KEY] || {}) };
+}
+
+export async function setConfigValue(key, value) {
+  const stored = (await chrome.storage.local.get(CONFIG_KEY))[CONFIG_KEY] || {};
+  await chrome.storage.local.set({ [CONFIG_KEY]: { ...stored, [key]: value } });
 }
 
 // True when the extension knows where to call. False on a hand-packed

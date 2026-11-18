@@ -1,4 +1,5 @@
-import { adapters } from "../src/adapters.js";
+import { readFileSync } from "node:fs";
+import { adapters, CAPTURE_PATTERNS, hashnodeStatsTargets } from "../src/adapters.js";
 
 describe("twitter adapter", () => {
   test("parsePostId pulls the status id", () => {
@@ -651,11 +652,13 @@ describe("hashnode adapter", () => {
   test("parsePostId returns the slug from hashnode.dev and custom-domain URLs", () => {
     expect(adapters.hashnode.parsePostId("https://allen.hashnode.dev/my-post")).toBe("my-post");
     expect(adapters.hashnode.parsePostId("https://blog.example.com/my-post/")).toBe("my-post");
+    expect(adapters.hashnode.parsePostId("https://blog.example.com/My-Post?ref=x#top")).toBe("my-post");
+    expect(adapters.hashnode.parsePostId("https://example.com/blog/my-post")).toBe("my-post");
     expect(adapters.hashnode.parsePostId("https://allen.hashnode.dev/")).toBeNull();
     expect(adapters.hashnode.parsePostId("not a url")).toBeNull();
   });
 
-  test("extract reads the post-stats list shape", () => {
+  test("extract reads the legacy post-stats list shape", () => {
     const body = { posts: [{ slug: "a", views: 120 }, { slug: "b", views: "7" }] };
     expect(adapters.hashnode.extract(body)).toEqual([
       { nativeId: "a", metrics: { views: 120 } },
@@ -663,17 +666,110 @@ describe("hashnode adapter", () => {
     ]);
   });
 
-  test("extract reads GraphQL post nodes and skips rows without counts", () => {
+  test("extract reads a publication.post response with every count", () => {
+    // Shape of the gql.hashnode.com response to HASHNODE_STATS_QUERY.
     const body = {
       data: {
         publication: {
-          post: { slug: "a", views: 5, reactionCount: 3, responseCount: 1 },
-          series: { slug: "some-series", name: "x" },
+          id: "pub1",
+          post: {
+            __typename: "Post",
+            id: "p1",
+            slug: "my-post",
+            views: 412,
+            reactionCount: 9,
+            responseCount: 3,
+            replyCount: 1,
+          },
         },
       },
     };
     expect(adapters.hashnode.extract(body)).toEqual([
-      { nativeId: "a", metrics: { views: 5, reactions: 3, comments: 1 } },
+      { nativeId: "my-post", metrics: { views: 412, reactions: 9, comments: 3, replies: 1 } },
     ]);
+  });
+
+  test("extract reads a posts connection and skips non-Post slug nodes", () => {
+    const body = {
+      data: {
+        publication: {
+          posts: {
+            edges: [
+              {
+                node: {
+                  __typename: "Post",
+                  slug: "a",
+                  views: 5,
+                  reactionCount: 3,
+                  comments: { totalDocuments: 2 },
+                  tags: [{ __typename: "Tag", slug: "aws", postsCount: 900 }],
+                  series: { __typename: "Series", slug: "some-series", views: 40 },
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    expect(adapters.hashnode.extract(body)).toEqual([
+      { nativeId: "a", metrics: { views: 5, reactions: 3, comments: 2 } },
+    ]);
+  });
+
+  test("extract merges counts when the same post appears twice", () => {
+    const body = {
+      data: {
+        list: [{ slug: "a", views: 10 }],
+        detail: { slug: "A", views: 10, reactionCount: 4, responseCount: 2 },
+      },
+    };
+    expect(adapters.hashnode.extract(body)).toEqual([
+      { nativeId: "a", metrics: { views: 10, reactions: 4, comments: 2 } },
+    ]);
+  });
+
+  test("extract returns nothing for a FORBIDDEN error payload", () => {
+    const body = {
+      data: { publication: null },
+      errors: [{ message: "Publication does not have an active Pro plan", extensions: { code: "FORBIDDEN" } }],
+    };
+    expect(adapters.hashnode.extract(body)).toEqual([]);
+  });
+});
+
+describe("hashnodeStatsTargets", () => {
+  test("uses the host and slug from the tracked URL", () => {
+    expect(hashnodeStatsTargets("https://allen.hashnode.dev/my-post")).toEqual([
+      { host: "allen.hashnode.dev", slug: "my-post" },
+    ]);
+    expect(hashnodeStatsTargets("https://Blog.Example.com/my-post/")).toEqual([
+      { host: "blog.example.com", slug: "my-post" },
+    ]);
+  });
+
+  test("tries the subpath host before the bare host", () => {
+    expect(hashnodeStatsTargets("https://example.com/blog/my-post")).toEqual([
+      { host: "example.com/blog", slug: "my-post" },
+      { host: "example.com", slug: "my-post" },
+    ]);
+  });
+
+  test("returns nothing for an unusable URL", () => {
+    expect(hashnodeStatsTargets("https://allen.hashnode.dev/")).toEqual([]);
+    expect(hashnodeStatsTargets("nope")).toEqual([]);
+  });
+});
+
+describe("CAPTURE_PATTERNS", () => {
+  test("inject.js embeds every pattern the adapters declare", () => {
+    const inject = readFileSync(new URL("../src/content/inject.js", import.meta.url), "utf8");
+    for (const patterns of Object.values(CAPTURE_PATTERNS)) {
+      for (const p of patterns) expect(inject).toContain(JSON.stringify(p));
+    }
+  });
+
+  test("a dashboard request to gql.hashnode.com matches a Hashnode pattern", () => {
+    const url = "https://gql.hashnode.com/";
+    expect(CAPTURE_PATTERNS.hashnode.some((p) => url.includes(p))).toBe(true);
   });
 });

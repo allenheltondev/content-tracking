@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { GetCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
-import { TABLE_NAME, ddb } from "../services/ddb.mjs";
+import { GetCommand, TransactWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { TABLE_NAME, ddb, isConditionalCheckFailed } from "../services/ddb.mjs";
 
 // A campaign's stable report link: one unguessable token per campaign that
 // the public GET /public/campaign-reports/{token} route resolves to the
@@ -10,6 +10,8 @@ import { TABLE_NAME, ddb } from "../services/ddb.mjs";
 // Two items, written together:
 //   pk = CAMPAIGN#{campaignId}, sk = REPORTLINK   -> the campaign's token
 //   pk = REPORTLINK#{token},    sk = REPORTLINK   -> reverse lookup
+// The campaign item also holds `refreshClaimedAt`, the cooldown claim for
+// the public refresh route (claimCampaignReportRefresh).
 // Neither carries a TTL: the link outlives any single report. When every
 // report has aged out, the public route answers with a "no longer
 // available" page instead of redirecting.
@@ -69,6 +71,33 @@ export async function ensureCampaignReportLinkToken(campaignId) {
     const winner = await getCampaignReportLinkToken(campaignId);
     if (!winner) throw err;
     return winner;
+  }
+}
+
+// Claims the right to regenerate the campaign's report from the public
+// refresh route. The claim is a timestamp on the campaign's link item and
+// succeeds only when no claim landed within `cooldownMs`, so concurrent or
+// repeated submits of the public form trigger at most one generation per
+// cooldown window. Returns false when another claim is still fresh. The
+// attribute_exists guard keeps a claim from creating a token-less stub.
+export async function claimCampaignReportRefresh(campaignId, { cooldownMs }) {
+  const nowMs = Date.now();
+  try {
+    await ddb.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: campaignLinkKey(campaignId),
+      UpdateExpression: "SET refreshClaimedAt = :now",
+      ConditionExpression:
+        "attribute_exists(pk) AND (attribute_not_exists(refreshClaimedAt) OR refreshClaimedAt <= :cutoff)",
+      ExpressionAttributeValues: {
+        ":now": new Date(nowMs).toISOString(),
+        ":cutoff": new Date(nowMs - cooldownMs).toISOString(),
+      },
+    }));
+    return true;
+  } catch (err) {
+    if (isConditionalCheckFailed(err)) return false;
+    throw err;
   }
 }
 

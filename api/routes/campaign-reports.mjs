@@ -2,14 +2,16 @@ import { BadRequestError } from "../services/errors.mjs";
 import { jsonResponse } from "../services/http-handler.mjs";
 import { assertCampaignOwned } from "../domain/campaign.mjs";
 import { requireTenantId } from "../services/identity.mjs";
-import { generateCampaignReport, listCampaignReports } from "../services/campaign-reports.mjs";
-import { signReportUrl } from "../services/report-signing.mjs";
-import { findNewestCampaignReportRecord } from "../domain/campaign-report-record.mjs";
+import {
+  findNewestServableCampaignReport,
+  generateCampaignReport,
+  listCampaignReports,
+} from "../services/campaign-reports.mjs";
+import { refreshFromPublicLink } from "../services/campaign-report-refresh.mjs";
 import {
   publicReportLinkUrl,
   resolveCampaignReportLinkToken,
 } from "../domain/campaign-report-link.mjs";
-import { reportObjectExpiresAtMs } from "../domain/vendor-report-record.mjs";
 
 // Generation, listing, and the supersede banner rewrite live in
 // services/campaign-reports.mjs so the MCP tools share them.
@@ -61,24 +63,43 @@ export function registerCampaignReportRoutes(app) {
     const campaignId = await resolveCampaignReportLinkToken(params.token);
     if (!campaignId) return unavailablePage(404);
 
-    // Newest-first and paged, so the redirect always lands on the actual
-    // latest report even when the campaign's records span several pages.
-    const nowMs = Date.now();
-    const remainingSeconds = (r) => Math.floor((reportObjectExpiresAtMs(r) - nowMs) / 1000);
-    const record = await findNewestCampaignReportRecord(campaignId, (r) => remainingSeconds(r) > 60);
-    if (!record) return unavailablePage(410);
-
-    const { url } = signReportUrl(record.key, { expiresInSeconds: remainingSeconds(record) });
-    return {
-      statusCode: 302,
-      headers: {
-        location: url,
-        "cache-control": "no-store",
-        "referrer-policy": "no-referrer",
-      },
-      body: "",
-    };
+    const newest = await findNewestServableCampaignReport(campaignId);
+    if (!newest) return unavailablePage(410);
+    return redirectTo(302, newest.url);
   });
+
+  // POST /public/campaign-reports/:token/refresh
+  //
+  // The "Refresh stats" form on a report. Unauthenticated like the GET, and
+  // submitted as a plain form navigation from the report's origin, so the
+  // body is ignored and the answer is a 303 back to the newest snapshot.
+  // services/campaign-report-refresh.mjs regenerates the report (spaced by a
+  // cooldown) and records a refresh request for the Chrome extension when
+  // the campaign is monitoring. The URL fragment tells the page which
+  // notice to show without touching the signed query string.
+  app.post("/public/campaign-reports/:token/refresh", async ({ event, params }) => {
+    const campaignId = await resolveCampaignReportLinkToken(params.token);
+    if (!campaignId) return unavailablePage(404);
+
+    const result = await refreshFromPublicLink({
+      campaignId,
+      latestUrlFor: (token) => publicReportLinkUrl(event, token),
+    });
+    if (result.status === "unavailable") return unavailablePage(410);
+    return redirectTo(303, result.notice ? `${result.url}#refresh=${result.notice}` : result.url);
+  });
+}
+
+function redirectTo(statusCode, location) {
+  return {
+    statusCode,
+    headers: {
+      location,
+      "cache-control": "no-store",
+      "referrer-policy": "no-referrer",
+    },
+    body: "",
+  };
 }
 
 function unavailablePage(statusCode) {

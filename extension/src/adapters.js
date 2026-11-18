@@ -558,13 +558,28 @@ const devto = {
 };
 
 // Hashnode posts are addressed by slug: the last path segment of the post URL
-// on either a hashnode.dev subdomain or the author's custom domain. Stats come
-// from the dashboard's own traffic while the author is logged in — the private
-// post-stats list ({ posts: [{ slug, views, ... }] }) and GraphQL post nodes
-// ({ slug, views, reactionCount, responseCount }). Both key rows by slug and
-// carry flat counts, so one walker covers them. Hashnode's public GraphQL API
-// requires a Pro plan, which is why this reads page traffic instead of calling
-// it directly.
+// on either a hashnode.dev subdomain or the author's custom domain. Two sources
+// feed this adapter, and both carry Hashnode's GraphQL Post nodes ({ slug,
+// views, reactionCount, responseCount, replyCount }):
+//   - the background worker's own query to gql.hashnode.com
+//     (HASHNODE_STATS_QUERY via src/hashnode.js), which Hashnode only answers
+//     for publications on a Pro plan;
+//   - passive capture of the dashboard's own gql.hashnode.com traffic (and the
+//     legacy /ajax/user/post-stats list, { posts: [{ slug, views }] }) while
+//     the author has the dashboard open.
+// The same post can appear more than once in one payload (a list row and a
+// detail node), so counts are merged per slug rather than first-wins.
+function hashnodeSlug(value) {
+  if (typeof value !== "string" || !value) return null;
+  let slug = value;
+  try {
+    slug = decodeURIComponent(value);
+  } catch {
+    /* keep raw */
+  }
+  return slug.toLowerCase();
+}
+
 const hashnode = {
   platform: "hashnode",
   bucket: "content",
@@ -577,27 +592,62 @@ const hashnode = {
       return null;
     }
     const segments = parsed.pathname.split("/").filter(Boolean);
-    return segments.length ? segments[segments.length - 1] : null;
+    return segments.length ? hashnodeSlug(segments[segments.length - 1]) : null;
   },
   extract(body) {
-    const out = [];
-    const seen = new Set();
+    const bySlug = new Map();
     walk(body, (node) => {
-      if (typeof node.slug !== "string" || !node.slug) return;
-      if (seen.has(node.slug)) return;
+      const slug = hashnodeSlug(node.slug);
+      if (!slug) return;
+      // Tags, series, static pages, and drafts also carry a slug. Skip any
+      // node GraphQL labels as something other than a Post.
+      if (node.__typename !== undefined && node.__typename !== "Post") return;
 
       const metrics = {};
       num(metrics, "views", node.views);
-      num(metrics, "reactions", node.reactionCount);
-      num(metrics, "comments", node.responseCount);
+      const reactions = pick(node.reactionCount, node.totalReactions);
+      if (reactions !== undefined) metrics.reactions = reactions;
+      const comments = pick(node.responseCount, node.comments?.totalDocuments);
+      if (comments !== undefined) metrics.comments = comments;
+      num(metrics, "replies", node.replyCount);
       if (Object.keys(metrics).length === 0) return;
 
-      seen.add(node.slug);
-      out.push({ nativeId: node.slug, metrics });
+      const prior = bySlug.get(slug);
+      bySlug.set(slug, prior ? { ...metrics, ...prior } : metrics);
     });
-    return out;
+    return [...bySlug].map(([nativeId, metrics]) => ({ nativeId, metrics }));
   },
 };
+
+// The query the background worker sends to gql.hashnode.com for one tracked
+// post. `host` is the publication host (a hashnode.dev subdomain or a custom
+// domain) and `slug` the post slug, both taken from the tracked post URL.
+export const HASHNODE_GQL_URL = "https://gql.hashnode.com/";
+export const HASHNODE_STATS_QUERY =
+  "query BookedPostStats($host: String!, $slug: String!) { publication(host: $host) { id post(slug: $slug) { id slug views reactionCount responseCount replyCount } } }";
+
+// Candidate { host, slug } pairs for a tracked Hashnode post URL, most
+// specific first. A blog mounted on a subpath (example.com/blog/my-post) is
+// registered with Hashnode as "example.com/blog", so that form is tried
+// before the bare hostname.
+export function hashnodeStatsTargets(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return [];
+  }
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  const slug = hashnode.parsePostId(url);
+  if (!slug) return [];
+  const host = parsed.hostname.toLowerCase();
+  const targets = [];
+  if (segments.length > 1) {
+    targets.push({ host: [host, ...segments.slice(0, -1)].join("/"), slug });
+  }
+  targets.push({ host, slug });
+  return targets;
+}
 
 export const adapters = { twitter, linkedin, instagram, bluesky, medium, devto, hashnode };
 
@@ -635,7 +685,8 @@ export const CAPTURE_PATTERNS = {
   // dev.to's analytics dashboard hits /api/analytics; per-article shapes
   // (with page_views_count, public_reactions_count) also show up on
   // /api/articles.
-  devto: ["/api/analytics", "/api/articles"],  // Hashnode's dashboard loads per-post stats from a private post-stats
-  // endpoint and from gql.hashnode.com.
+  devto: ["/api/analytics", "/api/articles"],
+  // Hashnode's dashboard reads post data from gql.hashnode.com. The legacy
+  // dashboard used the private /ajax/user/post-stats list.
   hashnode: ["/ajax/user/post-stats", "gql.hashnode.com"],
 };

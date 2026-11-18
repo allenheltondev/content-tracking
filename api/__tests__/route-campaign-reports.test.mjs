@@ -37,6 +37,13 @@ jest.unstable_mockModule("../domain/campaign-report-link.mjs", () => ({
   getCampaignReportLinkToken: jest.fn(),
   resolveCampaignReportLinkToken: jest.fn(),
   publicReportLinkUrl: jest.fn(),
+  claimCampaignReportRefresh: jest.fn(),
+}));
+jest.unstable_mockModule("../domain/campaign-refresh-request.mjs", () => ({
+  recordRefreshRequest: jest.fn(),
+  getRefreshRequest: jest.fn(),
+  clearRefreshRequest: jest.fn(),
+  listPendingRefreshRequests: jest.fn(),
 }));
 jest.unstable_mockModule("../domain/vendor-report-record.mjs", () => ({
   reportObjectExpiresAtMs: jest.fn(),
@@ -51,6 +58,8 @@ jest.unstable_mockModule("../services/newsletter-service.mjs", () => ({
 // synthetic requestContext.authorizer below.
 jest.unstable_mockModule("../domain/campaign.mjs", () => ({
   assertCampaignOwned: jest.fn().mockResolvedValue({}),
+  findCampaign: jest.fn(),
+  getCampaignWithLinks: jest.fn(),
 }));
 
 const { buildCampaignReportSnapshot } = await import("../domain/campaign-report.mjs");
@@ -74,10 +83,12 @@ const {
   getCampaignReportLinkToken,
   resolveCampaignReportLinkToken,
   publicReportLinkUrl,
+  claimCampaignReportRefresh,
 } = await import("../domain/campaign-report-link.mjs");
+const { recordRefreshRequest } = await import("../domain/campaign-refresh-request.mjs");
 const { reportObjectExpiresAtMs } = await import("../domain/vendor-report-record.mjs");
 const { mintShortLink } = await import("../services/newsletter-service.mjs");
-const { assertCampaignOwned } = await import("../domain/campaign.mjs");
+const { assertCampaignOwned, findCampaign } = await import("../domain/campaign.mjs");
 const { NotFoundError } = await import("../services/errors.mjs");
 const { registerCampaignReportRoutes } = await import("../routes/campaign-reports.mjs");
 
@@ -97,6 +108,7 @@ const routes = buildRouteTable();
 const postReport = routes["POST /campaigns/:campaignId/report"];
 const getReports = routes["GET /campaigns/:campaignId/reports"];
 const getPublicReport = routes["GET /public/campaign-reports/:token"];
+const postPublicRefresh = routes["POST /public/campaign-reports/:token/refresh"];
 
 const CAMPAIGN_ID = "01HV0AABBCCDDEEFFGGHHJJKKM";
 
@@ -602,6 +614,139 @@ describe("routes/campaign-reports", () => {
       const res = await getPublicReport({ event: {}, params: { token: "TOKEN" } });
       expect(res.statusCode).toBe(410);
       expect(signReportUrl).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("POST /public/campaign-reports/:token/refresh", () => {
+    const TENANT = "user-1";
+    const MINUTE = 60 * 1000;
+    const minutesAgo = (n) => new Date(Date.now() - n * MINUTE).toISOString();
+    // A public form post: no authorizer, a host for the stable link.
+    const PUBLIC_EVENT = { requestContext: { domainName: "api.example.com", path: "/public/campaign-reports/TOKEN/refresh" } };
+
+    function arrange({ status = "active", tenantId = TENANT, newestGeneratedAt = minutesAgo(60) } = {}) {
+      resolveCampaignReportLinkToken.mockResolvedValue(CAMPAIGN_ID);
+      findCampaign.mockResolvedValue({ campaignId: CAMPAIGN_ID, status, tenantId });
+      findNewestCampaignReportRecord.mockResolvedValue(
+        newestGeneratedAt ? { reportId: "OLD", key: "k-old", generatedAt: newestGeneratedAt } : null,
+      );
+      signReportUrl.mockImplementation((key) => ({ url: `https://cdn/${key}?sig`, expiresAt: "e" }));
+      claimCampaignReportRefresh.mockResolvedValue(true);
+      recordRefreshRequest.mockResolvedValue(true);
+      buildCampaignReportSnapshot.mockResolvedValue(makeSnapshot());
+      renderCampaignReportHtml.mockReturnValue("<html></html>");
+      putCampaignReportHtml.mockResolvedValue("k-fresh");
+      mintShortLink.mockResolvedValue({ short_url: "s" });
+      saveCampaignReportRecord.mockResolvedValue({});
+    }
+
+    test("is registered", () => {
+      expect(typeof postPublicRefresh).toBe("function");
+    });
+
+    test("404 page for an unknown token, with no other reads or writes", async () => {
+      resolveCampaignReportLinkToken.mockResolvedValue(null);
+      const res = await postPublicRefresh({ event: PUBLIC_EVENT, params: { token: "nope" } });
+      expect(res.statusCode).toBe(404);
+      expect(res.headers["content-type"]).toMatch(/text\/html/);
+      expect(res.body).toContain("no longer available");
+      expect(findCampaign).not.toHaveBeenCalled();
+      expect(claimCampaignReportRefresh).not.toHaveBeenCalled();
+      expect(buildCampaignReportSnapshot).not.toHaveBeenCalled();
+    });
+
+    test("regenerates a stale report and 303s to the new snapshot", async () => {
+      arrange();
+      const res = await postPublicRefresh({ event: PUBLIC_EVENT, params: { token: "TOKEN" } });
+
+      expect(claimCampaignReportRefresh).toHaveBeenCalledWith(CAMPAIGN_ID, { cooldownMs: 10 * MINUTE });
+      expect(buildCampaignReportSnapshot).toHaveBeenCalledWith({ campaignId: CAMPAIGN_ID });
+      expect(publicReportLinkUrl).toHaveBeenCalledWith(PUBLIC_EVENT, "TOKEN");
+      expect(res.statusCode).toBe(303);
+      expect(res.headers.location).toBe("https://cdn/k-fresh?sig#refresh=done");
+      expect(res.headers["cache-control"]).toBe("no-store");
+      expect(res.body).toBe("");
+      // Not monitoring: no request for the extension.
+      expect(recordRefreshRequest).not.toHaveBeenCalled();
+    });
+
+    test("skips regeneration inside the cooldown and redirects to the newest snapshot", async () => {
+      arrange({ newestGeneratedAt: minutesAgo(3) });
+      const res = await postPublicRefresh({ event: PUBLIC_EVENT, params: { token: "TOKEN" } });
+
+      expect(claimCampaignReportRefresh).not.toHaveBeenCalled();
+      expect(buildCampaignReportSnapshot).not.toHaveBeenCalled();
+      expect(putCampaignReportHtml).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(303);
+      expect(res.headers.location).toBe("https://cdn/k-old?sig#refresh=done");
+    });
+
+    test("a concurrent submit that loses the claim does not regenerate", async () => {
+      arrange();
+      claimCampaignReportRefresh.mockResolvedValue(false);
+      const res = await postPublicRefresh({ event: PUBLIC_EVENT, params: { token: "TOKEN" } });
+
+      expect(buildCampaignReportSnapshot).not.toHaveBeenCalled();
+      expect(res.headers.location).toBe("https://cdn/k-old?sig#refresh=done");
+    });
+
+    test("records a refresh request under the campaign's tenant when monitoring", async () => {
+      arrange({ status: "monitoring", newestGeneratedAt: minutesAgo(3) });
+      const res = await postPublicRefresh({ event: PUBLIC_EVENT, params: { token: "TOKEN" } });
+
+      expect(recordRefreshRequest).toHaveBeenCalledWith(TENANT, CAMPAIGN_ID);
+      expect(res.headers.location).toBe("https://cdn/k-old?sig#refresh=requested");
+    });
+
+    test("an already pending request still reads as requested", async () => {
+      arrange({ status: "monitoring" });
+      recordRefreshRequest.mockResolvedValue(false);
+      const res = await postPublicRefresh({ event: PUBLIC_EVENT, params: { token: "TOKEN" } });
+
+      expect(buildCampaignReportSnapshot).toHaveBeenCalled();
+      expect(res.headers.location).toBe("https://cdn/k-fresh?sig#refresh=requested");
+    });
+
+    test.each(["draft", "active", "completed", undefined])(
+      "records no request for a %s campaign",
+      async (status) => {
+        arrange({ status });
+        await postPublicRefresh({ event: PUBLIC_EVENT, params: { token: "TOKEN" } });
+        expect(recordRefreshRequest).not.toHaveBeenCalled();
+      },
+    );
+
+    test("records no request for a legacy campaign without a tenant", async () => {
+      arrange({ status: "monitoring", tenantId: null });
+      const res = await postPublicRefresh({ event: PUBLIC_EVENT, params: { token: "TOKEN" } });
+      expect(recordRefreshRequest).not.toHaveBeenCalled();
+      expect(res.headers.location).toMatch(/#refresh=done/);
+    });
+
+    test("410 page without regenerating when every report has aged out", async () => {
+      arrange({ newestGeneratedAt: null });
+      const res = await postPublicRefresh({ event: PUBLIC_EVENT, params: { token: "TOKEN" } });
+      expect(res.statusCode).toBe(410);
+      expect(buildCampaignReportSnapshot).not.toHaveBeenCalled();
+      expect(recordRefreshRequest).not.toHaveBeenCalled();
+    });
+
+    test("a deleted campaign still redirects to its newest snapshot, untouched", async () => {
+      arrange();
+      findCampaign.mockResolvedValue(null);
+      const res = await postPublicRefresh({ event: PUBLIC_EVENT, params: { token: "TOKEN" } });
+      expect(res.statusCode).toBe(303);
+      expect(res.headers.location).toBe("https://cdn/k-old?sig");
+      expect(claimCampaignReportRefresh).not.toHaveBeenCalled();
+      expect(buildCampaignReportSnapshot).not.toHaveBeenCalled();
+    });
+
+    test("a failed regeneration falls back to the newest snapshot with no notice", async () => {
+      arrange({ status: "monitoring" });
+      buildCampaignReportSnapshot.mockRejectedValue(new Error("GA4 down"));
+      const res = await postPublicRefresh({ event: PUBLIC_EVENT, params: { token: "TOKEN" } });
+      expect(res.statusCode).toBe(303);
+      expect(res.headers.location).toBe("https://cdn/k-old?sig");
     });
   });
 });
