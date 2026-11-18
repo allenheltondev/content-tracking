@@ -16,9 +16,9 @@ export const DEFAULTS = {
   dashboardBaseUrl: "__BOOKED_DASHBOARD_URL__",
   // How often (minutes) to refresh the monitoring working set.
   feedRefreshMinutes: 15,
-  // Sweep every monitored post once a day (at most every ~20 hours) so
-  // sponsor reports stay fresh. The popup toggle overrides this per install.
-  dailySweepEnabled: true,
+  // How often (hours) to sweep every monitored post so sponsor reports stay
+  // fresh: 0 (off), 6, 12 or 24. The popup setting overrides this per install.
+  sweepIntervalHours: 24,
 };
 
 const CONFIG_KEY = "booked_config";

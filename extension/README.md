@@ -58,13 +58,15 @@ request and regenerates the report. If nothing needs scraping, the call happens
 right away. A campaign never gets a second sweep while one is in flight. Posts that
 cannot be scraped time out after 60 seconds, so the call is made anyway.
 
-### Daily sweep
+### Scheduled sweep
 
-At most once every 20 hours the worker sweeps every monitored post whose
-`last_fetched` is not today, across all monitoring campaigns. It checks on the
-15-minute alarm and at startup. It calls `sweep-complete` for each campaign that had
-at least one post swept. The popup has a **Refresh all posts once a day** checkbox.
-It is on by default. `dailySweepEnabled` in `src/config.js` sets the default.
+On a schedule the worker sweeps every monitored post across all monitoring
+campaigns. It checks on the 15-minute alarm and at startup. Posts synced within
+the last half interval are skipped. It calls `sweep-complete` for each campaign
+that had at least one post swept. The popup has a **Refresh all posts** setting:
+Off, Every 6 hours, Every 12 hours, or Once a day. Once a day is the default, and
+`sweepIntervalHours` in `src/config.js` sets it. The setting is per browser. An
+always-on machine can sweep every 6 hours while a laptop is set to Off.
 
 ### Surviving worker restarts
 

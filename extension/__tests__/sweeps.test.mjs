@@ -1,9 +1,9 @@
 import {
-  DAILY_SWEEP_INTERVAL_MS,
   createSweepTracker,
-  isDailySweepDue,
+  isScheduledSweepDue,
   normalizeRefreshRequests,
-  selectDailyPosts,
+  selectScheduledPosts,
+  sweepIntervalHours,
   selectRequestedPosts,
   sweepDeadline,
 } from "../src/sweeps.js";
@@ -55,22 +55,42 @@ describe("selectRequestedPosts", () => {
   });
 });
 
-describe("daily sweep", () => {
-  test("due check honors the flag and the ~20h interval", () => {
-    expect(isDailySweepDue({ enabled: false, lastRunAt: undefined, now: NOW })).toBe(false);
-    expect(isDailySweepDue({ enabled: true, lastRunAt: undefined, now: NOW })).toBe(true);
-    expect(isDailySweepDue({ lastRunAt: NOW - DAILY_SWEEP_INTERVAL_MS + 1, now: NOW })).toBe(false);
-    expect(isDailySweepDue({ lastRunAt: NOW - DAILY_SWEEP_INTERVAL_MS, now: NOW })).toBe(true);
+describe("scheduled sweep", () => {
+  const HOUR = 60 * 60 * 1000;
+
+  test("due check honors off and the chosen interval", () => {
+    expect(isScheduledSweepDue({ intervalHours: 0, lastRunAt: undefined, now: NOW })).toBe(false);
+    expect(isScheduledSweepDue({ lastRunAt: undefined, now: NOW })).toBe(true);
+    // Once a day waits 20 hours.
+    expect(isScheduledSweepDue({ lastRunAt: NOW - 20 * HOUR + 1, now: NOW })).toBe(false);
+    expect(isScheduledSweepDue({ lastRunAt: NOW - 20 * HOUR, now: NOW })).toBe(true);
+    expect(isScheduledSweepDue({ intervalHours: 6, lastRunAt: NOW - 6 * HOUR + 1, now: NOW })).toBe(false);
+    expect(isScheduledSweepDue({ intervalHours: 6, lastRunAt: NOW - 6 * HOUR, now: NOW })).toBe(true);
   });
 
-  test("selects posts not fetched today, grouped by campaign", () => {
+  test("resolves the interval from config, including the older on/off flag", () => {
+    expect(sweepIntervalHours({})).toBe(24);
+    expect(sweepIntervalHours({ sweepIntervalHours: 6 })).toBe(6);
+    expect(sweepIntervalHours({ sweepIntervalHours: 0 })).toBe(0);
+    expect(sweepIntervalHours({ sweepIntervalHours: 5 })).toBe(24);
+    expect(sweepIntervalHours({ dailySweepEnabled: false })).toBe(0);
+    expect(sweepIntervalHours({ dailySweepEnabled: false, sweepIntervalHours: 12 })).toBe(12);
+  });
+
+  test("a shorter interval sweeps posts a daily sweep would skip", () => {
+    const feed = [post("a", "c1", new Date(NOW - 4 * HOUR).toISOString())];
+    expect(selectScheduledPosts(feed, NOW, { intervalHours: 24 }).size).toBe(0);
+    expect(selectScheduledPosts(feed, NOW, { intervalHours: 6 }).get("c1")).toHaveLength(1);
+  });
+
+  test("selects posts older than half the interval, grouped by campaign", () => {
     const feed = [
-      post("a", "c1", "2026-11-18T01:00:00Z"), // today: skip
-      post("b", "c1", "2026-11-17T23:00:00Z"),
+      post("a", "c1", new Date(NOW - HOUR).toISOString()), // fresh: skip
+      post("b", "c1", new Date(NOW - 13 * HOUR).toISOString()),
       post("c", "c2", null),
       post("d", "c3", "2026-11-10T00:00:00Z"),
     ];
-    const out = selectDailyPosts(feed, NOW, {
+    const out = selectScheduledPosts(feed, NOW, {
       busyPostIds: new Set(["c"]),
       skipCampaignIds: new Set(["c3"]),
     });

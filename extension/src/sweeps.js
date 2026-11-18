@@ -4,9 +4,25 @@
 // logic (post selection, due checks, completion bookkeeping) with no chrome
 // dependency so it unit-tests directly. background.js owns the I/O.
 
-// The daily auto sweep runs at most this often. Slightly under 24 hours so a
-// 15-minute alarm tick never pushes the next run a full extra day out.
-export const DAILY_SWEEP_INTERVAL_MS = 20 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+
+// Choices for the scheduled auto sweep, in hours. 0 turns it off.
+export const SWEEP_INTERVAL_CHOICES = [0, 6, 12, 24];
+export const DEFAULT_SWEEP_INTERVAL_HOURS = 24;
+
+// Resolve the configured interval. `dailySweepEnabled: false` is the older
+// on/off flag and still turns the sweep off when no interval was chosen.
+export function sweepIntervalHours(cfg = {}) {
+  const hours = Number(cfg.sweepIntervalHours);
+  if (SWEEP_INTERVAL_CHOICES.includes(hours)) return hours;
+  return cfg.dailySweepEnabled === false ? 0 : DEFAULT_SWEEP_INTERVAL_HOURS;
+}
+
+// Minimum gap between scheduled sweeps. The once-a-day choice waits 20 hours,
+// not 24, so a late 15-minute alarm tick never pushes a run to the next day.
+export function sweepIntervalMs(hours) {
+  return hours >= 24 ? 20 * HOUR_MS : hours * HOUR_MS;
+}
 
 // Per-tab lifetime cap used to size a sweep's deadline. Mirrors
 // AUTO_SCRAPE_MAX_LIFETIME_MS in background.js.
@@ -50,16 +66,23 @@ export function selectRequestedPosts(feed, request, { busyPostIds = new Set() } 
   return out;
 }
 
-export function isFetchedToday(post, now = Date.now()) {
-  if (!post.last_fetched) return false;
-  return String(post.last_fetched).slice(0, 10) === new Date(now).toISOString().slice(0, 10);
+// A post synced within the last half interval is fresh enough to skip, so a
+// manual sync shortly before a scheduled sweep is not repeated.
+export function isFreshForSweep(post, intervalHours, now = Date.now()) {
+  const fetchedMs = toMs(post.last_fetched);
+  if (fetchedMs === null) return false;
+  return now - fetchedMs < (intervalHours * HOUR_MS) / 2;
 }
 
-// Daily sweep selection across all campaigns. Returns Map(campaignId -> posts).
-export function selectDailyPosts(
+// Scheduled sweep selection across all campaigns. Returns Map(campaignId -> posts).
+export function selectScheduledPosts(
   feed,
   now = Date.now(),
-  { busyPostIds = new Set(), skipCampaignIds = new Set() } = {},
+  {
+    intervalHours = DEFAULT_SWEEP_INTERVAL_HOURS,
+    busyPostIds = new Set(),
+    skipCampaignIds = new Set(),
+  } = {},
 ) {
   const byCampaign = new Map();
   const seen = new Set();
@@ -68,18 +91,22 @@ export function selectDailyPosts(
     seen.add(p.post_id);
     if (skipCampaignIds.has(p.campaign_id)) continue;
     if (busyPostIds.has(p.post_id)) continue;
-    if (isFetchedToday(p, now)) continue;
+    if (isFreshForSweep(p, intervalHours, now)) continue;
     if (!byCampaign.has(p.campaign_id)) byCampaign.set(p.campaign_id, []);
     byCampaign.get(p.campaign_id).push(p);
   }
   return byCampaign;
 }
 
-export function isDailySweepDue({ enabled = true, lastRunAt, now = Date.now() } = {}) {
-  if (!enabled) return false;
+export function isScheduledSweepDue({
+  intervalHours = DEFAULT_SWEEP_INTERVAL_HOURS,
+  lastRunAt,
+  now = Date.now(),
+} = {}) {
+  if (!intervalHours) return false;
   const last = toMs(lastRunAt);
   if (last === null) return true;
-  return now - last >= DAILY_SWEEP_INTERVAL_MS;
+  return now - last >= sweepIntervalMs(intervalHours);
 }
 
 // Upper bound on how long a sweep of `count` posts can legitimately take: each

@@ -16,9 +16,10 @@ import {
 } from "./api.js";
 import {
   createSweepTracker,
-  isDailySweepDue,
+  isScheduledSweepDue,
   normalizeRefreshRequests,
-  selectDailyPosts,
+  selectScheduledPosts,
+  sweepIntervalHours,
   selectRequestedPosts,
 } from "./sweeps.js";
 import {
@@ -226,7 +227,7 @@ async function buildStatus() {
     activeCount: feed?.length ?? 0,
     crossPostLinkCount: crossPostLinks?.length ?? 0,
     syncedThisSession,
-    dailySweepEnabled: cfg.dailySweepEnabled !== false,
+    sweepIntervalHours: sweepIntervalHours(cfg),
     lastError,
   };
 }
@@ -752,11 +753,13 @@ async function maybeRunDailySweep() {
   const cfg = await getConfig();
   if (!isConfigured(cfg) || !(await isPaired()) || !feed?.length) return;
   const lastRunAt = (await chrome.storage.local.get(LAST_DAILY_SWEEP_KEY))[LAST_DAILY_SWEEP_KEY];
-  if (!isDailySweepDue({ enabled: cfg.dailySweepEnabled !== false, lastRunAt })) return;
+  const intervalHours = sweepIntervalHours(cfg);
+  if (!isScheduledSweepDue({ intervalHours, lastRunAt })) return;
   // Stamp first so overlapping ticks cannot start a second sweep.
   await chrome.storage.local.set({ [LAST_DAILY_SWEEP_KEY]: Date.now() });
   await restoreSweeps();
-  const byCampaign = selectDailyPosts(feed, Date.now(), {
+  const byCampaign = selectScheduledPosts(feed, Date.now(), {
+    intervalHours,
     busyPostIds: busyPostIds(),
     skipCampaignIds: new Set(sweeps.campaignIds()),
   });
