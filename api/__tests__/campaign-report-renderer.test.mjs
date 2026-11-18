@@ -125,6 +125,19 @@ describe("renderCampaignReportHtml", () => {
     expect(html).not.toContain("USD");
   });
 
+  it("carries the refresh form, freshness line and refresh notices, hidden by default", () => {
+    const html = renderCampaignReportHtml(sampleSnapshot());
+    // The script reveals these from the snapshot's latestUrl and posts.
+    expect(html).toMatch(/<form class="refresh-form" id="refresh-form" method="post" hidden>/);
+    expect(html).toMatch(/<div class="refresh-row no-print" id="refresh-row" hidden>/);
+    expect(html).toContain('"/refresh"');
+    expect(html).toContain('"#refresh=requested"');
+    expect(html).toContain('"#refresh=done"');
+    expect(html).toContain("history.replaceState");
+    // House copy style: no em dashes in the new notices.
+    expect(html).toContain("Social stats usually update within the hour.");
+  });
+
   it("does not interpret '$' replacement patterns from the data", () => {
     const snapshot = sampleSnapshot();
     snapshot.campaign.name = "Cost $1 & $$ & $`drop";

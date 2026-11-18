@@ -872,6 +872,8 @@
       }
 
       showRefreshNotice();
+      // A redirect that only changes the fragment does not reload the page.
+      window.addEventListener("hashchange", showRefreshNotice);
       function showRefreshNotice() {
         var hash = window.location.hash || "";
         var text = null;
