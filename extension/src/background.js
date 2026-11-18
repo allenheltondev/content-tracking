@@ -6,7 +6,21 @@
 
 import { getConfig, isConfigured } from "./config.js";
 import { adapters, PLATFORM_BUCKET } from "./adapters.js";
-import { getMonitoringWorkingSet, putAnalytics, listRadarFeeds, addRadarFeed } from "./api.js";
+import { fetchHashnodePostMetrics } from "./hashnode.js";
+import {
+  getMonitoringWorkingSet,
+  putAnalytics,
+  listRadarFeeds,
+  addRadarFeed,
+  completeSweep,
+} from "./api.js";
+import {
+  createSweepTracker,
+  isDailySweepDue,
+  normalizeRefreshRequests,
+  selectDailyPosts,
+  selectRequestedPosts,
+} from "./sweeps.js";
 import {
   clearPairing,
   getPairingMetadata,
@@ -67,6 +81,11 @@ async function ensureFeed(force = false) {
     await chrome.storage.local.set({
       [FEED_KEY]: { posts: feed, crossPostLinks, at: feedAt },
     });
+    // Act on any sponsor-report "Refresh stats" requests without the owner
+    // doing anything. Not awaited: the sweep runs in the background.
+    void processRefreshRequests(workingSet.refreshRequests).catch((err) =>
+      console.warn("[booked] refresh requests failed:", err),
+    );
   } catch (err) {
     lastError = String(err?.message || err);
     console.warn("[booked] feed refresh failed:", lastError);
@@ -207,6 +226,7 @@ async function buildStatus() {
     activeCount: feed?.length ?? 0,
     crossPostLinkCount: crossPostLinks?.length ?? 0,
     syncedThisSession,
+    dailySweepEnabled: cfg.dailySweepEnabled !== false,
     lastError,
   };
 }
@@ -349,7 +369,10 @@ function pumpSyncQueue() {
     ACTIVE_SCRAPE_TABS.size + openingCount < MAX_CONCURRENT_SCRAPE_TABS
   ) {
     const next = syncQueue.shift();
-    if (ACTIVE_SCRAPE_TABS.has(next.post.post_id)) continue;
+    if (ACTIVE_SCRAPE_TABS.has(next.post.post_id)) {
+      void sweepPostDone(next.post.post_id);
+      continue;
+    }
     // Reserve the slot synchronously so the loop can't overshoot the cap while
     // chrome.tabs.create is still in flight.
     openingCount += 1;
@@ -357,6 +380,8 @@ function pumpSyncQueue() {
       .catch((err) => console.warn("[booked] sync scrape failed:", err))
       .finally(() => {
         openingCount -= 1;
+        // The tab never opened (create failed): the post is out of the pipeline.
+        if (!ACTIVE_SCRAPE_TABS.has(next.post.post_id)) void sweepPostDone(next.post.post_id);
         // A create that resolved just handed its reservation to
         // ACTIVE_SCRAPE_TABS (net-zero on the cap); pump again to cover the
         // case where the open early-returned (e.g. a duplicate) and freed a
@@ -391,6 +416,8 @@ async function openScrapeTab(post, url, { group = false } = {}) {
     // in, platform changed its DOM/API shape, etc.). Close the orphan.
     ACTIVE_SCRAPE_TABS.delete(post.post_id);
     chrome.tabs.remove(newTab.id).catch(() => {});
+    // A post that timed out still counts as drained for its sweep.
+    void sweepPostDone(post.post_id);
     // Freeing this slot may let a queued sync scrape start.
     pumpSyncQueue();
   }, AUTO_SCRAPE_MAX_LIFETIME_MS);
@@ -471,7 +498,31 @@ async function maybeAutoScrape(tabUrl) {
 // the article's /stats page (both fire the internal stats request the
 // MAIN-world interceptor catches); Twitter/Instagram/Bluesky just need the
 // post URL, where the interceptor catches the platform's own API responses.
+// Hashnode has no stats page to open: it syncs through a direct GraphQL query
+// (syncHashnodeDirect) and gets no tab, so it never joins a sweep.
+const HASHNODE_IN_FLIGHT = new Set(); // post_id
+
+async function syncHashnodeDirect(post) {
+  if (HASHNODE_IN_FLIGHT.has(post.post_id)) return;
+  HASHNODE_IN_FLIGHT.add(post.post_id);
+  try {
+    const metrics = await fetchHashnodePostMetrics(post.url);
+    if (metrics && Object.keys(metrics).length) await maybeSync(post, metrics);
+    else console.warn("[booked] hashnode: post not found via API:", post.url);
+  } catch (err) {
+    // FORBIDDEN means the publication has no Pro plan. Passive capture from
+    // the Hashnode dashboard still works for it.
+    console.warn("[booked] hashnode direct sync failed:", post.url, String(err?.message || err));
+  } finally {
+    HASHNODE_IN_FLIGHT.delete(post.post_id);
+  }
+}
+
 async function scrapeUrlForPost(post, urnMap) {
+  if (post.platform === "hashnode") {
+    void syncHashnodeDirect(post);
+    return null;
+  }
   if (post.platform === "linkedin") {
     let activityId = /urn:li:activity:(\d+)/.exec(post.url)?.[1] || null;
     if (!activityId) activityId = urnMap[stripUrlQuery(post.url)] || null;
@@ -596,6 +647,8 @@ async function closeBackgroundScrapeTab(postId) {
   if (!info) return;
   ACTIVE_SCRAPE_TABS.delete(postId);
   clearTimeout(info.timeoutHandle);
+  // Stats landed (callers sync before closing), so the post is done for any sweep.
+  void sweepPostDone(postId);
   try {
     const t = await chrome.tabs.get(info.tabId);
     // If the user clicked into the tab while we were scraping, leave it
@@ -606,6 +659,149 @@ async function closeBackgroundScrapeTab(postId) {
   }
   // A scrape tab just closed — start the next queued sync scrape, if any.
   pumpSyncQueue();
+}
+
+// ---- campaign sweeps ------------------------------------------------------
+//
+// A sweep scrapes one campaign's posts through the syncQueue pipeline above and
+// ends with one POST sweep-complete. Two things start sweeps: a pending
+// "Refresh stats" request from a sponsor report (arrives in the working set) and
+// the daily auto sweep. Posts leave the pipeline through closeBackgroundScrapeTab
+// (synced), the tab timeout, or a failed tab open; each calls sweepPostDone.
+// In-flight state is persisted so a killed worker can resume it (restoreSweeps),
+// and every sweep has a deadline so a lost one still completes on a later tick.
+
+const SWEEPS_KEY = "booked_sweeps";
+const LAST_DAILY_SWEEP_KEY = "booked_last_daily_sweep";
+const sweeps = createSweepTracker({ maxConcurrent: MAX_CONCURRENT_SCRAPE_TABS });
+let sweepsRestored = null;
+
+function persistSweeps() {
+  return chrome.storage.local
+    .set({ [SWEEPS_KEY]: sweeps.snapshot() })
+    .catch((err) => console.warn("[booked] sweep persist failed:", err));
+}
+
+// Posts already being handled elsewhere: a live scrape tab or a queued entry.
+function busyPostIds() {
+  return new Set([...ACTIVE_SCRAPE_TABS.keys(), ...syncQueue.map((q) => q.post.post_id)]);
+}
+
+// Report the sweep finished. The tracker hands out each campaign once, so the
+// sweep-complete call is made once. If the call fails, a requested sweep heals
+// itself: the request reappears in the next working set, finds nothing stale,
+// and completes immediately.
+async function finishSweep(campaignId, { notify = true } = {}) {
+  if (!sweeps.finish(campaignId)) return;
+  await persistSweeps();
+  if (!notify) return;
+  try {
+    await completeSweep(campaignId);
+  } catch (err) {
+    console.warn("[booked] sweep-complete failed:", campaignId, String(err?.message || err));
+  }
+}
+
+async function sweepPostDone(postId) {
+  await restoreSweeps();
+  const drained = sweeps.markDone(postId);
+  if (!drained.length) return;
+  await persistSweeps();
+  for (const campaignId of drained) await finishSweep(campaignId);
+}
+
+// Begin a sweep for `posts` of one campaign. Returns false if a sweep for the
+// campaign is already in flight. Posts with no scrape URL (Hashnode, an
+// unresolved LinkedIn slug) are not part of the sweep, so they never stall it.
+async function startSweep(campaignId, posts, source) {
+  if (!sweeps.begin(campaignId, source)) return false;
+  const urnMap = await getLinkedInUrnMap();
+  const entries = [];
+  for (const post of posts) {
+    const url = await scrapeUrlForPost(post, urnMap);
+    if (url) entries.push({ post, url });
+  }
+  if (!entries.length) {
+    // Nothing to scrape. A requested sweep still reports in so the server
+    // clears the request; a daily one has nothing to report.
+    await finishSweep(campaignId, { notify: source === "requested" });
+    return true;
+  }
+  // Seal before queueing so no post can finish ahead of being tracked.
+  sweeps.seal(campaignId, entries.map((e) => e.post.post_id));
+  await persistSweeps();
+  for (const e of entries) {
+    // Bypass the 5-min recent-scrape guard so a sweep always runs.
+    RECENT_AUTO_SCRAPES.delete(e.post.post_id);
+    syncQueue.push(e);
+  }
+  pumpSyncQueue();
+  return true;
+}
+
+async function processRefreshRequests(rawRequests) {
+  await restoreSweeps();
+  for (const request of normalizeRefreshRequests(rawRequests)) {
+    if (sweeps.has(request.campaign_id)) continue;
+    const posts = selectRequestedPosts(feed, request, { busyPostIds: busyPostIds() });
+    await startSweep(request.campaign_id, posts, "requested");
+  }
+}
+
+async function maybeRunDailySweep() {
+  const cfg = await getConfig();
+  if (!isConfigured(cfg) || !(await isPaired()) || !feed?.length) return;
+  const lastRunAt = (await chrome.storage.local.get(LAST_DAILY_SWEEP_KEY))[LAST_DAILY_SWEEP_KEY];
+  if (!isDailySweepDue({ enabled: cfg.dailySweepEnabled !== false, lastRunAt })) return;
+  // Stamp first so overlapping ticks cannot start a second sweep.
+  await chrome.storage.local.set({ [LAST_DAILY_SWEEP_KEY]: Date.now() });
+  await restoreSweeps();
+  const byCampaign = selectDailyPosts(feed, Date.now(), {
+    busyPostIds: busyPostIds(),
+    skipCampaignIds: new Set(sweeps.campaignIds()),
+  });
+  for (const [campaignId, posts] of byCampaign) {
+    await startSweep(campaignId, posts, "daily");
+  }
+}
+
+// Load sweeps persisted by a previous worker life, once. The old in-memory queue
+// is gone, so requeue each restored sweep's pending posts from the cached feed.
+// Posts that are no longer in the feed count as done.
+function restoreSweeps() {
+  sweepsRestored ??= (async () => {
+    const saved = (await chrome.storage.local.get(SWEEPS_KEY))[SWEEPS_KEY];
+    const restored = sweeps.restore(saved);
+    if (!restored.length) return;
+    if (!feed) await loadFeedFromStorage();
+    const urnMap = await getLinkedInUrnMap();
+    const busy = busyPostIds();
+    for (const campaignId of restored) {
+      for (const postId of sweeps.pendingPostIds(campaignId)) {
+        const post = feed?.find((p) => p.post_id === postId);
+        const url = post && !busy.has(postId) ? await scrapeUrlForPost(post, urnMap) : null;
+        if (url) syncQueue.push({ post, url });
+        else if (!post || !busy.has(postId)) sweeps.markDone(postId);
+      }
+    }
+    pumpSyncQueue();
+    for (const campaignId of restored) {
+      if (sweeps.has(campaignId) && sweeps.pendingPostIds(campaignId).length === 0) {
+        await finishSweep(campaignId);
+      }
+    }
+  })();
+  return sweepsRestored;
+}
+
+// Alarm/startup tick: heal lost sweeps, then run the daily sweep if due.
+async function runSweepTick() {
+  await restoreSweeps();
+  for (const campaignId of sweeps.overdue()) {
+    console.warn("[booked] sweep overdue, completing:", campaignId);
+    await finishSweep(campaignId);
+  }
+  await maybeRunDailySweep();
 }
 
 chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
@@ -678,7 +874,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 // ---- lifecycle ------------------------------------------------------------
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === FEED_ALARM) ensureFeed(true);
+  if (alarm.name === FEED_ALARM) {
+    void ensureFeed(true)
+      .then(() => runSweepTick())
+      .catch((err) => console.warn("[booked] sweep tick failed:", err));
+  }
 });
 
 async function init() {
@@ -686,7 +886,9 @@ async function init() {
   const cfg = await getConfig();
   chrome.alarms.create(FEED_ALARM, { periodInMinutes: cfg.feedRefreshMinutes || 15 });
   updateBadge();
-  ensureFeed();
+  await ensureFeed();
+  // Resume persisted sweeps and run the daily sweep if it is due.
+  await runSweepTick().catch((err) => console.warn("[booked] sweep tick failed:", err));
 }
 
 chrome.runtime.onInstalled.addListener(() => void init());

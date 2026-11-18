@@ -2,7 +2,7 @@
 // popup just renders status, captures the pairing-code paste, and
 // forwards button intents.
 
-import { getConfig } from "./config.js";
+import { getConfig, setConfigValue } from "./config.js";
 import { normalizeDiscoveredFeeds, sameFeed } from "./feeds.js";
 
 const content = document.getElementById("content");
@@ -358,6 +358,18 @@ function renderPaired(status) {
   actions.append(sync, refresh);
   content.appendChild(actions);
   content.appendChild(syncNote);
+
+  // Daily auto sweep: on by default; the worker checks this flag each tick.
+  const dailyLabel = document.createElement("label");
+  dailyLabel.className = "muted small";
+  const dailyBox = document.createElement("input");
+  dailyBox.type = "checkbox";
+  dailyBox.checked = status.dailySweepEnabled !== false;
+  dailyBox.addEventListener("change", () => {
+    void setConfigValue("dailySweepEnabled", dailyBox.checked);
+  });
+  dailyLabel.append(dailyBox, " Refresh all posts once a day");
+  content.appendChild(dailyLabel);
 
   content.appendChild(renderRadarSection());
 

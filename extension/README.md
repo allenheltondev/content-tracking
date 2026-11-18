@@ -22,10 +22,15 @@ behind a separate analytics/stats page, so for those the worker opens that
 page in a background tab, syncs, and closes it — your current tab is left
 alone. This is also what the dashboard's **Refresh Stats** button drives.
 
-Hashnode is passive only. Its public GraphQL API now requires a Pro plan, so
-the extension captures stats from the traffic Hashnode's own dashboard loads
-while you're logged in. Open your Hashnode dashboard analytics to sync;
-**Sync now** and **Refresh Stats** don't open Hashnode tabs.
+Hashnode has no stats page to open, so it syncs two other ways. **Sync now**,
+**Refresh Stats**, and sweeps ask Hashnode's GraphQL API (`gql.hashnode.com`)
+for each tracked post by its blog host and slug, with no tab. Custom domains
+work because the query uses the host from the post URL. Hashnode answers these
+queries only for publications on a Pro plan. For any other publication the
+query fails with `FORBIDDEN` and is logged in the service worker console. Those
+posts still sync passively: open your Hashnode dashboard while logged in, and
+the extension reads the post counts from the dashboard's own GraphQL traffic.
+Hashnode stats are views, reactions, comments, and replies.
 
 ### Sync now
 
@@ -36,6 +41,42 @@ opens each one's capture page in background tabs collected under a fresh
 browser isn't swamped) and each closes itself the moment its stats sync, so the
 group drains and disappears once the sweep finishes. Nothing is left open and
 you never have to visit each post by hand.
+
+### Requested refresh
+
+Sponsors can press **Refresh stats** on a shared campaign report. The API
+records a pending request and returns it in `refresh_requests` on the next
+working-set load. The worker checks that list after every feed refresh, which
+happens every 15 minutes while Chrome is open. For each requested campaign it
+sweeps the posts through the same queue and "Booked" tab group as **Sync now**.
+It skips posts already synced after the request time and posts that already have
+a live scrape tab. Posts with no scrape page, such as Hashnode, are left out.
+
+When every queued post has synced, timed out, or failed to open, the worker calls
+`POST /monitoring/campaigns/{campaignId}/sweep-complete` once. The API clears the
+request and regenerates the report. If nothing needs scraping, the call happens
+right away. A campaign never gets a second sweep while one is in flight. Posts that
+cannot be scraped time out after 60 seconds, so the call is made anyway.
+
+### Daily sweep
+
+At most once every 20 hours the worker sweeps every monitored post whose
+`last_fetched` is not today, across all monitoring campaigns. It checks on the
+15-minute alarm and at startup. It calls `sweep-complete` for each campaign that had
+at least one post swept. The popup has a **Refresh all posts once a day** checkbox.
+It is on by default. `dailySweepEnabled` in `src/config.js` sets the default.
+
+### Surviving worker restarts
+
+Chrome can stop the service worker at any time, and the sync queue lives in memory.
+In-flight sweeps are saved to `chrome.storage.local` (`booked_sweeps`) as the set
+of posts still pending per campaign. When the worker starts, it reloads them and
+requeues the pending posts from the cached feed. Every sweep also has a deadline.
+If one is still open past it, the next alarm tick completes it anyway. A failed
+`sweep-complete` call heals itself: the request stays in the working set, finds
+nothing stale, and completes on the next tick. Tabs opened before a restart are
+no longer tracked, so the new worker will not close them.
+The sweep logic lives in `src/sweeps.js`.
 
 ## How it works
 
