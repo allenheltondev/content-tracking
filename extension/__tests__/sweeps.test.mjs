@@ -1,5 +1,7 @@
+import { jest } from "@jest/globals";
 import {
   createSweepTracker,
+  openTrackedTab,
   MAX_REQUESTED_SWEEP_ATTEMPTS,
   sweepCompletion,
   isScheduledSweepDue,
@@ -187,6 +189,53 @@ describe("createSweepTracker", () => {
     t.begin("c1", "requested", NOW);
     expect(t.restore({ c1: { source: "daily", pending: ["x"] } })).toEqual([]);
     expect(t.source("c1")).toBe("requested");
+  });
+});
+
+describe("openTrackedTab", () => {
+  test("a capture that arrives while the tab is being grouped finds it registered", async () => {
+    const active = new Map();
+    let releaseGroup;
+    const grouping = new Promise((resolve) => {
+      releaseGroup = resolve;
+    });
+    const opening = openTrackedTab({
+      create: async () => ({ id: 7 }),
+      register: (tab) => active.set("post-1", tab.id),
+      group: () => grouping,
+    });
+    // Let create resolve; grouping is still pending.
+    await Promise.resolve();
+    await Promise.resolve();
+    // The early capture: the close hook looks the post up and removes it.
+    expect(active.get("post-1")).toBe(7);
+    active.delete("post-1");
+    releaseGroup();
+    await expect(opening).resolves.toEqual({ id: 7 });
+    // Finishing the grouping does not register the closed tab again.
+    expect(active.has("post-1")).toBe(false);
+  });
+
+  test("a grouping error still leaves the tab registered", async () => {
+    const active = new Map();
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    await openTrackedTab({
+      create: async () => ({ id: 8 }),
+      register: (tab) => active.set("post-2", tab.id),
+      group: async () => {
+        throw new Error("no group");
+      },
+    });
+    warn.mockRestore();
+    expect(active.get("post-2")).toBe(8);
+  });
+
+  test("a failed create registers nothing and rejects", async () => {
+    const register = jest.fn();
+    await expect(
+      openTrackedTab({ create: async () => Promise.reject(new Error("boom")), register }),
+    ).rejects.toThrow("boom");
+    expect(register).not.toHaveBeenCalled();
   });
 });
 

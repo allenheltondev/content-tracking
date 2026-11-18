@@ -18,6 +18,7 @@ import {
   createSweepTracker,
   isScheduledSweepDue,
   normalizeRefreshRequests,
+  openTrackedTab,
   selectScheduledPosts,
   sweepCompletion,
   sweepIntervalHours,
@@ -384,11 +385,18 @@ function pumpSyncQueue() {
     // chrome.tabs.create is still in flight.
     openingCount += 1;
     openScrapeTab(next.post, next.url, { group: true })
-      .catch((err) => console.warn("[booked] sync scrape failed:", err))
-      .finally(() => {
+      .catch((err) => {
+        console.warn("[booked] sync scrape failed:", err);
+        return false;
+      })
+      .then((opened) => {
         openingCount -= 1;
-        // The tab never opened (create failed): the post is out of the pipeline.
-        if (!ACTIVE_SCRAPE_TABS.has(next.post.post_id)) void sweepPostDone(next.post.post_id, false);
+        // No tab was opened and none is live for the post (create failed):
+        // it is out of the pipeline. An opened tab reports for itself, even
+        // if it already synced and closed while it was being grouped.
+        if (!opened && !ACTIVE_SCRAPE_TABS.has(next.post.post_id)) {
+          void sweepPostDone(next.post.post_id, false);
+        }
         // A create that resolved just handed its reservation to
         // ACTIVE_SCRAPE_TABS (net-zero on the cap); pump again to cover the
         // case where the open early-returned (e.g. a duplicate) and freed a
@@ -402,33 +410,36 @@ function pumpSyncQueue() {
 // scrape-and-close pipeline can clean it up once metrics land. No-op if a
 // scrape tab is already in flight for this post. When `group` is set, the tab
 // joins the "Booked" sync tab group.
+// Resolves true when a tab was opened for the post (it then reports to any
+// sweep itself, on capture or timeout) and false when none was.
 async function openScrapeTab(post, url, { group = false } = {}) {
-  if (ACTIVE_SCRAPE_TABS.has(post.post_id)) return;
-  let newTab;
+  if (ACTIVE_SCRAPE_TABS.has(post.post_id)) return false;
+  // The tab is registered as soon as it exists, before the slow grouping
+  // call, so a capture that arrives during grouping still finds its entry.
+  const register = (newTab) => {
+    const timeoutHandle = setTimeout(() => {
+      // Fallback: nothing reported back (page errored, user wasn't logged
+      // in, platform changed its DOM/API shape, etc.). Close the orphan.
+      ACTIVE_SCRAPE_TABS.delete(post.post_id);
+      chrome.tabs.remove(newTab.id).catch(() => {});
+      // A post that timed out leaves its sweep as a failure.
+      void sweepPostDone(post.post_id, false);
+      // Freeing this slot may let a queued sync scrape start.
+      pumpSyncQueue();
+    }, AUTO_SCRAPE_MAX_LIFETIME_MS);
+    ACTIVE_SCRAPE_TABS.set(post.post_id, { tabId: newTab.id, timeoutHandle });
+  };
   try {
-    newTab = await chrome.tabs.create({ url, active: false });
+    await openTrackedTab({
+      create: () => chrome.tabs.create({ url, active: false }),
+      register,
+      group: group ? (newTab) => addTabToSyncGroup(newTab.id) : null,
+    });
+    return true;
   } catch (err) {
     console.warn("[booked] scrape tab open failed:", err);
-    return;
+    return false;
   }
-  if (group) {
-    try {
-      await addTabToSyncGroup(newTab.id);
-    } catch (err) {
-      console.warn("[booked] grouping scrape tab failed:", err);
-    }
-  }
-  const timeoutHandle = setTimeout(() => {
-    // Fallback: nothing reported back (page errored, user wasn't logged
-    // in, platform changed its DOM/API shape, etc.). Close the orphan.
-    ACTIVE_SCRAPE_TABS.delete(post.post_id);
-    chrome.tabs.remove(newTab.id).catch(() => {});
-    // A post that timed out leaves its sweep as a failure.
-    void sweepPostDone(post.post_id, false);
-    // Freeing this slot may let a queued sync scrape start.
-    pumpSyncQueue();
-  }, AUTO_SCRAPE_MAX_LIFETIME_MS);
-  ACTIVE_SCRAPE_TABS.set(post.post_id, { tabId: newTab.id, timeoutHandle });
 }
 
 // Which tracked-post platform a freshly-loaded tab belongs to, if any.

@@ -119,6 +119,23 @@ export function isScheduledSweepDue({
   return now - last >= sweepIntervalMs(intervalHours);
 }
 
+// Open a scrape tab and register it for completion tracking before anything
+// else is awaited. Grouping the tab is slow enough that a fast page can report
+// its stats first; an unregistered tab would miss that capture, sit until its
+// timeout, and be recorded as a failure. A grouping error is not fatal.
+export async function openTrackedTab({ create, register, group }) {
+  const tab = await create();
+  register(tab);
+  if (group) {
+    try {
+      await group(tab);
+    } catch (err) {
+      console.warn("[booked] grouping scrape tab failed:", err);
+    }
+  }
+  return tab;
+}
+
 // Upper bound on how long a sweep of `count` posts can legitimately take: each
 // wave of `maxConcurrent` tabs lives at most one tab lifetime, plus a spare wave.
 export function sweepDeadline(startedAt, count, maxConcurrent = 5) {
