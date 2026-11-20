@@ -27,7 +27,9 @@ export function derivePlatform(url) {
   if (host === "twitter.com" || host === "x.com" || host.endsWith(".twitter.com")) {
     return "twitter";
   }
-  if (host === "linkedin.com" || host.endsWith(".linkedin.com")) {
+  // lnkd.in is LinkedIn's share short-link domain (the "Copy link to post"
+  // output on mobile and many share sheets).
+  if (host === "linkedin.com" || host.endsWith(".linkedin.com") || host === "lnkd.in") {
     return "linkedin";
   }
   if (host === "instagram.com" || host.endsWith(".instagram.com")) {

@@ -11,6 +11,7 @@ describe("validation/social-post", () => {
       ["https://x.com/foo/status/123", "twitter"],
       ["https://twitter.com/foo/status/123", "twitter"],
       ["https://www.linkedin.com/feed/update/urn:li:activity:123/", "linkedin"],
+      ["https://lnkd.in/eAbC123", "linkedin"],
       ["https://www.instagram.com/p/abc/", "instagram"],
       ["https://bsky.app/profile/alice.bsky.social/post/3kj2lxyz7s2k", "bluesky"],
       ["https://example.com/foo", null],

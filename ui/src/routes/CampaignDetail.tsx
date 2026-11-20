@@ -44,6 +44,7 @@ import {
   VendorEditor,
 } from './campaign-detail/editors';
 import { ExecutiveSummary } from './campaign-detail/ExecutiveSummary';
+import TrackedPostList from '../components/TrackedPostList';
 import { truncate } from '../lib/format';
 
 type CampaignTab = 'overview' | 'brief' | 'draft' | 'promotion' | 'analytics' | 'reports';
@@ -407,7 +408,7 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
           </section>
 
           <section className="space-y-3">
-            <div className="flex items-start justify-between gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div className="space-y-1">
                 <h2 className="text-lg font-semibold text-foreground">Social posts</h2>
                 <p className="text-sm text-muted-foreground">
@@ -418,7 +419,7 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
                 </p>
               </div>
               <div
-                className="flex items-center gap-2 shrink-0"
+                className="flex flex-wrap items-center gap-2 sm:shrink-0"
                 data-booked-slot="social-posts-actions"
               >
                 <button
@@ -446,52 +447,10 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
                 No social posts tracked yet. Click + Add post to start tracking one.
               </p>
             ) : (
-              <div className="overflow-x-auto">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Platform</th>
-                    <th>Post</th>
-                    <th>Engagement</th>
-                    <th>Last fetched</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {socialPosts.map((post) => (
-                    <tr key={post.post_id}>
-                      <td>{post.platform}</td>
-                      <td>
-                        <a
-                          href={post.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-primary-600 hover:underline"
-                        >
-                          {truncate(post.url, 50)}
-                        </a>
-                        {post.notes && (
-                          <span className="block text-xs text-muted-foreground">{post.notes}</span>
-                        )}
-                      </td>
-                      <td className="text-muted-foreground">{formatMetrics(post.analytics)}</td>
-                      <td className="text-muted-foreground">
-                        {formatTimestamp(post.last_fetched)}
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          className="btn-link text-error-600"
-                          onClick={() => setRemovingPost({ bucket: 'social', postId: post.post_id, url: post.url })}
-                        >
-                          Remove
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
+              <TrackedPostList
+                posts={socialPosts}
+                onRemove={(post) => setRemovingPost({ bucket: 'social', postId: post.post_id, url: post.url })}
+              />
             )}
             {showPostForm && (
               <RegisterSocialPostForm
@@ -507,7 +466,7 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
           </section>
 
           <section className="space-y-3">
-            <div className="flex items-start justify-between gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div className="space-y-1">
                 <h2 className="text-lg font-semibold text-foreground">Content posts</h2>
                 <p className="text-sm text-muted-foreground">
@@ -516,7 +475,7 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
                 </p>
               </div>
               <div
-                className="flex items-center gap-2 shrink-0"
+                className="flex flex-wrap items-center gap-2 sm:shrink-0"
                 data-booked-slot="content-posts-actions"
               >
                 {!showContentForm && (
@@ -537,52 +496,10 @@ export default function CampaignDetail({ campaignId: campaignIdProp }: { campaig
                 No content posts tracked yet. Click + Add post to start tracking one.
               </p>
             ) : (
-              <div className="overflow-x-auto">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Platform</th>
-                    <th>Post</th>
-                    <th>Engagement</th>
-                    <th>Last fetched</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {contentPosts.map((post) => (
-                    <tr key={post.post_id}>
-                      <td>{post.platform}</td>
-                      <td>
-                        <a
-                          href={post.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-primary-600 hover:underline"
-                        >
-                          {truncate(post.url, 50)}
-                        </a>
-                        {post.notes && (
-                          <span className="block text-xs text-muted-foreground">{post.notes}</span>
-                        )}
-                      </td>
-                      <td className="text-muted-foreground">{formatMetrics(post.analytics)}</td>
-                      <td className="text-muted-foreground">
-                        {formatTimestamp(post.last_fetched)}
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          className="btn-link text-error-600"
-                          onClick={() => setRemovingPost({ bucket: 'content', postId: post.post_id, url: post.url })}
-                        >
-                          Remove
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
+              <TrackedPostList
+                posts={contentPosts}
+                onRemove={(post) => setRemovingPost({ bucket: 'content', postId: post.post_id, url: post.url })}
+              />
             )}
             {showContentForm && (
               <RegisterContentPostForm
@@ -766,17 +683,4 @@ function TabButton({
       {label}
     </button>
   );
-}
-
-function formatMetrics(analytics: Record<string, number> | null): string {
-  if (!analytics) return '—';
-  const entries = Object.entries(analytics);
-  if (entries.length === 0) return '—';
-  return entries.map(([key, value]) => `${key}: ${value.toLocaleString()}`).join(' · ');
-}
-
-function formatTimestamp(iso: string | null): string {
-  if (!iso) return 'never';
-  const d = new Date(iso);
-  return isNaN(d.getTime()) ? 'never' : d.toLocaleString();
 }

@@ -20,7 +20,7 @@ function inferPlatform(url: string): SocialPlatform | undefined {
     return undefined;
   }
   if (host === 'twitter.com' || host === 'x.com' || host.endsWith('.twitter.com')) return 'twitter';
-  if (host === 'linkedin.com' || host.endsWith('.linkedin.com')) return 'linkedin';
+  if (host === 'linkedin.com' || host.endsWith('.linkedin.com') || host === 'lnkd.in') return 'linkedin';
   if (host === 'instagram.com' || host.endsWith('.instagram.com')) return 'instagram';
   if (host === 'bsky.app' || host.endsWith('.bsky.app')) return 'bluesky';
   return undefined;
